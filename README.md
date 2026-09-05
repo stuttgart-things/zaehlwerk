@@ -7,10 +7,11 @@ owns the state of the running match and fans it out — to the LED matrix via
 homerun, and to browsers over SSE.
 
 ```
-buttons ──ESP-NOW──> hub ──┐
-piezo ─────────────────────┼──> zaehlwerk-api ──┬──> homerun (tabletennis) ──> LED matrix
-phone ─────────────────────┘                    ├──> SSE ──> live view
-                                                └──> Schmetterpause (result)
+buttons ──┐
+          ├──ESP-NOW──> hub ──┐
+piezo ────┘                   ├──> zaehlwerk-api ──┬──> homerun (tabletennis) ──> LED matrix
+                              │                    ├──> SSE ──> live view
+phone ────────────────────────┘                    └──> Schmetterpause (result)
 ```
 
 ## Why a separate service
