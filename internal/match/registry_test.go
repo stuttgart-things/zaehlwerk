@@ -293,3 +293,92 @@ func TestConcurrentCreateAndLookup(t *testing.T) {
 	}
 	require.Len(t, seen, 50)
 }
+
+// The registry is where the panel sink and, later, the live view get attached
+// to a match. Nothing else does it, so an observer that is registered but never
+// wired up leaves the panel dark with every other test still green.
+func TestObserversAreAttachedToEveryNewMatch(t *testing.T) {
+	var mu sync.Mutex
+	var kinds []scorer.TransitionKind
+
+	r := newTestRegistry(t, WithObserver(func(tr scorer.Transition) {
+		mu.Lock()
+		defer mu.Unlock()
+		kinds = append(kinds, tr.Kind)
+	}))
+
+	m, err := r.Create(scorer.Config{Players: [2]string{"Anna", "Bernd"}, BestOf: 1})
+	require.NoError(t, err)
+
+	_, err = m.Scorer.Apply(scorer.ScoreEvent{
+		MatchID: m.ID, Player: scorer.PlayerA, Delta: 1, EventID: 1, Source: "test",
+	})
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, []scorer.TransitionKind{scorer.TransitionPoint}, kinds)
+}
+
+// A second match created later must be wired up too — the observer belongs to
+// the registry, not to the match that happened to be first.
+func TestObserversAreAttachedToLaterMatchesAsWell(t *testing.T) {
+	var mu sync.Mutex
+	seen := map[string]int{}
+
+	r := newTestRegistry(t, WithObserver(func(tr scorer.Transition) {
+		mu.Lock()
+		defer mu.Unlock()
+		seen[tr.State.MatchID]++
+	}))
+
+	for range 3 {
+		m, err := r.Create(scorer.Config{Players: [2]string{"Anna", "Bernd"}})
+		require.NoError(t, err)
+		_, err = m.Scorer.Apply(scorer.ScoreEvent{
+			MatchID: m.ID, Player: scorer.PlayerB, Delta: 1, EventID: 1, Source: "test",
+		})
+		require.NoError(t, err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, map[string]int{"m1": 1, "m2": 1, "m3": 1}, seen)
+}
+
+// Several observers on one registry — the panel and the live view will both be
+// there — and each sees every transition.
+func TestSeveralObserversAllSeeTheTransition(t *testing.T) {
+	var mu sync.Mutex
+	var order []string
+
+	r := newTestRegistry(t,
+		WithObserver(func(scorer.Transition) { mu.Lock(); defer mu.Unlock(); order = append(order, "first") }),
+		WithObserver(func(scorer.Transition) { mu.Lock(); defer mu.Unlock(); order = append(order, "second") }),
+	)
+
+	m, err := r.Create(scorer.Config{Players: [2]string{"Anna", "Bernd"}})
+	require.NoError(t, err)
+	_, err = m.Scorer.Apply(scorer.ScoreEvent{
+		MatchID: m.ID, Player: scorer.PlayerA, Delta: 1, EventID: 1, Source: "test",
+	})
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, []string{"first", "second"}, order)
+}
+
+// A registry without observers is the local-development case and must not grow
+// a nil call on the way through Create.
+func TestARegistryWithoutObserversStillCreatesMatches(t *testing.T) {
+	r := newTestRegistry(t)
+
+	m, err := r.Create(scorer.Config{Players: [2]string{"Anna", "Bernd"}})
+	require.NoError(t, err)
+	_, err = m.Scorer.Apply(scorer.ScoreEvent{
+		MatchID: m.ID, Player: scorer.PlayerA, Delta: 1, EventID: 1, Source: "test",
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, m.Scorer.State().Points[0])
+}
