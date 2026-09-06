@@ -40,7 +40,10 @@ services:
       LED_MODE: full
       REDIS_ADDR: redis
       REDIS_PORT: "6379"
-      REDIS_STREAMS: tabletennis
+      # The stream the catcher starts on. Left as the match stream by default so
+      # the panel shows the score straight away; set it to `messages` to watch
+      # zaehlwerk take the panel and give it back (CATCHER_URL, ADR-0003).
+      REDIS_STREAMS: ${ZW_CATCHER_STREAMS:-tabletennis}
       # The simulator's one-click stream switch, which is also what issue #5
       # will drive over the catcher's API.
       UI_STREAM_PRESETS: "tabletennis,messages,tabletennis|messages"

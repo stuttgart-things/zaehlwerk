@@ -27,6 +27,15 @@ points are just another event source with its own `system` label.
 ## Running it
 
 ```bash
+task            # what to run to see a score on a simulated matrix
+task --list     # every task, with a line each
+```
+
+[Task](https://taskfile.dev) is a convenience, not a dependency — every task is
+a few lines of shell you can read in [Taskfile.yaml](Taskfile.yaml) and run by
+hand. The service itself is one binary and needs nothing:
+
+```bash
 go run ./cmd/zaehlwerk-api
 ```
 
@@ -281,19 +290,110 @@ shares the panel.
 ### Seeing it without a matrix
 
 The catcher ships a web simulator that renders the same 64x64 panel in a
-browser, so the whole path is checkable with no hardware:
+browser, so the whole path is checkable with no hardware.
 
-```bash
-docker compose -f deploy/panel/compose.yaml up -d
-REDIS_ADDR=localhost go run ./cmd/zaehlwerk-api
+**Everything runs on your machine.** Two containers and one local process —
+nothing leaves the network except the one-time image pull from ghcr.io.
+
+```
+                          your machine
+┌──────────────────────────────────────────────────────────────────────────┐
+│                                                                          │
+│ task demo                                                                │
+│     │  POST /ingest/web                                                  │
+│     v                                                                    │
+│ zaehlwerk-api ── go run, :8080                                           │
+│     │                                                                    │
+│     ├──> live hub ──> GET /matches/{id}/stream ──> task watch, or a tab  │
+│     │                                                                    │
+│     └──> panel sink                                                      │
+│              │  XADD tabletennis                                         │
+│              v                                                           │
+│          redis-stack ── container, :6379                                 │
+│              │  XREADGROUP                                               │
+│              v                                                           │
+│          homerun2-led-catcher ── container, LED_MODE=full                │
+│              │                                                           │
+│              ├──> rgbmatrix bindings ── absent here, draws nothing       │
+│              └──> web simulator, :8081 ──> your browser                  │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
-Simulator on <http://localhost:8081>, Redis on `localhost:6379`. Set
-`ZW_REDIS_PORT` and `ZW_SIMULATOR_PORT` if either is taken.
+On a Pi the right-hand branch is the real matrix and the simulator is just a
+second view of the same thing. That is why the containers run `LED_MODE=full`
+and not `web`: `full` also loads the hardware handler, which draws nothing
+without the rgbmatrix bindings but keeps its timing — and the timing is the
+part that bites (see below).
 
-It runs `LED_MODE=full` rather than `web` on purpose. `full` also loads the
-hardware handler, which draws nothing without the rgbmatrix bindings but keeps
-its timing — and the timing is the part that bites.
+#### Running the demo
+
+Two terminals:
+
+```bash
+task panel:up      # terminal 1: redis + the real led-catcher, in simulator mode
+task run           # terminal 1: zaehlwerk, stays in the foreground
+
+task demo          # terminal 2: play a match, a point every 3s
+task panel:open    # terminal 2: the 64x64 panel in a browser
+```
+
+`task` on its own prints exactly that, and `task --list` has the rest.
+
+`task demo` plays a best-of-3 through a deuce and writes the score as it goes:
+
+```
+  Anna  9 : 9  Bernd   sets 0:0   serving Anna
+  Anna 10 : 9  Bernd   sets 0:0   serving Anna
+  Anna 11 : 9  Bernd   sets 1:0   serving Bernd
+```
+
+It is long enough that the panel shows all three kinds of output rather than a
+single score sitting there: points in white as `10:9`, the set win in green as
+`SET 1:0`, and `WIN 2:0` at the end.
+
+| | |
+| --- | --- |
+| `PACE=0.5 task demo` | faster; `PLAYERS=Ada,Grace task demo` for other names |
+| `task demo:quick` | five points as fast as they go, no waiting |
+| `task panel:events` | what the panel showed, in the terminal, no browser needed |
+| `task panel:logs` | the catcher saying what it displayed and why |
+| `task panel:streams` | which streams it is subscribed to right now |
+| `task watch ID=<match>` | follow one match's SSE stream; the id is printed by `task demo` |
+| `task panel:restart` | restart the catcher, e.g. after redis was recreated under it |
+| `task panel:down` | stop both containers |
+
+The `task run` terminal logs an `event ingested` line per point, so you can see
+a point land before it reaches the panel.
+
+#### Ports
+
+Simulator on <http://localhost:8081>, Redis on `localhost:6379`, the API on
+`:8080`. All three are overridable — `ZW_PORT`, `ZW_SIMULATOR_PORT`,
+`ZW_REDIS_PORT` — and `.env` sets them once for every task instead of on each
+command:
+
+```bash
+echo 'ZW_PORT=8090' >> .env && task run
+```
+
+`task run` checks the port is free before starting and prints that line for you,
+with a port it has checked is actually free — rather than failing with a bind
+error part-way through the startup log.
+
+#### Watching the stream switch
+
+`task panel:up:switching` starts the catcher on `messages` instead, so ADR-0003
+has something to switch away from:
+
+```bash
+task panel:up:switching
+CATCHER_URL=http://localhost:8081 task run
+```
+
+Then `task panel:streams` shows `tabletennis` once a match is created and
+`messages` again once it ends. The panel trails the switch by about a minute —
+[led-catcher#56](https://github.com/stuttgart-things/homerun2-led-catcher/issues/56).
 
 ### Why the score is held, not timed
 
@@ -346,10 +446,6 @@ live stream, and switching the LED catcher's stream for the duration of a
 match.
 
 ```bash
-go test ./... -race
-golangci-lint run ./...
-
-# The panel tests that go through a real redis-stack are skipped without this.
-docker run -d --name zw-redis -p 6399:6379 redis/redis-stack-server:latest
-REDIS_TEST_ADDR=localhost:6399 go test ./internal/panel/ -race
+task check       # gofmt, vet, lint, tests with -race
+task test:redis  # plus the panel tests that need a real redis-stack
 ```
