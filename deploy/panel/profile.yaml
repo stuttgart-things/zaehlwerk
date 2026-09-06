@@ -20,7 +20,7 @@ displayRules:
     # after a few seconds would leave the panel dark for most of a match —
     # points fall every five to fifteen seconds.
     #
-    # Needs homerun2-led-catcher v0.6.0 or newer. An older one ignores `hold`
+    # Needs homerun2-led-catcher v0.5.1 or newer. An older one ignores `hold`
     # and falls back to `duration` below, which is why that is still set: a
     # stale catcher then behaves as it did before rather than defaulting to 5
     # and blocking for longer.

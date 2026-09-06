@@ -233,7 +233,7 @@ have restarted it after every first point.
 Fixed in
 [homerun2-led-catcher#55](https://github.com/stuttgart-things/homerun2-led-catcher/pull/55):
 displays run on a worker thread that owns the matrix, and `hold` is a rule
-setting rather than a very large number. **Needs catcher v0.6.0 or newer.** The
+setting rather than a very large number. **Needs catcher v0.5.1 or newer.** The
 profile still carries `duration: 3` underneath, so an older catcher ignores
 `hold` and behaves as it did before instead of falling back to a longer default.
 
