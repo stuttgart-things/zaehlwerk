@@ -269,15 +269,29 @@ tasks:
         else
           exit 0
         fi
-        cat <<'MSG' >&2
-        port {{.ZW_PORT}} is already in use.
+        # Suggest a port that is actually free, rather than one that might
+        # also be taken.
+        free={{.ZW_PORT}}
+        for candidate in 8090 8091 8092 9090 9091; do
+          if ! ss -tln 2>/dev/null | grep -qE "[:.]${candidate}\s"; then
+            free=$candidate
+            break
+          fi
+        done
 
-        Pick another one for this run:
-          ZW_PORT=8090 task run
-
-        Or set it once for every task:
-          cp .env.example .env    # then uncomment ZW_PORT
-        MSG
+        echo "port {{.ZW_PORT}} is already in use." >&2
+        echo >&2
+        if [ ! -f .env ]; then
+          echo "  ZW_PORT=$free task run          # just this once" >&2
+          echo "  cp .env.example .env            # or set it for every task" >&2
+        elif grep -qE '^\s*#\s*ZW_PORT=' .env; then
+          # The commonest way to get here: copied the example, did not edit it.
+          echo "  .env has ZW_PORT commented out. Uncomment it:" >&2
+          echo >&2
+          echo "    sed -i 's/^# *ZW_PORT=.*/ZW_PORT=$free/' .env" >&2
+        else
+          echo "  Set ZW_PORT in .env to a free port, e.g. $free" >&2
+        fi
         exit 1
 
   require-api:
