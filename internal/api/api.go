@@ -35,6 +35,18 @@ type Server struct {
 	hub            *live.Hub
 	allowedOrigins []string
 	heartbeat      time.Duration
+	// switcher is nil when no catcher is configured. It is an interface so the
+	// api package does not depend on the panel package for one call each way.
+	switcher PanelSwitcher
+}
+
+// PanelSwitcher hands the LED panel to a match for its duration and takes it
+// back afterwards. Implemented by [panel.Switcher].
+//
+// Neither call may block: both run inside a request handler.
+type PanelSwitcher interface {
+	Start(matchID string)
+	Release(matchID string)
 }
 
 // Option configures a Server.
@@ -59,6 +71,11 @@ func WithHub(h *live.Hub) Option {
 // browser. Deliberately a list and never "*".
 func WithAllowedOrigins(origins []string) Option {
 	return func(s *Server) { s.allowedOrigins = slices.Clone(origins) }
+}
+
+// WithPanelSwitcher gives the panel to a match for the length of the match.
+func WithPanelSwitcher(p PanelSwitcher) Option {
+	return func(s *Server) { s.switcher = p }
 }
 
 // WithHeartbeat sets how often an idle stream writes a keepalive comment.

@@ -41,6 +41,10 @@ go run ./cmd/zaehlwerk-api
 | `PANEL_STREAM` | `tabletennis` | Stream the score is published to |
 | `ALLOWED_ORIGINS` | — | Comma-separated browser origins that may read the live stream. Empty means none |
 | `STREAM_HEARTBEAT` | `25s` | Keepalive interval on an idle stream |
+| `CATCHER_URL` | — | LED catcher base URL. Unset disables stream switching |
+| `CATCHER_MATCH_STREAMS` | `tabletennis` | What the catcher listens to during a match |
+| `CATCHER_IDLE_STREAMS` | `messages` | What it goes back to |
+| `CATCHER_IDLE_TIMEOUT` | `20m` | Give the panel back after this long without a point |
 
 State is in memory and deliberately so — a match lasts twenty minutes and the
 finished result goes to Schmetterpause.
@@ -198,6 +202,36 @@ slower would stall the next point. A publish that fails is logged and dropped �
 no queue, no retry. A point re-sent thirty seconds late would be worse than one
 never sent. Redis being unreachable costs the panel, not the score.
 
+### Giving the panel to a match
+
+With `CATCHER_URL` set, the catcher is switched to `tabletennis` alone when a
+match is created and back to `messages` when it ends, so the score is not
+interleaved with GitHub errors for the length of a game. Implements
+[ADR-0003](docs/adr/0003-led-catcher-stream-ownership.md).
+
+It is switched back **only if we still hold it.** Two parties can switch the
+catcher — this service and whoever has its UI open — so before reverting, the
+current set is read back and compared with what we left. Anything else means a
+person made a deliberate choice, and it is left alone.
+
+A match releases the panel when it is ended, when it is won, when the process
+shuts down, or after `CATCHER_IDLE_TIMEOUT` without a point — the last of those
+because a match nobody finished would otherwise leave a dead score up until
+someone noticed.
+
+The switch happens on match creation rather than on the first point, so the
+catcher has changed over before that point is pitched. A failed switch is
+logged and changes nothing else: the score still reaches the stream, it just
+shares the panel.
+
+> **The panel lags a switch by about a minute.** The catcher's read loop keeps
+> reading the old stream until a socket timeout tears it down, rather than
+> picking the new set up within `BLOCK_MS` as documented —
+> [homerun2-led-catcher#56](https://github.com/stuttgart-things/homerun2-led-catcher/issues/56),
+> measured at 59s against v0.5.1. Nothing is lost; the points published in the
+> gap are delivered once the loop comes round. But the first minute of a match
+> is not on the panel, and that is the catcher's to fix, not ours.
+
 ### Seeing it without a matrix
 
 The catcher ships a web simulator that renders the same 64x64 panel in a
@@ -261,8 +295,9 @@ until the next point lands.
 
 ## Status
 
-The scorer, the ingest endpoints, the panel sink and the live stream are in.
-Still open: switching the LED catcher's stream for the duration of a match.
+All five issues are in: the scorer, the ingest endpoints, the panel sink, the
+live stream, and switching the LED catcher's stream for the duration of a
+match.
 
 ```bash
 go test ./... -race
