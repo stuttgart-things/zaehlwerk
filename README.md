@@ -259,12 +259,15 @@ what it displayed and why.
 
 Simulator on <http://localhost:8081>, Redis on `localhost:6379`. Every port is
 overridable — `ZW_PORT`, `ZW_SIMULATOR_PORT`, `ZW_REDIS_PORT` — for the common
-case of already having something on one of them:
+case of already having something on one of them. Set them once in `.env` rather
+than on every command:
 
 ```bash
-ZW_PORT=8090 ZW_REDIS_PORT=6380 task panel:up
-ZW_PORT=8090 ZW_REDIS_PORT=6380 task run
+cp .env.example .env    # then uncomment what you need
 ```
+
+`task run` checks the port is free before starting, so a clash says what to do
+instead of failing with a bind error part-way through the startup log.
 
 To watch the stream switching of ADR-0003 instead, `task panel:up:switching`
 starts the catcher on `messages` so there is something to switch away from.

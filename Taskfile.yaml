@@ -1,6 +1,10 @@
 ---
 version: 3
 
+# Machine-specific port overrides, so they are set once instead of on every
+# command. Optional — the defaults below apply without it. See .env.example.
+dotenv: ['.env']
+
 vars:
   COMPOSE: docker compose -f deploy/panel/compose.yaml
   # Ports. Override any of them if something on the machine already has one:
@@ -43,6 +47,8 @@ tasks:
     cmds:
       - '{{.COMPOSE}} up -d'
       - task: panel:wait
+      - task: panel:ensure-consuming
+        vars: {STREAM: '{{.ZW_CATCHER_STREAMS | default "tabletennis"}}'}
       - echo "panel simulator on {{.SIMULATOR}}"
 
   panel:up:switching:
@@ -54,6 +60,8 @@ tasks:
     cmds:
       - '{{.COMPOSE}} up -d --force-recreate led-catcher redis'
       - task: panel:wait
+      - task: panel:ensure-consuming
+        vars: {STREAM: messages}
       - |
         echo "catcher started on 'messages'; run zaehlwerk with CATCHER_URL set:"
         echo "  CATCHER_URL={{.SIMULATOR}} task run"
@@ -72,6 +80,33 @@ tasks:
         done
         echo "the simulator did not come up on {{.SIMULATOR}}" >&2
         exit 1
+
+  panel:ensure-consuming:
+    # The catcher does not survive redis being restarted underneath it: it keeps
+    # serving HTTP but never starts its consumer again, silently, with nothing
+    # in the log after "web simulator started". Changing a published port is
+    # enough to cause that, since compose then recreates redis but not the
+    # catcher. Cheaper to notice and restart than to debug an empty panel.
+    internal: true
+    silent: true
+    cmds:
+      - |
+        consuming() {
+          {{.COMPOSE}} exec -T redis redis-cli XINFO GROUPS {{.STREAM}} 2>/dev/null             | grep -q homerun2-led-catcher
+        }
+        for i in $(seq 1 15); do consuming && exit 0; sleep 1; done
+
+        echo "the catcher is up but not consuming {{.STREAM}} — restarting it"
+        {{.COMPOSE}} restart led-catcher >/dev/null
+        for i in $(seq 1 30); do consuming && exit 0; sleep 1; done
+        echo "the catcher still is not consuming {{.STREAM}}; try: task panel:logs" >&2
+        exit 1
+
+  panel:restart:
+    desc: Restart the catcher, e.g. after redis was recreated under it
+    cmds:
+      - '{{.COMPOSE}} restart led-catcher'
+      - task: panel:wait
 
   panel:down:
     desc: Stop redis and the simulator
@@ -116,6 +151,7 @@ tasks:
 
   run:
     desc: Run zaehlwerk against the panel stack (Ctrl-C to stop)
+    deps: [port-free]
     env:
       HTTP_ADDR: ':{{.ZW_PORT}}'
       REDIS_ADDR: localhost
@@ -127,6 +163,7 @@ tasks:
 
   run:bare:
     desc: Run zaehlwerk on its own — no redis, no panel
+    deps: [port-free]
     env:
       HTTP_ADDR: ':{{.ZW_PORT}}'
     cmds:
@@ -217,6 +254,31 @@ tasks:
         fi
         echo "streaming match {{.ID}} — Ctrl-C to stop"
         curl -sN {{.API}}/matches/{{.ID}}/stream
+
+  port-free:
+    # Better here than as a bind error thirty lines into the startup log, which
+    # says the port is taken but not what to do about it.
+    internal: true
+    silent: true
+    cmds:
+      - |
+        if command -v ss >/dev/null 2>&1; then
+          ss -tln 2>/dev/null | grep -qE "[:.]{{.ZW_PORT}}\s" || exit 0
+        elif command -v lsof >/dev/null 2>&1; then
+          lsof -iTCP:{{.ZW_PORT}} -sTCP:LISTEN >/dev/null 2>&1 || exit 0
+        else
+          exit 0
+        fi
+        cat <<'MSG' >&2
+        port {{.ZW_PORT}} is already in use.
+
+        Pick another one for this run:
+          ZW_PORT=8090 task run
+
+        Or set it once for every task:
+          cp .env.example .env    # then uncomment ZW_PORT
+        MSG
+        exit 1
 
   require-api:
     internal: true

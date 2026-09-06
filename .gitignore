@@ -1,0 +1,5 @@
+# Local port overrides and anything else machine-specific. See .env.example.
+.env
+
+# Built binaries
+/zaehlwerk-api
