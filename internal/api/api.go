@@ -10,8 +10,10 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"slices"
 	"time"
 
+	"github.com/stuttgart-things/zaehlwerk/internal/live"
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 )
@@ -27,6 +29,12 @@ type Server struct {
 	log      *slog.Logger
 	now      func() time.Time
 	mux      *http.ServeMux
+
+	// hub is nil when live streaming is not configured, and the stream route
+	// then answers 503 rather than 404 — the match exists, the feature does not.
+	hub            *live.Hub
+	allowedOrigins []string
+	heartbeat      time.Duration
 }
 
 // Option configures a Server.
@@ -42,12 +50,33 @@ func WithClock(now func() time.Time) Option {
 	return func(s *Server) { s.now = now }
 }
 
+// WithHub enables the live stream, served from h.
+func WithHub(h *live.Hub) Option {
+	return func(s *Server) { s.hub = h }
+}
+
+// WithAllowedOrigins sets the origins that may read the live stream from a
+// browser. Deliberately a list and never "*".
+func WithAllowedOrigins(origins []string) Option {
+	return func(s *Server) { s.allowedOrigins = slices.Clone(origins) }
+}
+
+// WithHeartbeat sets how often an idle stream writes a keepalive comment.
+func WithHeartbeat(d time.Duration) Option {
+	return func(s *Server) {
+		if d > 0 {
+			s.heartbeat = d
+		}
+	}
+}
+
 func New(registry *match.Registry, opts ...Option) *Server {
 	s := &Server{
-		registry: registry,
-		log:      slog.Default(),
-		now:      time.Now,
-		mux:      http.NewServeMux(),
+		registry:  registry,
+		log:       slog.Default(),
+		now:       time.Now,
+		mux:       http.NewServeMux(),
+		heartbeat: DefaultHeartbeat,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -59,6 +88,8 @@ func New(registry *match.Registry, opts ...Option) *Server {
 	s.mux.HandleFunc("GET /matches/{id}", s.getMatch)
 	s.mux.HandleFunc("POST /matches/{id}/undo", s.undo)
 	s.mux.HandleFunc("POST /matches/{id}/end", s.endMatch)
+	s.mux.HandleFunc("GET /matches/{id}/stream", s.stream)
+	s.mux.HandleFunc("OPTIONS /matches/{id}/stream", s.streamPreflight)
 
 	s.mux.HandleFunc("POST /ingest/button", s.ingestButton)
 	s.mux.HandleFunc("POST /ingest/piezo", s.ingestPiezo)
