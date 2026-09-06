@@ -63,6 +63,13 @@ func (s *Server) createMatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.switcher != nil {
+		// On creation rather than on the first point, so the catcher has
+		// switched before that point is pitched. A match created and never
+		// played is picked up by the switcher's inactivity failsafe.
+		s.switcher.Start(m.ID)
+	}
+
 	s.log.Info("match created", "match_id", m.ID)
 	w.Header().Set("Location", "/matches/"+m.ID)
 	s.writeState(w, http.StatusCreated, m.Scorer.State())
@@ -106,6 +113,13 @@ func (s *Server) endMatch(w http.ResponseWriter, r *http.Request) {
 
 	st := m.Scorer.State()
 	endedAt := m.End(s.now())
+
+	if s.switcher != nil {
+		// A match that is played out to its final point releases the panel from
+		// the scorer observer instead; this is the path for one that is ended
+		// early, and releasing twice is harmless.
+		s.switcher.Release(m.ID)
+	}
 
 	s.log.Info("match ended", "match_id", m.ID, "ended_at", endedAt,
 		"complete", st.Complete, "sets", st.Sets)

@@ -51,16 +51,28 @@ func run() error {
 		}()
 	}
 
+	switcher := panelSwitcher(log)
+	if switcher != nil {
+		// Closed after the server, so no request is still starting a match
+		// while the panel is being given back.
+		defer func() {
+			if err := switcher.Close(); err != nil {
+				log.Warn("closing the panel switcher", "error", err)
+			}
+		}()
+	}
+
 	hub := live.New()
 	origins := allowedOrigins(log)
 
-	registry := match.NewRegistry(registryOptions(sink, hub)...)
+	registry := match.NewRegistry(registryOptions(sink, hub, switcher)...)
 	srv := &http.Server{
 		Addr: env("HTTP_ADDR", defaultAddr),
 		Handler: api.New(registry, append([]api.Option{
 			api.WithLogger(log),
 			api.WithHub(hub),
 			api.WithAllowedOrigins(origins),
+			api.WithPanelSwitcher(switcher),
 		}, streamOptions(log)...)...),
 
 		ReadTimeout:       15 * time.Second,
@@ -99,7 +111,7 @@ func run() error {
 	return <-errs
 }
 
-func registryOptions(sink *panel.Sink, hub *live.Hub) []match.Option {
+func registryOptions(sink *panel.Sink, hub *live.Hub, switcher *panel.Switcher) []match.Option {
 	var opts []match.Option
 
 	if raw := os.Getenv("MAX_RETAINED_MATCHES"); raw != "" {
@@ -115,8 +127,54 @@ func registryOptions(sink *panel.Sink, hub *live.Hub) []match.Option {
 	if hub != nil {
 		opts = append(opts, match.WithObserver(hub.Observe))
 	}
+	if switcher != nil {
+		// For the inactivity clock, and to give the panel back when a match is
+		// won without anyone calling /end.
+		opts = append(opts, match.WithObserver(switcher.Observe))
+	}
 	return opts
 }
+
+// panelSwitcher builds the LED catcher stream switcher, or returns nil when no
+// catcher is configured — a local run should not need one.
+func panelSwitcher(log *slog.Logger) *panel.Switcher {
+	addr := os.Getenv("CATCHER_URL")
+	if addr == "" {
+		log.Info("panel stream switching disabled, no CATCHER_URL configured")
+		return nil
+	}
+
+	cfg := panel.StreamConfig{
+		BaseURL:      strings.TrimRight(addr, "/"),
+		MatchStreams: splitList(os.Getenv("CATCHER_MATCH_STREAMS")),
+		IdleStreams:  splitList(os.Getenv("CATCHER_IDLE_STREAMS")),
+		Logger:       log,
+	}
+	if raw := os.Getenv("CATCHER_IDLE_TIMEOUT"); raw != "" {
+		d, err := time.ParseDuration(raw)
+		if err != nil || d <= 0 {
+			log.Warn("ignoring CATCHER_IDLE_TIMEOUT, not a positive duration", "value", raw)
+		} else {
+			cfg.IdleTimeout = d
+		}
+	}
+
+	s := panel.NewSwitcher(cfg)
+	log.Info("panel stream switching enabled", "catcher", cfg.BaseURL)
+	return s
+}
+
+func splitList(raw string) []string {
+	var out []string
+	for _, v := range strings.Split(raw, ",") {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// allowedOrigins reads the browser origins
 
 // streamOptions reads the live stream tuning that depends on what sits in
 // front of the service. The default heartbeat suits a proxy that gives an idle
