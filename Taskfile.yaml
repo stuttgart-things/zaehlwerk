@@ -279,19 +279,21 @@ tasks:
           fi
         done
 
-        echo "port {{.ZW_PORT}} is already in use." >&2
+        # One runnable line per situation, not a two-step. Every one of these
+        # ends in `task run`, so it is a single paste to get going.
+        echo "port {{.ZW_PORT}} is already in use. Port $free is free:" >&2
         echo >&2
         if [ ! -f .env ]; then
-          echo "  ZW_PORT=$free task run          # just this once" >&2
-          echo "  cp .env.example .env            # or set it for every task" >&2
+          echo "    echo 'ZW_PORT=$free' >> .env && task run" >&2
         elif grep -qE '^\s*#\s*ZW_PORT=' .env; then
-          # The commonest way to get here: copied the example, did not edit it.
-          echo "  .env has ZW_PORT commented out. Uncomment it:" >&2
-          echo >&2
-          echo "    sed -i 's/^# *ZW_PORT=.*/ZW_PORT=$free/' .env" >&2
+          echo "    sed -i 's/^# *ZW_PORT=.*/ZW_PORT=$free/' .env && task run" >&2
+        elif grep -qE '^\s*ZW_PORT=' .env; then
+          echo "    sed -i 's/^ZW_PORT=.*/ZW_PORT=$free/' .env && task run" >&2
         else
-          echo "  Set ZW_PORT in .env to a free port, e.g. $free" >&2
+          echo "    echo 'ZW_PORT=$free' >> .env && task run" >&2
         fi
+        echo >&2
+        echo "  or just this once:  ZW_PORT=$free task run" >&2
         exit 1
 
   require-api:
