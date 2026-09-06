@@ -16,18 +16,15 @@ displayRules:
     kind: static
     text: "{{ title }}"
     font: 6x10.bdf
-    # Seconds the score stays lit before the panel clears.
+    # Hold the score until the next point replaces it. A score that cleared
+    # after a few seconds would leave the panel dark for most of a match —
+    # points fall every five to fifteen seconds.
     #
-    # Not the 3600 the issue suggested. led_catcher calls its display handler
-    # synchronously from the consumer's read loop, and static display is a
-    # blocking sleep for `duration` — so the duration is also how long the
-    # catcher stops reading the stream. At 3600 the panel shows the first
-    # point of the match and nothing after it. Verified against the running
-    # catcher, see the README.
-    #
-    # 3 keeps the worst-case lag behind a fast rally to three seconds. The cost
-    # is that the panel goes dark between points; the fix for that belongs in
-    # the catcher, not here.
+    # Needs homerun2-led-catcher v0.6.0 or newer. An older one ignores `hold`
+    # and falls back to `duration` below, which is why that is still set: a
+    # stale catcher then behaves as it did before rather than defaulting to 5
+    # and blocking for longer.
+    hold: true
     duration: 3
 
   # Everything else on this panel while a match is running. Without it a
@@ -39,6 +36,10 @@ displayRules:
     kind: text
     text: "{{ system }}: {{ title }}"
     font: 6x10.bdf
+    # Deliberately not held: something that is not the score has something to
+    # say and should scroll past, not sit on the panel until a point lands.
+    # `duration` does not apply to scrolling text — the scroll takes as long
+    # as the text is long.
     duration: 3
 
 colors:
