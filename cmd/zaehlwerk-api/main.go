@@ -218,14 +218,45 @@ func allowedOrigins(log *slog.Logger) []string {
 	return origins
 }
 
-// panelSink builds the LED panel sink, or returns nil when no Redis is
-// configured. A local run should not need one: without REDIS_ADDR the score
-// simply never leaves the API, which is the right default for developing
-// against the endpoints alone.
+// panelSink builds the LED panel sink, or returns nil when neither backend is
+// configured. A local run should need neither: without them the score simply
+// never leaves the API, which is the right default for developing against the
+// endpoints alone.
+//
+// There are two ways onto the bus. OMNI_PITCHER_URL posts to
+// homerun2-omni-pitcher over HTTP, which is what a zaehlwerk by the table
+// needs — Redis in the cluster is a ClusterIP service and not reachable from
+// there, while omni-pitcher has a route and a token. REDIS_ADDR writes to
+// Redis directly, which is fewer moving parts when there is a Redis to reach.
+//
+// Both configured is a mistake worth naming rather than resolving quietly, so
+// it says which one it took.
 func panelSink(log *slog.Logger) *panel.Sink {
+	stream := env("PANEL_STREAM", panel.DefaultStream)
+
+	if url := os.Getenv("OMNI_PITCHER_URL"); url != "" {
+		if os.Getenv("REDIS_ADDR") != "" {
+			log.Warn("both OMNI_PITCHER_URL and REDIS_ADDR are set, using OMNI_PITCHER_URL")
+		}
+
+		pitcher := panel.NewHTTPPitcher(panel.HTTPPitcherConfig{
+			BaseURL: url,
+			Path:    env("OMNI_PITCHER_PATH", panel.DefaultPitchPath),
+			Token:   os.Getenv("OMNI_PITCHER_TOKEN"),
+			// The server decides the stream; this is only so a landing on the
+			// wrong one is noticed rather than silently invisible.
+			ExpectStream: stream,
+			Logger:       log,
+		})
+		log.Info("panel enabled via omni-pitcher", "url", url, "expected_stream", stream,
+			"authenticated", os.Getenv("OMNI_PITCHER_TOKEN") != "")
+
+		return panel.New(pitcher, panel.Config{Stream: stream, Logger: log})
+	}
+
 	addr := os.Getenv("REDIS_ADDR")
 	if addr == "" {
-		log.Info("panel disabled, no REDIS_ADDR configured")
+		log.Info("panel disabled, neither OMNI_PITCHER_URL nor REDIS_ADDR configured")
 		return nil
 	}
 
@@ -233,9 +264,9 @@ func panelSink(log *slog.Logger) *panel.Sink {
 		Addr:     addr,
 		Port:     env("REDIS_PORT", defaultRedisPort),
 		Password: os.Getenv("REDIS_PASSWORD"),
-		Stream:   env("PANEL_STREAM", panel.DefaultStream),
+		Stream:   stream,
 	}
-	log.Info("panel enabled", "redis", rc.Addr+":"+rc.Port, "stream", rc.Stream)
+	log.Info("panel enabled via redis", "redis", rc.Addr+":"+rc.Port, "stream", rc.Stream)
 
 	// One pitcher for the process lifetime. NewPitcher opens a connection pool,
 	// so the per-message form would open and leak one per point.

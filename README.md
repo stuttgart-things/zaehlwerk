@@ -35,7 +35,10 @@ go run ./cmd/zaehlwerk-api
 | `HTTP_ADDR` | `:8080` | Listen address |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARN`, `ERROR` |
 | `MAX_RETAINED_MATCHES` | `200` | Finished matches kept in memory; a running one is never dropped |
-| `REDIS_ADDR` | — | Redis holding the panel stream. Unset disables the panel entirely |
+| `OMNI_PITCHER_URL` | — | homerun2-omni-pitcher base URL. Takes precedence over `REDIS_ADDR` |
+| `OMNI_PITCHER_TOKEN` | — | Bearer token for it; `/pitch` answers 401 without one |
+| `OMNI_PITCHER_PATH` | `/pitch` | |
+| `REDIS_ADDR` | — | Redis holding the panel stream. Unset, and with no omni-pitcher, disables the panel |
 | `REDIS_PORT` | `6379` | |
 | `REDIS_PASSWORD` | — | |
 | `PANEL_STREAM` | `tabletennis` | Stream the score is published to |
@@ -195,6 +198,49 @@ every score a match can reach.
 `2:1` are otherwise the same three characters, and the panel would be ambiguous
 exactly when it matters. Whether that is the right wording is a decision for
 the table — the simulator below is what makes it decidable without hardware.
+
+### Two ways onto the bus
+
+`REDIS_ADDR` writes to Redis directly — fewest moving parts, and right when
+there is a Redis to reach. `OMNI_PITCHER_URL` posts to
+[homerun2-omni-pitcher](https://github.com/stuttgart-things/homerun2-omni-pitcher)
+instead, which is what a zaehlwerk running by the table needs: Redis in the
+cluster is a ClusterIP service and not reachable from there, while omni-pitcher
+has an HTTPRoute and a bearer token.
+
+```bash
+OMNI_PITCHER_URL=https://omni-pitcher.example OMNI_PITCHER_TOKEN=...   go run ./cmd/zaehlwerk-api
+```
+
+Both are a `panel.Pitcher`, so the sink is the same either way — the retry
+policy, the drop-rather-than-block, the drain on shutdown all behave
+identically.
+
+**Over omni-pitcher the destination stream is the server's decision.** It
+routes by rules an operator declares in `ROUTES_CONFIG`, matching on system,
+author, tags or title; without a rule for `system: tabletennis` everything
+lands on its `default_stream`. The pitch still succeeds — so if the panel has
+been switched to the match stream, it shows nothing at all and the logs look
+fine.
+
+`PANEL_STREAM` therefore doubles as an expectation on this path: the stream the
+server reports back is compared against it, and a mismatch is logged once.
+
+```
+the score is landing on a different stream than the panel is watching
+  expected=tabletennis actual=messages
+  hint=omni-pitcher needs a route for this system, otherwise everything goes to its default stream
+```
+
+The route it is asking for:
+
+```yaml
+streams: [messages, tabletennis]
+default_stream: messages
+routes:
+  - match: { system: tabletennis }
+    stream: tabletennis
+```
 
 **A failed pitch never fails a match.** The sink hands transitions to a bounded
 queue and returns; the scorer calls observers under its own lock, so anything
