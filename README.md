@@ -27,6 +27,13 @@ points are just another event source with its own `system` label.
 ## Running it
 
 ```bash
+task            # what to run to see a score on a simulated matrix
+task --list     # everything else
+```
+
+Or without [Task](https://taskfile.dev):
+
+```bash
 go run ./cmd/zaehlwerk-api
 ```
 
@@ -235,15 +242,32 @@ shares the panel.
 ### Seeing it without a matrix
 
 The catcher ships a web simulator that renders the same 64x64 panel in a
-browser, so the whole path is checkable with no hardware:
+browser, so the whole path is checkable with no hardware. In two terminals:
 
 ```bash
-docker compose -f deploy/panel/compose.yaml up -d
-REDIS_ADDR=localhost go run ./cmd/zaehlwerk-api
+task panel:up      # redis + the real led-catcher, in simulator mode
+task run           # zaehlwerk, in this terminal
+
+task demo          # in a second terminal: play a match, a point every 3s
+task panel:open    # the 64x64 panel in a browser
 ```
 
-Simulator on <http://localhost:8081>, Redis on `localhost:6379`. Set
-`ZW_REDIS_PORT` and `ZW_SIMULATOR_PORT` if either is taken.
+`task demo` plays a best-of-3 through a deuce, so the panel shows ordinary
+points, a set win and a match win. `task panel:events` prints what it showed
+without needing the browser, and `task panel:logs` follows the catcher saying
+what it displayed and why.
+
+Simulator on <http://localhost:8081>, Redis on `localhost:6379`. Every port is
+overridable — `ZW_PORT`, `ZW_SIMULATOR_PORT`, `ZW_REDIS_PORT` — for the common
+case of already having something on one of them:
+
+```bash
+ZW_PORT=8090 ZW_REDIS_PORT=6380 task panel:up
+ZW_PORT=8090 ZW_REDIS_PORT=6380 task run
+```
+
+To watch the stream switching of ADR-0003 instead, `task panel:up:switching`
+starts the catcher on `messages` so there is something to switch away from.
 
 It runs `LED_MODE=full` rather than `web` on purpose. `full` also loads the
 hardware handler, which draws nothing without the rgbmatrix bindings but keeps
@@ -300,10 +324,6 @@ live stream, and switching the LED catcher's stream for the duration of a
 match.
 
 ```bash
-go test ./... -race
-golangci-lint run ./...
-
-# The panel tests that go through a real redis-stack are skipped without this.
-docker run -d --name zw-redis -p 6399:6379 redis/redis-stack-server:latest
-REDIS_TEST_ADDR=localhost:6399 go test ./internal/panel/ -race
+task check       # gofmt, vet, lint, tests with -race
+task test:redis  # plus the panel tests that need a real redis-stack
 ```

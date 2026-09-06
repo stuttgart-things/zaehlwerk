@@ -1,0 +1,277 @@
+---
+version: 3
+
+vars:
+  COMPOSE: docker compose -f deploy/panel/compose.yaml
+  # Ports. Override any of them if something on the machine already has one:
+  #   ZW_PORT=8090 task run
+  ZW_PORT: '{{.ZW_PORT | default "8080"}}'
+  ZW_SIMULATOR_PORT: '{{.ZW_SIMULATOR_PORT | default "8081"}}'
+  ZW_REDIS_PORT: '{{.ZW_REDIS_PORT | default "6379"}}'
+  API: http://localhost:{{.ZW_PORT | default "8080"}}
+  SIMULATOR: http://localhost:{{.ZW_SIMULATOR_PORT | default "8081"}}
+
+tasks:
+
+  default:
+    desc: What to run to see a score on the matrix
+    silent: true
+    cmds:
+      - |
+        cat <<'EOF'
+        Seeing the score on a matrix, without a matrix:
+
+          task panel:up      # redis + the real led-catcher's web simulator
+          task run           # zaehlwerk, in this terminal
+          task demo          # in a second terminal: play a match
+          task panel:open    # the 64x64 panel in a browser
+
+        Everything else:
+
+          task --list
+        EOF
+
+  ## ──────────────────────────────────────────────
+  ## THE PANEL
+  ## ──────────────────────────────────────────────
+
+  panel:up:
+    desc: Start redis and the led-catcher web simulator
+    env:
+      ZW_SIMULATOR_PORT: '{{.ZW_SIMULATOR_PORT}}'
+      ZW_REDIS_PORT: '{{.ZW_REDIS_PORT}}'
+    cmds:
+      - '{{.COMPOSE}} up -d'
+      - task: panel:wait
+      - echo "panel simulator on {{.SIMULATOR}}"
+
+  panel:up:switching:
+    desc: Same, but starting on `messages` so the stream switch is visible
+    env:
+      ZW_SIMULATOR_PORT: '{{.ZW_SIMULATOR_PORT}}'
+      ZW_REDIS_PORT: '{{.ZW_REDIS_PORT}}'
+      ZW_CATCHER_STREAMS: messages
+    cmds:
+      - '{{.COMPOSE}} up -d --force-recreate led-catcher redis'
+      - task: panel:wait
+      - |
+        echo "catcher started on 'messages'; run zaehlwerk with CATCHER_URL set:"
+        echo "  CATCHER_URL={{.SIMULATOR}} task run"
+        echo
+        echo "note: the panel trails a switch by about a minute —"
+        echo "  https://github.com/stuttgart-things/homerun2-led-catcher/issues/56"
+
+  panel:wait:
+    internal: true
+    silent: true
+    cmds:
+      - |
+        for i in $(seq 1 60); do
+          curl -sf {{.SIMULATOR}}/healthz >/dev/null 2>&1 && exit 0
+          sleep 1
+        done
+        echo "the simulator did not come up on {{.SIMULATOR}}" >&2
+        exit 1
+
+  panel:down:
+    desc: Stop redis and the simulator
+    cmds:
+      - '{{.COMPOSE}} down'
+
+  panel:logs:
+    desc: Follow the catcher's log — it says what it displayed and why
+    cmds:
+      - '{{.COMPOSE}} logs -f led-catcher'
+
+  panel:open:
+    desc: Open the simulated 64x64 panel in a browser
+    cmds:
+      - '{{if eq OS "darwin"}}open{{else}}xdg-open{{end}} {{.SIMULATOR}} >/dev/null 2>&1 &'
+      - echo "{{.SIMULATOR}}"
+
+  panel:events:
+    desc: What the panel has shown, newest first
+    silent: true
+    cmds:
+      - |
+        curl -s {{.SIMULATOR}}/api/events | python3 -c '
+        import sys, json
+        events = json.load(sys.stdin)
+        if not events:
+            print("nothing on the panel yet")
+        for e in events:
+            ts, sev = e["timestamp"], e["severity"]
+            title, colour = e["title"], e["color"]
+            print(f"{ts}  {sev:<8} {title:<10} {colour}")'
+
+  panel:streams:
+    desc: Which streams the catcher is subscribed to right now
+    silent: true
+    cmds:
+      - curl -s {{.SIMULATOR}}/streams | python3 -m json.tool
+
+  ## ──────────────────────────────────────────────
+  ## THE SERVICE
+  ## ──────────────────────────────────────────────
+
+  run:
+    desc: Run zaehlwerk against the panel stack (Ctrl-C to stop)
+    env:
+      HTTP_ADDR: ':{{.ZW_PORT}}'
+      REDIS_ADDR: localhost
+      REDIS_PORT: '{{.ZW_REDIS_PORT}}'
+      LOG_LEVEL: '{{.LOG_LEVEL | default "INFO"}}'
+      ALLOWED_ORIGINS: '{{.ALLOWED_ORIGINS | default "http://localhost:3000"}}'
+    cmds:
+      - go run ./cmd/zaehlwerk-api
+
+  run:bare:
+    desc: Run zaehlwerk on its own — no redis, no panel
+    env:
+      HTTP_ADDR: ':{{.ZW_PORT}}'
+    cmds:
+      - go run ./cmd/zaehlwerk-api
+
+  ## ──────────────────────────────────────────────
+  ## PLAYING A MATCH
+  ## ──────────────────────────────────────────────
+
+  demo:
+    desc: Play a match against a running zaehlwerk, a point every few seconds
+    silent: true
+    vars:
+      PACE: '{{.PACE | default "3"}}'
+      PLAYERS: '{{.PLAYERS | default "Anna,Bernd"}}'
+    cmds:
+      - task: require-api
+      - |
+        set -eu
+        A="$(echo '{{.PLAYERS}}' | cut -d, -f1)"
+        B="$(echo '{{.PLAYERS}}' | cut -d, -f2)"
+        MATCH=$(curl -sS -X POST {{.API}}/matches \
+          -d "{\"players\":[\"$A\",\"$B\"],\"best_of\":3}" \
+          | python3 -c 'import sys,json; print(json.load(sys.stdin)["match_id"])')
+        echo "match $MATCH — $A vs $B, watch {{.SIMULATOR}}"
+        echo
+
+        event=0
+        point() {
+          event=$((event + 1))
+          curl -sS -X POST {{.API}}/ingest/web \
+            -d "{\"match_id\":\"$MATCH\",\"source\":\"demo\",\"player\":\"$1\",\"delta\":1,\"event_id\":$event}" \
+            | python3 -c '
+        import sys, json
+        s = json.load(sys.stdin)
+        who = s["players"][0] if s["serving"] == "a" else s["players"][1]
+        a, b = s["players"]
+        pa, pb = s["points"]
+        sa, sb = s["sets"]
+        print(f"  {a} {pa:>2} : {pb:<2} {b}   sets {sa}:{sb}   serving {who}")'
+          sleep {{.PACE}}
+        }
+
+        # Set 1 to A through a deuce, set 2 to A. Long enough to show a set win
+        # and a match win on the panel, short enough to watch.
+        for i in $(seq 1 9); do point a; point b; done
+        point a; point a
+        for i in $(seq 1 11); do point a; done
+
+        echo
+        echo "final: $(curl -sS {{.API}}/matches/$MATCH | python3 -c '
+        import sys, json
+        s = json.load(sys.stdin)
+        a, b = s["players"]
+        sa, sb = s["sets"]
+        print(f"{a} {sa}:{sb} {b}")')"
+
+  demo:quick:
+    desc: A handful of points, as fast as they will go
+    silent: true
+    cmds:
+      - task: require-api
+      - |
+        set -eu
+        MATCH=$(curl -sS -X POST {{.API}}/matches -d '{"players":["Anna","Bernd"]}' \
+          | python3 -c 'import sys,json; print(json.load(sys.stdin)["match_id"])')
+        echo "match $MATCH"
+        for i in 1 2 3 4 5; do
+          curl -sS -X POST {{.API}}/ingest/web \
+            -d "{\"match_id\":\"$MATCH\",\"source\":\"demo\",\"player\":\"a\",\"delta\":1,\"event_id\":$i}" >/dev/null
+        done
+        curl -sS {{.API}}/matches/$MATCH | python3 -m json.tool
+
+  watch:
+    # Not MATCH= — that is a built-in in task v3 (a []string), so a task
+    # variable of that name reads back as "[]" and redeclaring it panics
+    # the runner outright.
+    desc: 'Follow a match''s live SSE stream: task watch ID=<match-id>'
+    silent: true
+    cmds:
+      - task: require-api
+      - |
+        set -eu
+        if [ -z "{{.ID}}" ]; then
+          echo "which match? task watch ID=<match-id>" >&2
+          echo "the id is printed by 'task demo', and by POST /matches" >&2
+          exit 1
+        fi
+        echo "streaming match {{.ID}} — Ctrl-C to stop"
+        curl -sN {{.API}}/matches/{{.ID}}/stream
+
+  require-api:
+    internal: true
+    silent: true
+    cmds:
+      - |
+        curl -sf {{.API}}/healthz >/dev/null 2>&1 && exit 0
+        echo "zaehlwerk is not answering on {{.API}} — start it with: task run" >&2
+        exit 1
+
+  ## ──────────────────────────────────────────────
+  ## CHECKS
+  ## ──────────────────────────────────────────────
+
+  test:
+    desc: Unit tests with the race detector
+    cmds:
+      - go test ./... -race
+
+  test:redis:
+    desc: Tests including the ones that need a real redis-stack
+    silent: true
+    cmds:
+      - |
+        NAME=zaehlwerk-test-redis
+        docker rm -f $NAME >/dev/null 2>&1 || true
+        docker run -d --name $NAME -p 6399:6379 redis/redis-stack-server:latest >/dev/null
+        for i in $(seq 1 40); do
+          docker exec $NAME redis-cli ping 2>/dev/null | grep -q PONG && break
+          sleep 0.5
+        done
+        REDIS_TEST_ADDR=localhost:6399 go test ./... -race -cover
+        status=$?
+        docker rm -f $NAME >/dev/null 2>&1 || true
+        exit $status
+
+  cover:
+    desc: Coverage per package
+    cmds:
+      - go test ./... -cover
+
+  lint:
+    desc: golangci-lint
+    cmds:
+      - golangci-lint run ./...
+
+  fmt:
+    desc: Format
+    cmds:
+      - gofmt -w .
+
+  check:
+    desc: Everything CI would care about
+    cmds:
+      - gofmt -l . | (! grep .) || (echo "unformatted files above" >&2; exit 1)
+      - go vet ./...
+      - task: lint
+      - task: test
