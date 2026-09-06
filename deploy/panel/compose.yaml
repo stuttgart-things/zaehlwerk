@@ -1,0 +1,51 @@
+# The panel path without a panel: redis-stack plus the real
+# homerun2-led-catcher in web-simulator mode, which renders a 64x64 matrix in
+# the browser.
+#
+#   docker compose -f deploy/panel/compose.yaml up -d
+#   REDIS_ADDR=localhost go run ./cmd/zaehlwerk-api
+#
+# Simulator on http://localhost:8081, Redis on localhost:6379. Both host ports
+# are overridable, for the common case of already having something on 6379:
+#
+#   ZW_REDIS_PORT=6380 ZW_SIMULATOR_PORT=8082 docker compose -f deploy/panel/compose.yaml up -d
+#   REDIS_ADDR=localhost REDIS_PORT=6380 go run ./cmd/zaehlwerk-api
+#
+# LED_MODE=full, not web: full also runs the hardware handler, which is a no-op
+# for drawing without the rgbmatrix bindings but keeps its blocking sleep. That
+# is what makes a display duration that is too long visible here instead of
+# only on the Pi.
+
+name: zaehlwerk-panel
+
+services:
+  redis:
+    image: redis/redis-stack-server:latest
+    ports:
+      - "${ZW_REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  led-catcher:
+    image: ghcr.io/stuttgart-things/homerun2-led-catcher:latest
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "${ZW_SIMULATOR_PORT:-8081}:8080"
+    environment:
+      LED_MODE: full
+      REDIS_ADDR: redis
+      REDIS_PORT: "6379"
+      REDIS_STREAMS: tabletennis
+      # The simulator's one-click stream switch, which is also what issue #5
+      # will drive over the catcher's API.
+      UI_STREAM_PRESETS: "tabletennis,messages,tabletennis|messages"
+      PROFILE_PATH: /app/profile.yaml
+      LOG_FORMAT: text
+      LOG_LEVEL: info
+    volumes:
+      - ./profile.yaml:/app/profile.yaml:ro

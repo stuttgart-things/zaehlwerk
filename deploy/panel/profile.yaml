@@ -1,0 +1,51 @@
+# Display profile for homerun2-led-catcher, covering the tabletennis stream
+# zaehlwerk publishes to. Copy the rule into the catcher's own profile.yaml on
+# the Pi, or mount this file as-is — see deploy/panel/compose.yaml.
+#
+# The catcher renders `{{ title }}` and nothing else, so the score has to fit
+# in a title: a 6x10 font drawn at x=2 on a 64x64 panel is about ten glyphs.
+# internal/panel keeps titles inside that, and a test enforces it.
+
+displayRules:
+  # Points, set wins and match wins all match here. They are told apart by
+  # severity, which decides the colour, and by the prefix in the title:
+  # "7:5" is points, "SET 1:0" and "WIN 3:1" are sets.
+  tabletennis-score:
+    systems: [tabletennis]
+    severity: [INFO, SUCCESS]
+    kind: static
+    text: "{{ title }}"
+    font: 6x10.bdf
+    # Seconds the score stays lit before the panel clears.
+    #
+    # Not the 3600 the issue suggested. led_catcher calls its display handler
+    # synchronously from the consumer's read loop, and static display is a
+    # blocking sleep for `duration` — so the duration is also how long the
+    # catcher stops reading the stream. At 3600 the panel shows the first
+    # point of the match and nothing after it. Verified against the running
+    # catcher, see the README.
+    #
+    # 3 keeps the worst-case lag behind a fast rally to three seconds. The cost
+    # is that the panel goes dark between points; the fix for that belongs in
+    # the catcher, not here.
+    duration: 3
+
+  # Everything else on this panel while a match is running. Without it a
+  # message from another system that slipped onto the stream is dropped
+  # silently, and a dark panel looks the same as a broken one.
+  fallback:
+    systems: ["*"]
+    severity: [INFO, SUCCESS, WARNING, ERROR]
+    kind: text
+    text: "{{ system }}: {{ title }}"
+    font: 6x10.bdf
+    duration: 3
+
+colors:
+  # White reads better than blue at a distance on a 64x64 panel, and the score
+  # is on screen for most of a match. SUCCESS keeps the catcher's green so a
+  # set win is visible from the other end of the table without reading it.
+  info: [255, 255, 255]
+  success: [0, 255, 0]
+  warning: [255, 165, 0]
+  error: [255, 0, 0]

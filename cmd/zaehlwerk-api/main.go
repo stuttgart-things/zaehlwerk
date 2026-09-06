@@ -13,13 +13,17 @@ import (
 	"syscall"
 	"time"
 
+	homerun "github.com/stuttgart-things/homerun-library/v4"
+
 	"github.com/stuttgart-things/zaehlwerk/internal/api"
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
+	"github.com/stuttgart-things/zaehlwerk/internal/panel"
 )
 
 const (
-	defaultAddr     = ":8080"
-	shutdownTimeout = 10 * time.Second
+	defaultAddr      = ":8080"
+	defaultRedisPort = "6379"
+	shutdownTimeout  = 10 * time.Second
 )
 
 func main() {
@@ -33,7 +37,19 @@ func run() error {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel()}))
 	slog.SetDefault(log)
 
-	registry := match.NewRegistry(registryOptions()...)
+	sink := panelSink(log)
+	if sink != nil {
+		// Closed after the server, not with a defer here: a point still being
+		// handled when SIGTERM arrives should reach the panel, and the drain
+		// only works if nothing is left writing to the scorer.
+		defer func() {
+			if err := sink.Close(); err != nil {
+				log.Warn("closing the panel sink", "error", err)
+			}
+		}()
+	}
+
+	registry := match.NewRegistry(registryOptions(sink)...)
 	srv := &http.Server{
 		Addr:    env("HTTP_ADDR", defaultAddr),
 		Handler: api.New(registry, api.WithLogger(log)),
@@ -74,14 +90,47 @@ func run() error {
 	return <-errs
 }
 
-func registryOptions() []match.Option {
+func registryOptions(sink *panel.Sink) []match.Option {
+	var opts []match.Option
+
 	if raw := os.Getenv("MAX_RETAINED_MATCHES"); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-			return []match.Option{match.WithMaxRetained(n)}
+			opts = append(opts, match.WithMaxRetained(n))
+		} else {
+			slog.Warn("ignoring MAX_RETAINED_MATCHES, not a positive number", "value", raw)
 		}
-		slog.Warn("ignoring MAX_RETAINED_MATCHES, not a positive number", "value", raw)
 	}
-	return nil
+	if sink != nil {
+		opts = append(opts, match.WithObserver(sink.Observe))
+	}
+	return opts
+}
+
+// panelSink builds the LED panel sink, or returns nil when no Redis is
+// configured. A local run should not need one: without REDIS_ADDR the score
+// simply never leaves the API, which is the right default for developing
+// against the endpoints alone.
+func panelSink(log *slog.Logger) *panel.Sink {
+	addr := os.Getenv("REDIS_ADDR")
+	if addr == "" {
+		log.Info("panel disabled, no REDIS_ADDR configured")
+		return nil
+	}
+
+	rc := homerun.RedisConfig{
+		Addr:     addr,
+		Port:     env("REDIS_PORT", defaultRedisPort),
+		Password: os.Getenv("REDIS_PASSWORD"),
+		Stream:   env("PANEL_STREAM", panel.DefaultStream),
+	}
+	log.Info("panel enabled", "redis", rc.Addr+":"+rc.Port, "stream", rc.Stream)
+
+	// One pitcher for the process lifetime. NewPitcher opens a connection pool,
+	// so the per-message form would open and leak one per point.
+	return panel.New(homerun.NewPitcher(rc), panel.Config{
+		Stream: rc.Stream,
+		Logger: log,
+	})
 }
 
 func logLevel() slog.Level {

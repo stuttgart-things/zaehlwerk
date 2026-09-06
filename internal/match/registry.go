@@ -80,6 +80,7 @@ func (m *Match) Running() bool {
 type Registry struct {
 	newID       func() (string, error)
 	maxRetained int
+	observers   []func(scorer.Transition)
 
 	mu    sync.Mutex
 	byID  map[string]*Match
@@ -97,6 +98,16 @@ func WithIDs(newID func() (string, error)) Option {
 // WithMaxRetained sets how many finished matches are kept.
 func WithMaxRetained(n int) Option {
 	return func(r *Registry) { r.maxRetained = n }
+}
+
+// WithObserver registers fn as a scorer observer on every match the registry
+// creates. This is how the panel sink, and later the live view, get told about
+// a point without either of them knowing when a match starts.
+//
+// The scorer calls observers from inside its lock, so fn must not block — see
+// (*scorer.Scorer).Observe.
+func WithObserver(fn func(scorer.Transition)) Option {
+	return func(r *Registry) { r.observers = append(r.observers, fn) }
 }
 
 func NewRegistry(opts ...Option) *Registry {
@@ -125,6 +136,10 @@ func (r *Registry) Create(cfg scorer.Config) (*Match, error) {
 	s, err := scorer.New(cfg)
 	if err != nil {
 		return nil, err
+	}
+
+	for _, fn := range r.observers {
+		s.Observe(fn)
 	}
 
 	m := &Match{ID: id, Scorer: s, Created: time.Now()}
