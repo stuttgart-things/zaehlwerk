@@ -10,12 +10,14 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	homerun "github.com/stuttgart-things/homerun-library/v4"
 
 	"github.com/stuttgart-things/zaehlwerk/internal/api"
+	"github.com/stuttgart-things/zaehlwerk/internal/live"
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/panel"
 )
@@ -49,10 +51,17 @@ func run() error {
 		}()
 	}
 
-	registry := match.NewRegistry(registryOptions(sink)...)
+	hub := live.New()
+	origins := allowedOrigins(log)
+
+	registry := match.NewRegistry(registryOptions(sink, hub)...)
 	srv := &http.Server{
-		Addr:    env("HTTP_ADDR", defaultAddr),
-		Handler: api.New(registry, api.WithLogger(log)),
+		Addr: env("HTTP_ADDR", defaultAddr),
+		Handler: api.New(registry, append([]api.Option{
+			api.WithLogger(log),
+			api.WithHub(hub),
+			api.WithAllowedOrigins(origins),
+		}, streamOptions(log)...)...),
 
 		ReadTimeout:       15 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -90,7 +99,7 @@ func run() error {
 	return <-errs
 }
 
-func registryOptions(sink *panel.Sink) []match.Option {
+func registryOptions(sink *panel.Sink, hub *live.Hub) []match.Option {
 	var opts []match.Option
 
 	if raw := os.Getenv("MAX_RETAINED_MATCHES"); raw != "" {
@@ -103,7 +112,52 @@ func registryOptions(sink *panel.Sink) []match.Option {
 	if sink != nil {
 		opts = append(opts, match.WithObserver(sink.Observe))
 	}
+	if hub != nil {
+		opts = append(opts, match.WithObserver(hub.Observe))
+	}
 	return opts
+}
+
+// streamOptions reads the live stream tuning that depends on what sits in
+// front of the service. The default heartbeat suits a proxy that gives an idle
+// connection a minute; one that is stricter needs a shorter interval, and
+// there is no way to find that out from in here.
+func streamOptions(log *slog.Logger) []api.Option {
+	raw := os.Getenv("STREAM_HEARTBEAT")
+	if raw == "" {
+		return nil
+	}
+
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		log.Warn("ignoring STREAM_HEARTBEAT, not a positive duration", "value", raw)
+		return nil
+	}
+	log.Info("live stream heartbeat", "interval", d)
+	return []api.Option{api.WithHeartbeat(d)}
+}
+
+// allowedOrigins reads the browser origins that may read the live stream.
+//
+// Empty means no cross-origin browser may read it, which is the right default
+// for a service that is reachable on the office network: a same-origin page
+// and anything server-side still work, and Schmetterpause is named explicitly
+// when it is deployed.
+func allowedOrigins(log *slog.Logger) []string {
+	raw := os.Getenv("ALLOWED_ORIGINS")
+	if raw == "" {
+		log.Info("no ALLOWED_ORIGINS configured, cross-origin browsers cannot read the live stream")
+		return nil
+	}
+
+	var origins []string
+	for _, o := range strings.Split(raw, ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			origins = append(origins, o)
+		}
+	}
+	log.Info("live stream origins allowed", "origins", origins)
+	return origins
 }
 
 // panelSink builds the LED panel sink, or returns nil when no Redis is

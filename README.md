@@ -39,6 +39,8 @@ go run ./cmd/zaehlwerk-api
 | `REDIS_PORT` | `6379` | |
 | `REDIS_PASSWORD` | — | |
 | `PANEL_STREAM` | `tabletennis` | Stream the score is published to |
+| `ALLOWED_ORIGINS` | — | Comma-separated browser origins that may read the live stream. Empty means none |
+| `STREAM_HEARTBEAT` | `25s` | Keepalive interval on an idle stream |
 
 State is in memory and deliberately so — a match lasts twenty minutes and the
 finished result goes to Schmetterpause.
@@ -120,6 +122,50 @@ from yesterday should not score into today's match.
 A malformed event rejects the whole batch with a 400 and applies none of it —
 half a burst on the scoreboard is worse than none of it, and the hub retries the
 whole request anyway.
+
+## Live score
+
+    GET /matches/{id}/stream
+
+Server-Sent Events, one per transition, fed from the scorer rather than by
+reading the Redis stream back — that would add latency to the one view where
+latency is visible, and tie the live score to a stream it does not need.
+
+```bash
+curl -N localhost:8080/matches/$MATCH/stream
+```
+
+```
+data: {"kind":"snapshot","state":{"match_id":"a1b2c3d4","points":[3,5],…}}
+
+data: {"kind":"point","state":{"match_id":"a1b2c3d4","points":[3,6],…}}
+
+: ping
+```
+
+The current state arrives on connect as `snapshot`, so a client that joins
+mid-match renders immediately without a second request. After that it is one
+event per transition — `point`, `set_won`, `match_won`, `undo` — carrying the
+same state JSON the REST endpoints return. A comment every `STREAM_HEARTBEAT`
+keeps the connection through a proxy; it carries no data, and there is no
+polling or periodic resend.
+
+JSON rather than rendered HTML: the led-catcher's own UI swaps HTML partials
+over SSE because htmx does the swapping there. Here the scoring frontend, a
+spectator view and Schmetterpause will each render differently, and a shared
+fragment would constrain all three to one layout.
+
+**A watcher that stops reading is dropped, not waited for.** The hub is a
+scorer observer like the panel sink, so it runs under the scorer's lock and
+cannot block. A client that falls behind loses its oldest queued events and
+keeps the newest — safe because the state is complete rather than a delta, so
+a client that missed three points and receives the fourth is not missing
+anything the score depends on. A phone that sleeps mid-set wakes up current.
+
+**Origins are a list, never `*`.** `ALLOWED_ORIGINS` names who may read the
+stream from a browser; unset means no cross-origin browser can, while curl and
+anything server-side are unaffected. `"*"` in the list is an origin named
+`"*"`, not a wildcard.
 
 ## The panel
 
@@ -213,9 +259,8 @@ not something to work around from here.
 
 ## Status
 
-The scorer, the ingest endpoints and the panel sink are in. Still open: SSE for
-the live score, and switching the LED catcher's stream for the duration of a
-match.
+The scorer, the ingest endpoints, the panel sink and the live stream are in.
+Still open: switching the LED catcher's stream for the duration of a match.
 
 ```bash
 go test ./... -race
