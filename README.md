@@ -169,30 +169,32 @@ It runs `LED_MODE=full` rather than `web` on purpose. `full` also loads the
 hardware handler, which draws nothing without the rgbmatrix bindings but keeps
 its timing — and the timing is the part that bites.
 
-### Why `duration` is 3 and not 3600
+### Why the score is held, not timed
 
 [deploy/panel/profile.yaml](deploy/panel/profile.yaml) is the display rule for
-the panel side. Its `duration` is how long a score stays lit before the panel
-clears, so a whole match on one score argues for a very large number.
+the panel side. It sets `hold: true`, which tells the catcher to keep the score
+up until the next point replaces it. Points fall every five to fifteen seconds,
+so anything time-based leaves the panel dark for most of a match.
 
-It is also how long the catcher stops reading the stream. `led_catcher` calls
-its display handler synchronously from the consumer loop, and static display is
-a blocking `time.sleep(duration)` — on the same asyncio loop that serves its
-HTTP endpoints. Measured against the running catcher at `duration: 3600`:
+That took a fix in the catcher first. `duration: 3600` — the obvious way to
+express "keep it up" — did not mean what it looked like: `led_catcher` called
+its display handler synchronously from the consumer loop, and a static display
+was a blocking `time.sleep(duration)` on the same asyncio loop that served its
+HTTP endpoints. At 3600 the catcher showed the first point of a match, stopped
+reading the stream, and stopped answering `/healthz` — a liveness probe would
+have restarted it after every first point.
 
-- five points published, one consumed and never acknowledged
-- nothing on the panel after the first
-- `/healthz` and the simulator both time out for the length of the sleep
+Fixed in
+[homerun2-led-catcher#55](https://github.com/stuttgart-things/homerun2-led-catcher/pull/55):
+displays run on a worker thread that owns the matrix, and `hold` is a rule
+setting rather than a very large number. **Needs catcher v0.6.0 or newer.** The
+profile still carries `duration: 3` underneath, so an older catcher ignores
+`hold` and behaves as it did before instead of falling back to a longer default.
 
-A liveness probe on `/healthz` would restart the catcher after the first point
-of every match.
-
-At `duration: 3` the same five points all arrive, spaced three seconds apart —
-nothing is lost, the panel just trails a fast rally by up to three seconds per
-point. That is the trade this profile makes: the panel goes dark between points
-rather than falling behind. Holding a score until the next one replaces it
-needs a non-blocking display mode in the catcher, which is that repo's call and
-not something to work around from here.
+A finite `duration` still means what it says there — the message gets its
+screen time and is not cut short. That is why the `fallback` rule keeps one:
+something that is not the score should scroll past rather than sit on the panel
+until the next point lands.
 
 ## Decisions
 
