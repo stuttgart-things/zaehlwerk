@@ -1,0 +1,15 @@
+---
+# The binary lives under cmd/, so ko needs to be told; `ko build` is then called
+# with ./cmd/zaehlwerk-api as its import path.
+#
+# No -X ldflags: this binary has no version variables to set. Adding them here
+# would be silently ignored by the linker, which is worse than not having them.
+defaultBaseImage: cgr.dev/chainguard/static:latest
+builds:
+  - id: zaehlwerk-api
+    main: ./cmd/zaehlwerk-api
+    flags:
+      - -trimpath
+    ldflags:
+      - -s
+      - -w

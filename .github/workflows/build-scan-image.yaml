@@ -1,0 +1,65 @@
+---
+name: Build, Push & Scan Container Image
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-pr:
+    if: github.event_name == 'pull_request'
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
+    with:
+      runs-on: ubuntu-latest
+      go-version: "1.26.6"
+      # The binary is under cmd/, so the default "." would find no package.
+      build-path: ./cmd/zaehlwerk-api
+      registry: ghcr.io
+      tags: pr-${{ github.event.number }}-${{ github.event.pull_request.head.sha }},pr-${{ github.event.number }}
+    secrets: inherit # pragma: allowlist secret
+
+  build-main:
+    if: github.event_name != 'pull_request'
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
+    with:
+      runs-on: ubuntu-latest
+      go-version: "1.26.6"
+      build-path: ./cmd/zaehlwerk-api
+      # Named explicitly: without them the template falls back to ttl.sh and
+      # latest, and :main would quietly never reach ghcr.io.
+      registry: ghcr.io
+      tags: main
+    secrets: inherit # pragma: allowlist secret
+
+  # Scans what ko just pushed. Report-only for now — an image scan takes an
+  # inventory of a whole artefact, and the first findings are usually
+  # transitive; gate on it once the list has been read.
+  scan-pr:
+    if: github.event_name == 'pull_request'
+    needs: build-pr
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-dagger-trivy-image-scan.yaml@main
+    with:
+      runs-on: ubuntu-latest
+      image-ref: ${{ needs.build-pr.outputs.image-ref }}
+      severity: HIGH,CRITICAL
+      artifact-name: trivy-image-report-pr-${{ github.event.number }}
+      continue-on-error: true
+
+  scan-main:
+    if: github.event_name != 'pull_request'
+    needs: build-main
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-dagger-trivy-image-scan.yaml@main
+    with:
+      runs-on: ubuntu-latest
+      image-ref: ${{ needs.build-main.outputs.image-ref }}
+      severity: HIGH,CRITICAL
+      artifact-name: trivy-image-report-main
+      continue-on-error: true
