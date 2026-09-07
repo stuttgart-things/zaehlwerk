@@ -167,9 +167,10 @@ keeps the connection through a proxy; it carries no data, and there is no
 polling or periodic resend.
 
 JSON rather than rendered HTML: the led-catcher's own UI swaps HTML partials
-over SSE because htmx does the swapping there. Here the scoring frontend, a
-spectator view and Schmetterpause will each render differently, and a shared
-fragment would constrain all three to one layout.
+over SSE because htmx does the swapping there. The scoring page below does the
+same, over a stream of its own — but this one is for the clients that do not
+share its markup, a spectator view and Schmetterpause, which each render
+differently. A shared fragment would constrain all of them to one layout.
 
 **A watcher that stops reading is dropped, not waited for.** The hub is a
 scorer observer like the panel sink, so it runs under the scorer's lock and
@@ -182,6 +183,57 @@ anything the score depends on. A phone that sleeps mid-set wakes up current.
 stream from a browser; unset means no cross-origin browser can, while curl and
 anything server-side are unaffected. `"*"` in the list is an origin named
 `"*"`, not a wildcard.
+
+## Scoring from a browser
+
+    GET /ui
+
+A page that scores the same match the buttons under the table score: a point
+per side, undo, the running score, and the title the panel is being given right
+next to it. It is what `task demo` was — a way to play a match without hardware
+— with a scoreboard instead of a shell loop, and it is a phone by the table as
+much as it is a mock.
+
+```bash
+task run     # then http://localhost:8080/ui — or: task ui
+```
+
+`/` redirects to it, `a` and `b` score, `u` takes a point back. Opening the
+page joins the match a button would score into, the same one `/ingest/button`
+resolves; a match that has finished is still there, at `/ui?match=<id>` with
+the id `task demo` and `POST /matches` print.
+
+**The page counts the way a phone does.** A source drawn per page load and an
+`event_id` that goes up by one per click, exactly the contract in
+[ADR-0002](docs/adr/0002-idempotent-ingest-contract.md) — so a double-posted
+click is discarded by the same deduplication that discards a retried button
+press, and two phones scoring one match never share a counter. Starting and
+ending a match go through the same code `POST /matches` does, so the LED panel
+changes hands the same way
+([ADR-0003](docs/adr/0003-led-catcher-stream-ownership.md)) whoever started the
+match.
+
+Points go in over `POST /ui/matches/{id}/point` rather than `/ingest/web`
+because htmx posts form-encoded and swaps HTML partials back — the same split
+homerun2-led-catcher makes between its `/streams` API and its `/ui/streams`
+control. Nothing about the JSON contract changes for the hub or the firmware:
+these routes are the page's, and they answer 200 with the reason rendered into
+the board where the JSON API would answer 4xx, because htmx does not swap an
+error response and a button that silently does nothing is worse than one that
+says why.
+
+The board is fed by its own stream, `GET /ui/matches/{id}/stream`, which sends
+rendered HTML — so a point from a button, from `task demo` or from somebody
+else's phone lands on it. That is why `GET /matches/{id}/stream` can stay JSON:
+the clients that render differently keep the format that lets them, and the one
+page whose markup this service owns gets the format htmx wants.
+
+htmx and its SSE extension come off a CDN, the way the led-catcher's simulator
+loads them: the browser opening the page needs to reach `unpkg.com` once, and
+nothing else in the service does.
+
+The page is as unauthenticated as `/ingest/web` is — same network, same
+assumption.
 
 ## The panel
 
@@ -338,6 +390,10 @@ task demo          # terminal 2: play a match, a point every 3s
 task panel:open    # terminal 2: the 64x64 panel in a browser
 ```
 
+`task ui` opens the scoring page instead, if you would rather play the match by
+hand and watch the panel follow — same match, same stream, one browser window
+each.
+
 `task` on its own prints exactly that, and `task --list` has the rest.
 
 `task demo` plays a best-of-3 through a deuce and writes the score as it goes:
@@ -356,6 +412,7 @@ single score sitting there: points in white as `10:9`, the set win in green as
 | --- | --- |
 | `PACE=0.5 task demo` | faster; `PLAYERS=Ada,Grace task demo` for other names |
 | `task demo:quick` | five points as fast as they go, no waiting |
+| `task ui` | the scoring page, to play the match by hand |
 | `task panel:events` | what the panel showed, in the terminal, no browser needed |
 | `task panel:logs` | the catcher saying what it displayed and why |
 | `task panel:streams` | which streams it is subscribed to right now |
@@ -443,7 +500,7 @@ until the next point lands.
 
 All five issues are in: the scorer, the ingest endpoints, the panel sink, the
 live stream, and switching the LED catcher's stream for the duration of a
-match.
+match. The browser scoring page came after them, on top of exactly those.
 
 ```bash
 task check       # gofmt, vet, lint, tests with -race

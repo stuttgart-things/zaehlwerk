@@ -1,0 +1,402 @@
+{{define "page"}}<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZÄHLWERK</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-tertiary: #334155;
+            --text-primary: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --accent-indigo: #6366f1;
+            --accent-purple: #8b5cf6;
+            --accent-orange: #f97316;
+            --success: #22c55e;
+            --error: #ef4444;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 13px;
+            min-height: 100vh;
+            padding-bottom: 40px;
+        }
+
+        .header {
+            background: linear-gradient(135deg, var(--accent-indigo), var(--accent-purple));
+            padding: 16px 24px;
+            border-bottom: 3px solid var(--accent-orange);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .header-title {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 1.4rem;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.4);
+        }
+
+        .header-subtitle {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.6rem;
+            color: var(--accent-orange);
+            margin-top: 6px;
+            text-transform: uppercase;
+        }
+
+        .badge-strip { display: flex; gap: 10px; flex-wrap: wrap; }
+
+        .stat-badge {
+            background: rgba(255,255,255,0.15);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            color: white;
+        }
+
+        .stat-badge strong { color: var(--accent-orange); }
+
+        .live {
+            display: grid;
+            grid-template-columns: 1fr 360px;
+            gap: 16px;
+            padding: 16px 24px;
+            align-items: start;
+        }
+
+        @media (max-width: 900px) { .live { grid-template-columns: 1fr; } }
+
+        .card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--bg-tertiary);
+            border-radius: 10px;
+            padding: 20px;
+        }
+
+        .score {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .side {
+            text-align: center;
+            padding: 14px 8px;
+            border-radius: 10px;
+            border: 2px solid transparent;
+            background: rgba(255,255,255,0.03);
+        }
+
+        .side.serving {
+            border-color: var(--accent-orange);
+            background: rgba(249,115,22,0.08);
+        }
+
+        .side.winner {
+            border-color: var(--success);
+            background: rgba(34,197,94,0.10);
+        }
+
+        .side .name {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            word-break: break-word;
+        }
+
+        .side.serving .name::after {
+            content: ' •';
+            color: var(--accent-orange);
+        }
+
+        .side .points {
+            font-family: 'Press Start 2P', cursive;
+            /* The pixel font is wide, and a two-digit score on a phone held
+               over the table has to fit without wrapping. */
+            font-size: clamp(1.8rem, 9vw, 3rem);
+            margin: 14px 0 10px;
+            color: var(--text-primary);
+        }
+
+        .side .sets { font-size: 0.75rem; color: var(--text-secondary); }
+
+        .colon {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 1.6rem;
+            color: var(--text-secondary);
+            opacity: 0.6;
+        }
+
+        .meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin-top: 16px;
+            font-size: 0.72rem;
+            color: var(--text-secondary);
+        }
+
+        .match-id { color: var(--text-secondary); opacity: 0.75; }
+
+        .badge {
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.6rem;
+            font-weight: 700;
+        }
+
+        .badge.won { background: rgba(34,197,94,0.2); color: var(--success); border: 1px solid var(--success); }
+        .badge.ended { background: rgba(148,163,184,0.15); color: var(--text-secondary); border: 1px solid var(--text-secondary); }
+
+        .set-chip {
+            background: var(--bg-tertiary);
+            border-radius: 3px;
+            padding: 2px 6px;
+            font-size: 0.68rem;
+        }
+
+        .panel-preview {
+            margin-top: 16px;
+            padding: 10px 12px;
+            background: #000;
+            border: 1px solid var(--bg-tertiary);
+            border-radius: 8px;
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .panel-label {
+            font-size: 0.6rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+        }
+
+        .panel-preview strong {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 1.1rem;
+            color: var(--accent-orange);
+        }
+
+        .panel-hint { font-size: 0.65rem; color: var(--text-secondary); opacity: 0.8; }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        button, .newmatch input, .newmatch select {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            border-radius: 8px;
+            border: 1px solid var(--bg-tertiary);
+            padding: 12px 16px;
+            color: var(--text-primary);
+            background: var(--bg-tertiary);
+        }
+
+        button { cursor: pointer; transition: filter 0.15s, opacity 0.15s; }
+        button:hover:not(:disabled) { filter: brightness(1.25); }
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        .point {
+            flex: 1 1 180px;
+            background: var(--accent-indigo);
+            border-color: var(--accent-purple);
+            color: white;
+            font-weight: 700;
+        }
+
+        .secondary { background: var(--bg-tertiary); }
+
+        /* On a phone the two point buttons get a row each: they are what a
+           thumb reaches for, and undo sits below rather than beside them. */
+        @media (max-width: 560px) {
+            .controls { display: grid; grid-template-columns: 1fr 1fr; }
+            .point { grid-column: span 2; }
+        }
+
+        kbd {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6rem;
+            border: 1px solid rgba(255,255,255,0.35);
+            border-radius: 3px;
+            padding: 1px 4px;
+            margin-left: 6px;
+            opacity: 0.7;
+        }
+
+        .empty { color: var(--text-secondary); text-align: center; padding: 30px 10px; }
+        .empty .hint { margin-top: 10px; font-size: 0.72rem; opacity: 0.8; }
+
+        .error {
+            margin-top: 14px;
+            padding: 10px 12px;
+            border-radius: 6px;
+            background: rgba(239,68,68,0.15);
+            border: 1px solid var(--error);
+            color: var(--error);
+            font-size: 0.75rem;
+        }
+
+        .timeline h2 {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.6rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 14px;
+        }
+
+        .log { min-height: 120px; max-height: 420px; overflow-y: auto; }
+
+        .log-row {
+            display: grid;
+            grid-template-columns: 62px 74px 1fr;
+            gap: 8px;
+            align-items: baseline;
+            padding: 6px 0;
+            border-bottom: 1px solid var(--bg-tertiary);
+            font-size: 0.72rem;
+        }
+
+        .log-time { color: var(--text-secondary); }
+        .log-title { font-weight: 700; color: var(--accent-orange); }
+        .log-row.sev-SUCCESS .log-title { color: var(--success); }
+        .log-summary { color: var(--text-secondary); }
+
+        .empty-state { color: var(--text-secondary); font-size: 0.72rem; opacity: 0.8; line-height: 1.5; }
+
+        .newmatch {
+            margin: 0 24px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--bg-tertiary);
+            border-radius: 10px;
+            padding: 16px 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .newmatch h2 {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.6rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-right: 8px;
+        }
+
+        .newmatch input { width: 150px; }
+        .newmatch button { background: var(--accent-orange); border-color: var(--accent-orange); color: #1c1917; font-weight: 700; }
+
+        .footer {
+            margin-top: 16px;
+            padding: 10px 24px;
+            font-size: 0.68rem;
+            color: var(--text-secondary);
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            justify-content: space-between;
+        }
+
+        .footer a { color: var(--accent-purple); text-decoration: none; }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg-primary); }
+        ::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <div class="header-title">ZÄHLWERK</div>
+            <div class="header-subtitle">table tennis &mdash; scoring mock</div>
+        </div>
+        <div class="badge-strip">
+            <div class="stat-badge">Scoring as <strong id="source-badge">&hellip;</strong></div>
+            <div class="stat-badge">Points go to <strong>/ingest</strong>, same as the buttons</div>
+        </div>
+    </div>
+
+    {{template "live" .}}
+
+    <form class="newmatch" hx-post="/ui/matches" hx-target="#live" hx-swap="outerHTML">
+        <h2>new match</h2>
+        <input type="text" name="player_a" placeholder="Anna" autocomplete="off" aria-label="first player">
+        <input type="text" name="player_b" placeholder="Bernd" autocomplete="off" aria-label="second player">
+        <select name="best_of" aria-label="best of">
+            <option value="3">best of 3</option>
+            <option value="5" selected>best of 5</option>
+            <option value="7">best of 7</option>
+        </select>
+        <select name="first_server" aria-label="first server">
+            <option value="a">first serve: left</option>
+            <option value="b">first serve: right</option>
+        </select>
+        <button type="submit">start</button>
+    </form>
+
+    <div class="footer">
+        <span>a / b score, u takes one back. Each page counts for itself, so two phones on one match never share a counter.</span>
+        <a href="https://github.com/stuttgart-things/zaehlwerk">stuttgart-things/zaehlwerk</a>
+    </div>
+
+    <script>
+        // One source per page load and a counter that only goes up: what a
+        // phone does in ADR-0002, and what makes a double-posted click a
+        // duplicate the scorer discards rather than a second point. A reload
+        // draws a new source, so it starts at one again without colliding.
+        const zwSource = 'ui-' + Math.random().toString(16).slice(2, 10);
+        let zwEvent = 0;
+
+        function zwPoint(player) {
+            return { player: player, source: zwSource, event_id: ++zwEvent };
+        }
+
+        document.getElementById('source-badge').textContent = zwSource;
+
+        // Scoring with one hand on the keyboard, which is the whole point of a
+        // mock: a in the left column, b in the right, u for the mis-press.
+        document.addEventListener('keydown', function (e) {
+            if (e.metaKey || e.ctrlKey || e.altKey) return;
+            if (e.target.closest('input, select, textarea')) return;
+
+            const button = { a: 'point-a', b: 'point-b', u: 'undo' }[e.key.toLowerCase()];
+            if (!button) return;
+
+            const el = document.getElementById(button);
+            if (el && !el.disabled) {
+                e.preventDefault();
+                el.click();
+            }
+        });
+    </script>
+</body>
+</html>
+{{end}}

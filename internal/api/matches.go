@@ -51,7 +51,7 @@ func (s *Server) createMatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	m, err := s.registry.Create(cfg)
+	m, err := s.StartMatch(cfg)
 	if err != nil {
 		// The scorer rejects an even best-of or an unknown first server, which
 		// is the caller's doing. A failed id draw is ours.
@@ -63,14 +63,6 @@ func (s *Server) createMatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.switcher != nil {
-		// On creation rather than on the first point, so the catcher has
-		// switched before that point is pitched. A match created and never
-		// played is picked up by the switcher's inactivity failsafe.
-		s.switcher.Start(m.ID)
-	}
-
-	s.log.Info("match created", "match_id", m.ID)
 	w.Header().Set("Location", "/matches/"+m.ID)
 	s.writeState(w, http.StatusCreated, m.Scorer.State())
 }
@@ -103,14 +95,43 @@ func (s *Server) undo(w http.ResponseWriter, r *http.Request) {
 	s.writeState(w, http.StatusOK, st)
 }
 
-// endMatch finishes a match that will not finish itself — abandoned, or the
-// scorekeeper walked away. It is idempotent.
+// endMatch is the JSON API's door to [Server.EndMatch].
 func (s *Server) endMatch(w http.ResponseWriter, r *http.Request) {
 	m, ok := s.lookup(w, r)
 	if !ok {
 		return
 	}
+	s.writeState(w, http.StatusOK, s.EndMatch(m))
+}
 
+// StartMatch creates a match and hands it the LED panel.
+//
+// The panel is given on creation rather than on the first point, so the catcher
+// has switched over before that point is pitched. A match created and never
+// played is picked up by the switcher's inactivity failsafe.
+//
+// Exported because the browser UI starts matches too (internal/ui), and where
+// the panel changes hands is ADR-0003's decision rather than a detail of one
+// handler — one caller of the switcher, not two.
+func (s *Server) StartMatch(cfg scorer.Config) (*match.Match, error) {
+	m, err := s.registry.Create(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.switcher != nil {
+		s.switcher.Start(m.ID)
+	}
+
+	s.log.Info("match created", "match_id", m.ID)
+	return m, nil
+}
+
+// EndMatch finishes a match that will not finish itself — abandoned, or the
+// scorekeeper walked away — and gives the panel back, returning the state it
+// ended in. It is idempotent, and it is the other half of what the browser UI
+// shares with the JSON API; see [Server.StartMatch].
+func (s *Server) EndMatch(m *match.Match) scorer.State {
 	st := m.Scorer.State()
 	endedAt := m.End(s.now())
 
@@ -123,5 +144,5 @@ func (s *Server) endMatch(w http.ResponseWriter, r *http.Request) {
 
 	s.log.Info("match ended", "match_id", m.ID, "ended_at", endedAt,
 		"complete", st.Complete, "sets", st.Sets)
-	s.writeState(w, http.StatusOK, st)
+	return st
 }

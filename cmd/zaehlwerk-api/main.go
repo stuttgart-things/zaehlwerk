@@ -20,6 +20,7 @@ import (
 	"github.com/stuttgart-things/zaehlwerk/internal/live"
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/panel"
+	"github.com/stuttgart-things/zaehlwerk/internal/ui"
 )
 
 const (
@@ -64,16 +65,29 @@ func run() error {
 
 	hub := live.New()
 	origins := allowedOrigins(log)
+	beat, tuned := heartbeat(log)
 
 	registry := match.NewRegistry(registryOptions(sink, hub, switcher)...)
+
+	apiOpts := []api.Option{
+		api.WithLogger(log),
+		api.WithHub(hub),
+		api.WithAllowedOrigins(origins),
+		api.WithPanelSwitcher(switcher),
+	}
+	uiOpts := []ui.Option{
+		ui.WithLogger(log),
+		ui.WithHub(hub),
+	}
+	if tuned {
+		apiOpts = append(apiOpts, api.WithHeartbeat(beat))
+		uiOpts = append(uiOpts, ui.WithHeartbeat(beat))
+	}
+
+	apiSrv := api.New(registry, apiOpts...)
 	srv := &http.Server{
-		Addr: env("HTTP_ADDR", defaultAddr),
-		Handler: api.New(registry, append([]api.Option{
-			api.WithLogger(log),
-			api.WithHub(hub),
-			api.WithAllowedOrigins(origins),
-			api.WithPanelSwitcher(switcher),
-		}, streamOptions(log)...)...),
+		Addr:    env("HTTP_ADDR", defaultAddr),
+		Handler: routes(apiSrv, ui.New(registry, apiSrv, uiOpts...)),
 
 		ReadTimeout:       15 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -174,25 +188,48 @@ func splitList(raw string) []string {
 	return out
 }
 
-// allowedOrigins reads the browser origins
-
-// streamOptions reads the live stream tuning that depends on what sits in
-// front of the service. The default heartbeat suits a proxy that gives an idle
-// connection a minute; one that is stricter needs a shorter interval, and
-// there is no way to find that out from in here.
-func streamOptions(log *slog.Logger) []api.Option {
+// heartbeat reads the live stream tuning that depends on what sits in front of
+// the service, reporting whether it was configured at all. The default suits a
+// proxy that gives an idle connection a minute; one that is stricter needs a
+// shorter interval, and there is no way to find that out from in here.
+//
+// It applies to both streams. They are the same connection through the same
+// proxy, and a browser watching the score over one of them is no more patient
+// than a browser watching it over the other.
+func heartbeat(log *slog.Logger) (time.Duration, bool) {
 	raw := os.Getenv("STREAM_HEARTBEAT")
 	if raw == "" {
-		return nil
+		return 0, false
 	}
 
 	d, err := time.ParseDuration(raw)
 	if err != nil || d <= 0 {
 		log.Warn("ignoring STREAM_HEARTBEAT, not a positive duration", "value", raw)
-		return nil
+		return 0, false
 	}
 	log.Info("live stream heartbeat", "interval", d)
-	return []api.Option{api.WithHeartbeat(d)}
+	return d, true
+}
+
+// routes puts the browser UI next to the JSON API in one handler.
+//
+// The two are separate servers because they answer in different languages —
+// JSON for the hub, the firmware and Schmetterpause, HTML partials for the
+// page — and they meet here rather than one mounting the other: the UI drives
+// the API's match lifecycle, so anything else would be a circle.
+//
+// Everything not under /ui is the API's, including the unknown paths it
+// answers 404 for. The root is the one exception, because someone who types
+// the host and port is looking for the page.
+func routes(apiSrv, uiSrv http.Handler) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/", apiSrv)
+	mux.Handle("/ui", uiSrv)
+	mux.Handle("/ui/", uiSrv)
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/ui", http.StatusFound)
+	})
+	return mux
 }
 
 // allowedOrigins reads the browser origins that may read the live stream.

@@ -1,0 +1,13 @@
+{{define "live"}}
+<div id="live" class="live"{{if .Stream}} hx-ext="sse" sse-connect="/ui/matches/{{.Match.ID}}/stream"{{end}}>
+  <section class="card board" id="board" sse-swap="board" hx-swap="innerHTML">
+    {{- template "board" . -}}
+  </section>
+  <aside class="card timeline">
+    <h2>panel timeline</h2>
+    <div id="log" class="log" sse-swap="log" hx-swap="innerHTML">
+      {{- template "log" . -}}
+    </div>
+  </aside>
+</div>
+{{end}}
