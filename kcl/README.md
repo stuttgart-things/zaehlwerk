@@ -100,6 +100,21 @@ config.secretStoreName: vault-<cluster>
 config.vaultPath: zaehlwerk
 ```
 
+**An unpatched placeholder is loud rather than broken.** Applied as it stands,
+the base pitches to `omni-pitcher.example.com`, which does not resolve — the
+match still scores, `/ui` still serves, and the log carries one line per point:
+
+```
+WARN panel pitch failed, point not shown
+     error="… lookup omni-pitcher.example.com … no such host" title="1:0"
+```
+
+Measured on a cluster, not assumed. It is the optional-coupling invariant doing
+its job, and it is also the signal that `config.omniPitcherURL` was never
+patched. The placeholder cannot simply be empty: `configmap.k` leaves the key
+out when the value is, and kustomize can patch a key it can see but not one
+that was never rendered.
+
 `config.image` is not in that list: `task kcl:publish` and CI both override it
 with the tag the artefact itself carries, so the profile's `:latest`
 placeholder never reaches a published base. CI does it through the
