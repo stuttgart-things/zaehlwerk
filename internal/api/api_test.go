@@ -89,7 +89,39 @@ func TestHealthz(t *testing.T) {
 
 	rec, raw := c.do(http.MethodGet, "/healthz", "")
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.JSONEq(t, `{"status":"ok"}`, string(raw))
+	require.JSONEq(t,
+		`{"status":"ok","version":"dev","commit":"unknown","date":"unknown"}`,
+		string(raw))
+}
+
+// TestHealthzReportsTheBuild covers the whole reason the endpoint grew fields:
+// a pod that cannot name its own revision leaves every deployment question to
+// a comparison of registry digests.
+func TestHealthzReportsTheBuild(t *testing.T) {
+	c := newClient(t)
+	c.server = New(c.registry, WithBuildInfo(BuildInfo{
+		Version: "v1.2.3", Commit: "abc1234", Date: "2026-09-08T10:00:00Z",
+	}))
+
+	rec, raw := c.do(http.MethodGet, "/healthz", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.JSONEq(t,
+		`{"status":"ok","version":"v1.2.3","commit":"abc1234","date":"2026-09-08T10:00:00Z"}`,
+		string(raw))
+}
+
+// TestAnUnstampedBuildSaysDev is the case CI produces today. An -X flag with an
+// empty value overwrites the variable rather than leaving it alone, so a build
+// with no tag in reach arrives here blank, and a blank field in a health
+// response reads as a broken endpoint rather than an unstamped binary.
+func TestAnUnstampedBuildSaysDev(t *testing.T) {
+	c := newClient(t)
+	c.server = New(c.registry, WithBuildInfo(BuildInfo{}))
+
+	_, raw := c.do(http.MethodGet, "/healthz", "")
+	require.JSONEq(t,
+		`{"status":"ok","version":"dev","commit":"unknown","date":"unknown"}`,
+		string(raw))
 }
 
 func TestCreateMatch(t *testing.T) {

@@ -486,7 +486,7 @@ Two workflows, on every pull request and on main.
 | | |
 | --- | --- |
 | **Build & Test** | golangci-lint, the suite with `-race` and a redis-stack bound, and a smoke test that plays a point through the built binary. Plus govulncheck |
-| **Build, Push & Scan** | the image, built with ko and pushed to ghcr.io — `pr-<n>` on a pull request, `main` on main — then scanned with Trivy |
+| **Build, Push & Scan** | the image, built with ko and pushed to ghcr.io — `pr-<n>` on a pull request, `main` on main, the version and `latest` on a release tag — then scanned with Trivy |
 
 The first three go through [dagger/main.go](dagger/main.go), which hands
 everything that is the same in every Go service here to
@@ -520,6 +520,29 @@ task ci:image    # ko, pushed to ttl.sh for an hour
 They need a `dagger` CLI and a container runtime, and they are slower than
 `task check` — which stays the fast gate before a commit.
 
+## Releases
+
+[release-please](https://github.com/googleapis/release-please) reads the
+conventional-commit history, keeps a release pull request open with the
+changelog it would write, and on merge tags the commit and creates the GitHub
+release. Nothing is released by hand and no version is typed anywhere.
+
+The binary is stamped at build time and says so:
+
+```console
+$ curl -s localhost:8080/healthz
+{"status":"ok","version":"v0.1.0","commit":"a1b2c3d","date":"2026-09-08T09:12:44Z"}
+```
+
+An unstamped build — a local `go build`, or any build with no git tag in reach
+— reports `dev` rather than an empty string, which is the honest answer and not
+a broken endpoint.
+
+**A release tag builds its own image.** GitHub suppresses workflow triggers for
+events created with the `GITHUB_TOKEN`, and release-please tags with exactly
+that token, so a `push: tags` trigger would never fire. The release workflow
+therefore dispatches the image build at the new tag explicitly.
+
 ## Decisions
 
 | ADR | Subject |
@@ -527,6 +550,7 @@ They need a `dagger` CLI and a container runtime, and they are slower than
 | [0001](docs/adr/0001-independent-scorekeeping-api.md) | Why the running match state lives in its own service |
 | [0002](docs/adr/0002-idempotent-ingest-contract.md) | The `ScoreEvent` shape and why ingest is idempotent |
 | [0003](docs/adr/0003-led-catcher-stream-ownership.md) | Who may switch the LED catcher's stream, and when it switches back |
+| [0004](docs/adr/0004-reporting-results-to-schmetterpause.md) | Handing the finished match to Schmetterpause |
 
 ## Related
 

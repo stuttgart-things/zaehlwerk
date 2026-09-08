@@ -38,6 +38,35 @@ type Server struct {
 	// switcher is nil when no catcher is configured. It is an interface so the
 	// api package does not depend on the panel package for one call each way.
 	switcher PanelSwitcher
+
+	build BuildInfo
+}
+
+// BuildInfo is what the binary can say about itself, reported by /healthz so a
+// running pod names its own revision instead of leaving that to a comparison of
+// registry digests.
+type BuildInfo struct {
+	Version string `json:"version"`
+	Commit  string `json:"commit"`
+	Date    string `json:"date"`
+}
+
+// withDefaults fills in what the linker did not. An -X flag whose value is
+// empty overwrites the variable's default with the empty string rather than
+// leaving it alone, so a build without git tags — a shallow CI checkout, or
+// this repository before its first release — arrives here blank. Saying "dev"
+// is honest; a blank field reads as a bug in the endpoint.
+func (b BuildInfo) withDefaults() BuildInfo {
+	if b.Version == "" {
+		b.Version = "dev"
+	}
+	if b.Commit == "" {
+		b.Commit = "unknown"
+	}
+	if b.Date == "" {
+		b.Date = "unknown"
+	}
+	return b
 }
 
 // PanelSwitcher hands the LED panel to a match for its duration and takes it
@@ -73,6 +102,12 @@ func WithAllowedOrigins(origins []string) Option {
 	return func(s *Server) { s.allowedOrigins = slices.Clone(origins) }
 }
 
+// WithBuildInfo sets what /healthz reports about this binary. Unset, and every
+// field reads as unknown rather than empty.
+func WithBuildInfo(b BuildInfo) Option {
+	return func(s *Server) { s.build = b.withDefaults() }
+}
+
 // WithPanelSwitcher gives the panel to a match for the length of the match.
 func WithPanelSwitcher(p PanelSwitcher) Option {
 	return func(s *Server) { s.switcher = p }
@@ -94,6 +129,7 @@ func New(registry *match.Registry, opts ...Option) *Server {
 		now:       time.Now,
 		mux:       http.NewServeMux(),
 		heartbeat: DefaultHeartbeat,
+		build:     BuildInfo{}.withDefaults(),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -120,7 +156,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, struct {
+		Status string `json:"status"`
+		BuildInfo
+	}{Status: "ok", BuildInfo: s.build})
 }
 
 // errorBody carries the reason and, where a match was identified, its state —

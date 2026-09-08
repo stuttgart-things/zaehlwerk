@@ -36,7 +36,14 @@ jobs:
       # Named explicitly: without them the template falls back to ttl.sh and
       # latest, and :main would quietly never reach ghcr.io.
       registry: ghcr.io
-      tags: main
+      # A release is this workflow dispatched at the tag by release-please, so
+      # the same job serves both and the ref decides the name. The two
+      # namespaces must not touch: a tag publishes the version and moves
+      # `latest`, a push to main publishes `main` and moves nothing else.
+      tags: >-
+        ${{ github.ref_type == 'tag'
+            && format('{0},latest', github.ref_name)
+            || 'main' }}
     secrets: inherit # pragma: allowlist secret
 
   # Scans what ko just pushed. Report-only for now — an image scan takes an
@@ -61,5 +68,5 @@ jobs:
       runs-on: ubuntu-latest
       image-ref: ${{ needs.build-main.outputs.image-ref }}
       severity: HIGH,CRITICAL
-      artifact-name: trivy-image-report-main
+      artifact-name: trivy-image-report-${{ github.ref_name }}
       continue-on-error: true

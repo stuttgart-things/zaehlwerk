@@ -1,9 +1,6 @@
 ---
 # The binary lives under cmd/, so ko needs to be told; `ko build` is then called
 # with ./cmd/zaehlwerk-api as its import path.
-#
-# No -X ldflags: this binary has no version variables to set. Adding them here
-# would be silently ignored by the linker, which is worse than not having them.
 defaultBaseImage: cgr.dev/chainguard/static:latest
 builds:
   - id: zaehlwerk-api
@@ -13,3 +10,25 @@ builds:
     ldflags:
       - -s
       - -w
+      # Stamped into main.version/commit/date and reported by /healthz, so a
+      # running pod names its own revision. ko renders these with
+      # `missingkey=error`, so a field name that does not exist fails the build
+      # rather than producing an empty string — the fields are Env, GoEnv, Git,
+      # Date and Timestamp, and Git carries Branch, Tag, ShortCommit,
+      # FullCommit, CommitDate, CommitTimestamp, IsDirty, IsClean and TreeState.
+      #
+      # CommitDate rather than Date: Date is the image creation time, which ko
+      # pins for reproducibility, and a build stamped 1970 is worse than one
+      # stamped with the commit it was built from.
+      - -X main.commit={{.Git.ShortCommit}}
+      - -X main.date={{.Git.CommitDate}}
+      # Tag is `git describe --tags`, and it comes out EMPTY in CI today: the
+      # shared call-ko-build.yaml checks out at the default depth, so the clone
+      # is shallow and carries no tags for describe to find. Measured, not
+      # assumed. api.BuildInfo turns the empty string into "dev" rather than
+      # serving a blank field, so this degrades honestly until the shared
+      # workflow can be told the version — see the issue linked from the pull
+      # request that added this.
+      #
+      # A local `ko build` in a full clone does stamp the real tag.
+      - -X main.version={{.Git.Tag}}
