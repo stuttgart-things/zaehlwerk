@@ -2,5 +2,24 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "packageRules": [
+    {
+      "description": [
+        "dagger/go.mod and go.sum are written by `dagger develop`, not by hand.",
+        "The engine generates dagger/internal/dagger at run time and it is not checked in,",
+        "so renovate's `go get -t ./...` cannot resolve the module and never updates",
+        "go.sum: every pull request here arrives with a stale sum and an",
+        "'Artifact update problem' comment.",
+        "Worse, the versions are not ours to choose. `dagger develop` rewrites the",
+        "replace directives to whatever the engine pinned in dagger.json wants, so a",
+        "merged bump is undone by the next run. Measured on pull request #21, which",
+        "dagger develop reverted to main exactly.",
+        "The way to move these is to raise the module version in dagger.json."
+      ],
+      "matchManagers": ["gomod"],
+      "matchFileNames": ["dagger/go.mod"],
+      "enabled": false
+    }
   ]
 }
