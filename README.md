@@ -530,8 +530,9 @@ release. Nothing is released by hand and no version is typed anywhere.
 The binary is stamped at build time and says so:
 
 ```console
+$ docker run --rm -p 8080:8080 ghcr.io/stuttgart-things/zaehlwerk:v0.1.0
 $ curl -s localhost:8080/healthz
-{"status":"ok","version":"v0.1.0","commit":"a1b2c3d","date":"2026-09-08T09:12:44Z"}
+{"status":"ok","version":"v0.1.0","commit":"cd68a93f3d9b1e84bf8b6f1d964b7dc271682142","date":"2026-09-08T08:28:33Z"}
 ```
 
 The values come from the shared ko workflow, which exports `VERSION`
@@ -544,6 +545,25 @@ is the honest answer and not a broken endpoint.
 events created with the `GITHUB_TOKEN`, and release-please tags with exactly
 that token, so a `push: tags` trigger would never fire. The release workflow
 therefore dispatches the image build at the new tag explicitly.
+
+### There is no `/readyz`, and that is the answer
+
+`/healthz` is the only probe, and a readiness probe would ask the same question
+twice. Ready and live differ where a process is up but cannot yet serve — it is
+still opening a database, warming a cache, waiting on something it needs. This
+service has none of that. It holds its state in memory, so there is nothing to
+load; the panel sink and the catcher are optional by design, so their absence is
+a configuration and not an outage; and a match is served from the registry
+whether or not anything downstream is reachable.
+
+So `/healthz` deliberately touches neither Redis nor the omni-pitcher. It says
+the process is up and serving, which here is the whole of what a scheduler needs
+to know, and it stays a liveness probe rather than quietly becoming a
+dependency check that would take the pod down when the panel is off.
+
+The day this service gains something it must wait for — persistence is the
+obvious candidate, and `docs/adr/0004` explains why it does not have any — that
+is the day to add `/readyz`, and it should arrive with the thing it waits on.
 
 ## Decisions
 
