@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -334,4 +335,27 @@ func TestKindOfReadsTheStateTheWayTheTransitionDid(t *testing.T) {
 	require.Equal(t, scorer.TransitionSetWon, kindBetween(point, setWon))
 	require.Equal(t, scorer.TransitionMatchWon, kindBetween(setWon, won))
 	require.Equal(t, scorer.TransitionPoint, kindBetween(point, scorer.State{Points: [2]int{4, 5}}))
+}
+
+// TestTheScoringButtonsCarryAnObjectLiteral guards the shape of hx-vals rather
+// than its meaning. htmx wraps a js: expression that does not already begin
+// with "{" in braces of its own, so `js:zwPoint("a")` is evaluated as
+// `{zwPoint("a")}` — a SyntaxError raised before the request is built. The
+// button then does nothing at all, with nothing in the response to show for it,
+// which is why no other test here can see it.
+func TestTheScoringButtonsCarryAnObjectLiteral(t *testing.T) {
+	f := newFixture(t)
+	f.match("Anna", "Bernd")
+
+	_, body := f.do(http.MethodGet, "/ui", nil)
+
+	vals := regexp.MustCompile(`hx-vals='([^']*)'`).FindAllStringSubmatch(body, -1)
+	require.Len(t, vals, 2, "one per scoring button")
+
+	for _, v := range vals {
+		expr, ok := strings.CutPrefix(v[1], "js:")
+		require.True(t, ok, "hx-vals %q is not a js: expression", v[1])
+		require.True(t, strings.HasPrefix(expr, "{"),
+			"hx-vals %q must be an object literal: htmx braces anything else into a SyntaxError", v[1])
+	}
 }
