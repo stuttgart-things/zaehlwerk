@@ -565,6 +565,46 @@ The day this service gains something it must wait for — persistence is the
 obvious candidate, and `docs/adr/0004` explains why it does not have any — that
 is the day to add `/readyz`, and it should arrive with the thing it waits on.
 
+## Kubernetes
+
+Manifests live in [kcl/](kcl/) as a KCL module, rendered into a kustomize base
+and published to GHCR as an OCI artefact that Argo CD or Flux consumes.
+
+```sh
+task kcl:render      # the manifests, --- separated
+task kcl:check       # do all profiles still render?
+task kcl:apply       # to the current kube-context
+```
+
+CI publishes the base to `ghcr.io/stuttgart-things/zaehlwerk-kustomize`
+alongside the image and under the same name — the version on a release tag,
+`main` on main — so an Application pinned to `v0.1.0` gets the manifests that
+belong to that image rather than to whatever the profile said last.
+
+[kcl/README.md](kcl/README.md) is the module: what each profile switches on,
+what an environment patches, and why `kcl run` directly is the way it goes
+wrong. Two things from it are worth knowing before reading any of the rest.
+
+**One replica, and the schema refuses more.** The running match lives in this
+process's memory and this service is its only writer (ADR-0001). A second pod
+does not share the load, it keeps a second score — a point routed to one pod is
+invisible to the other, and no session affinity fixes that, because the panel
+is fed by whichever pod took the point. The strategy is `Recreate` for the same
+reason: a rolling update would run two processes that each believe they own the
+match.
+
+**The route belongs on an internal gateway.** There is no authentication in
+this service, so the route is the access control: whoever reaches the hostname
+can start a match, score it and end it. The single rule at `/` is a deliberate
+refusal to pretend a path split protects anything — the scoring page is
+self-contained under `/ui`, but it grants everything the JSON API grants, so a
+narrower rule would shrink the surface without removing a capability.
+
+**The panel stays outside.** Redis and the led-catcher are things this service
+talks to, not things it owns. They outlive any revision of it and are shared
+with everything else on the homerun bus, so a base that carried them would be a
+base whose removal can prune somebody else's panel.
+
 ## Decisions
 
 | ADR | Subject |

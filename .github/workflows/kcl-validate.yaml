@@ -1,0 +1,42 @@
+---
+# The manifests, checked the way every other repository here checks theirs.
+#
+# It does what cannot be done on a laptop without a cluster: `kcl fmt` with a
+# diff gate, a compile of the entrypoint, and a render. `task kcl:check` is the
+# fast local half — it renders every profile and counts the documents, which
+# catches a module that compiles and emits nothing.
+name: KCL Validate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - kcl/**
+      - .github/workflows/kcl-validate.yaml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - kcl/**
+      - .github/workflows/kcl-validate.yaml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-kcl-validate.yaml@main
+    with:
+      runs-on: ubuntu-latest
+      module-dir: kcl
+      entrypoint: main.k
+      # The switches, not the whole profile. Every resource this module can
+      # emit is rendered here — an ExternalSecret and an HTTPRoute are off by
+      # default, and a render that never reaches them proves nothing about
+      # them. Repeating kcl/profiles/base.yaml wholesale would be the other
+      # kind of wrong: two copies of the same values, drifting.
+      flat-parameters: >-
+        config.httpRouteEnabled=true,config.gatewayName=gateway,config.clusterDomain=cluster.example.com,config.secretsMode=external,config.secretStoreName=vault-cluster,config.omniPitcherURL=https://omni-pitcher.example.com
