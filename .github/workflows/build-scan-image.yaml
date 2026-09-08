@@ -83,6 +83,17 @@ jobs:
       # line break inside it.
       kcl-parameters: "config.image=ghcr.io/stuttgart-things/zaehlwerk:${{ github.ref_type == 'tag' && github.ref_name || 'main' }}"
       tag: "${{ github.ref_type == 'tag' && github.ref_name || 'main' }}"
+      # `latest` moves under exactly the rule the image follows: a tag is a
+      # release, a push to main is a snapshot that moves nothing else. Letting
+      # the two repositories disagree about what latest means is the one way
+      # this pair can still drift once the version tags line up.
+      #
+      # It is applied with `oras tag` on the digest just pushed, not by
+      # publishing a second time — a second publish re-renders the base and
+      # lands the two tags on two digests, which is what schmetterpause hit and
+      # what stuttgart-things/github-workflow-templates#170 exists to prevent.
+      # That workflow proves the tags agree and fails if they do not.
+      additional-tags: "${{ github.ref_type == 'tag' && 'latest' || '' }}"
     secrets: inherit # pragma: allowlist secret
 
   scan-main:

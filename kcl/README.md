@@ -151,6 +151,13 @@ profile file — the base and the image it pins are published under the same
 name, so `zaehlwerk-kustomize:v0.1.0` carries `zaehlwerk:v0.1.0` and not
 whatever moved last.
 
+`latest` moves on a release tag and nowhere else, under the same rule the image
+follows, and it is applied with `oras tag` on the digest just pushed rather
+than by publishing a second time. A second publish re-renders the base and
+lands the two tags on two different digests while both report success — which
+is what schmetterpause hit, and what the workflow now proves cannot happen by
+comparing the digests and failing when they disagree.
+
 ## What is not rendered
 
 **No Namespace.** Several Applications can share a workload namespace, and when
