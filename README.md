@@ -422,6 +422,47 @@ screen time and is not cut short. That is why the `fallback` rule keeps one:
 something that is not the score should scroll past rather than sit on the panel
 until the next point lands.
 
+## CI
+
+Two workflows, on every pull request and on main.
+
+| | |
+| --- | --- |
+| **Build & Test** | golangci-lint, the suite with `-race` and a redis-stack bound, and a smoke test that plays a point through the built binary. Plus govulncheck |
+| **Build, Push & Scan** | the image, built with ko and pushed to ghcr.io — `pr-<n>` on a pull request, `main` on main — then scanned with Trivy |
+
+The first three go through [dagger/main.go](dagger/main.go), which hands
+everything that is the same in every Go service here to
+[stuttgart-things/dagger/go](https://github.com/stuttgart-things/dagger) and
+keeps the two things that are not:
+
+- **the test run binds a redis-stack** and sets `REDIS_TEST_ADDR`, so the panel
+  tests run instead of skipping themselves — they are the ones that would notice
+  a change in what reaches the stream. With `-race`, because a scorer read by
+  three observers under its own lock has no other kind of bug worth catching.
+- **the smoke test plays a point through the running binary** — a real listener,
+  a real Redis, and the match reading back what was scored on it. That seam is
+  the one a green unit suite hides.
+
+govulncheck and the Trivy scan are the reusable stuttgart-things workflows, so
+they are the call every other repository makes. **Both start report-only**: a
+gate whose first run is red teaches people to ignore it, and neither list has
+been read yet. `fail-on-finding` in
+[build-test.yaml](.github/workflows/build-test.yaml) is the flip.
+
+The same steps locally, if you want to reproduce a red run rather than guess:
+
+```bash
+task ci:lint     # golangci-lint in the container CI uses
+task ci:test     # -race, with the redis-stack
+task ci:smoke    # a point through the binary
+task ci:vuln     # FAIL=true to make it a gate
+task ci:image    # ko, pushed to ttl.sh for an hour
+```
+
+They need a `dagger` CLI and a container runtime, and they are slower than
+`task check` — which stays the fast gate before a commit.
+
 ## Decisions
 
 | ADR | Subject |

@@ -7,6 +7,9 @@ dotenv: ['.env']
 
 vars:
   COMPOSE: docker compose -f deploy/panel/compose.yaml
+  # Pinned alongside dagger.json, which pins the same module for the CI run.
+  DAGGER_GO_MODULE: github.com/stuttgart-things/dagger/go@v0.129.4
+  GO_VERSION: '1.26.6'
   # Ports. Override any of them if something on the machine already has one:
   #   ZW_PORT=8090 task run
   ZW_PORT: '{{.ZW_PORT | default "8080"}}'
@@ -353,3 +356,54 @@ tasks:
       - go vet ./...
       - task: lint
       - task: test
+
+  ## ──────────────────────────────────────────────
+  ## CI, THE WAY IT RUNS IT
+  ## ──────────────────────────────────────────────
+  ##
+  ## Everything below goes through the Dagger module in dagger/, which is what
+  ## GitHub Actions calls. They need a `dagger` CLI and a container runtime, and
+  ## they are slower than `task check` — the point is reproducing a red CI run
+  ## locally, not replacing the fast gate.
+
+  ci:lint:
+    desc: golangci-lint, in the container CI uses
+    cmds:
+      - dagger call -m ./dagger lint --src . --progress plain
+
+  ci:test:
+    desc: The suite with -race and a redis-stack, so the panel tests run too
+    cmds:
+      - dagger call -m ./dagger test --src . --progress plain
+
+  ci:smoke:
+    desc: Play a point through the built binary against a real redis
+    silent: true
+    cmds:
+      - |
+        dagger call -m ./dagger build-and-test-binary --source . --progress plain \
+          export --path=/tmp/zaehlwerk-smoke.log
+        cat /tmp/zaehlwerk-smoke.log
+
+  ci:vuln:
+    desc: 'Reachable vulnerabilities in the dependency graph; FAIL=true to gate'
+    vars:
+      FAIL: '{{ .FAIL | default "false" }}'
+    silent: true
+    cmds:
+      - |
+        dagger call -m {{ .DAGGER_GO_MODULE }} govulncheck \
+          --src . --go-version {{ .GO_VERSION }} \
+          --fail-on-finding={{ .FAIL }} --progress plain \
+          export --path=/tmp/zaehlwerk-govulncheck.txt
+        tail -5 /tmp/zaehlwerk-govulncheck.txt
+
+  ci:image:
+    desc: Build the container image with ko and push it to ttl.sh for an hour
+    silent: true
+    cmds:
+      - |
+        REPO="ttl.sh/zaehlwerk-$(openssl rand -hex 6)"
+        IMAGE=$(dagger call -m ./dagger build-image \
+          --src . --repo "$REPO" --push=true --progress plain)
+        echo "$IMAGE"
