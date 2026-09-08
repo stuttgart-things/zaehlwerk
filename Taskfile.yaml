@@ -14,6 +14,12 @@ vars:
   #   ZW_PORT=8090 task run
   ZW_PORT: '{{.ZW_PORT | default "8080"}}'
   ZW_SIMULATOR_PORT: '{{.ZW_SIMULATOR_PORT | default "8081"}}'
+  # Read by CI out of this file rather than repeated in the workflow, so an
+  # artefact rendered by the pipeline comes from the same module version a
+  # person publishing by hand would use.
+  KCL_MODULE: github.com/stuttgart-things/dagger/kcl@v0.114.0
+  KUSTOMIZE_OCI_REPO: ghcr.io/stuttgart-things/zaehlwerk-kustomize
+  IMAGE_REPO: ghcr.io/stuttgart-things/zaehlwerk
   ZW_REDIS_PORT: '{{.ZW_REDIS_PORT | default "6379"}}'
   API: http://localhost:{{.ZW_PORT | default "8080"}}
   SIMULATOR: http://localhost:{{.ZW_SIMULATOR_PORT | default "8081"}}
@@ -419,3 +425,115 @@ tasks:
         IMAGE=$(dagger call -m ./dagger build-image \
           --src . --repo "$REPO" --push=true --progress plain)
         echo "$IMAGE"
+
+  ## ──────────────────────────────────────────────
+  ## KUBERNETES
+  ## ──────────────────────────────────────────────
+
+  kcl:render:
+    desc: "Render the manifests (PROFILE=base; extra -D after --)"
+    vars:
+      PROFILE: '{{.PROFILE | default "base"}}'
+    cmds:
+      - |
+        set -e
+
+        # PROFILE takes either a name from kcl/profiles or a path to a file
+        # anywhere. The path form is what an environment uses: a profile that
+        # names a cluster has no business in this repository, and keeping it
+        # outside is what lets the published base stay neutral.
+        case "{{.PROFILE}}" in
+          */*|*.yaml|*.yml) profile="{{.PROFILE}}" ;;
+          *)                profile="kcl/profiles/{{.PROFILE}}.yaml" ;;
+        esac
+        case "${profile}" in
+          "~/"*) profile="${HOME}/${profile#\~/}" ;;
+        esac
+        [ -f "${profile}" ] || { echo "no profile at ${profile}" >&2; exit 1; }
+
+        # The same conversion stuttgart-things/dagger/kcl does inside its
+        # container: a flat key/value file becomes one -D flag per entry. The
+        # profiles are NOT kcl settings files — `kcl run -Y profiles/base.yaml`
+        # loads none of this and silently renders every default instead, which
+        # for secretsMode and httpRouteEnabled is not what any cluster wants.
+        set --
+        while IFS= read -r kv; do
+          [ -n "${kv}" ] && set -- "$@" -D "${kv}"
+        done <<PARAMS
+        $(yq eval -o=json "${profile}" | jq -r 'to_entries[] | .key + "=" + (.value|tostring)')
+        PARAMS
+
+        # And the same normalisation it applies afterwards: drop the
+        # "manifests:" key line, turn each list item into a document separator,
+        # de-indent by two. Without it the local render is a different artefact
+        # from the one that ships — see the note in kcl/main.k.
+        #
+        # Anything after "--" lands here, AFTER the profile's flags, and a
+        # later -D wins:
+        #
+        #   task kcl:render -- -D config.gatewayName=cilium-gateway
+        kcl run kcl/main.k "$@" {{.CLI_ARGS}} \
+          | sed 's/^- /---\n/' \
+          | sed '1d' \
+          | sed 's/^  //' \
+          | sed '/^[[:space:]]*$/d' \
+          | awk 'NR==1{print "---"} 1'
+    silent: true
+
+  kcl:check:
+    desc: Do all profiles still render, and does the result parse as Kubernetes YAML?
+    silent: true
+    cmds:
+      - |
+        set -e
+        status=0
+        for p in kcl/profiles/*.yaml; do
+          name="$(basename "${p}" .yaml)"
+          out="$(task kcl:render PROFILE="${name}" 2>&1)" || {
+            echo "FAIL  ${name}"; echo "${out}" | tail -5; status=1; continue
+          }
+          # A render that emits nothing is a pass to `kcl run` and a useless
+          # artefact, so count the documents rather than trusting the exit code.
+          n="$(printf '%s\n' "${out}" | yq eval-all '[.] | length' - 2>/dev/null || echo 0)"
+          if [ "${n}" -lt 1 ]; then
+            echo "FAIL  ${name} — rendered no documents"; status=1; continue
+          fi
+          printf '%s\n' "${out}" | yq eval-all 'select(.kind == null) | .' - 2>/dev/null | grep -q . && {
+            echo "FAIL  ${name} — a document has no kind"; status=1; continue
+          }
+          echo "ok    ${name} (${n} documents)"
+        done
+        exit "${status}"
+
+  kcl:apply:
+    desc: "Render and apply to the current kube-context (PROFILE=base)"
+    vars:
+      PROFILE: '{{.PROFILE | default "base"}}'
+    cmds:
+      # The context is printed rather than pinned: this applies wherever the
+      # kubeconfig currently points, and saying so is cheaper than a flag
+      # nobody passes.
+      - |
+        echo "context: $(kubectl config current-context)"
+        task kcl:render PROFILE={{.PROFILE}} -- {{.CLI_ARGS}} | kubectl apply -f -
+    silent: true
+
+  kcl:publish:
+    desc: "Push the kustomize base to GHCR as an OCI artefact (TAG=v1.2.3)"
+    silent: true
+    cmds:
+      - |
+        set -eu
+        [ -n "{{.TAG}}" ] || { echo "which tag? task kcl:publish TAG=v1.2.3" >&2; exit 1; }
+
+        # The image the base pins is the tag being published, never the
+        # profile's ":latest" placeholder — that would resolve to whatever
+        # moved last in the registry rather than to this artefact's revision.
+        dagger call -m {{.KCL_MODULE}} push-kustomize-base \
+          --source kcl \
+          --parameters-file kcl/profiles/base.yaml \
+          --parameters "config.image={{.IMAGE_REPO}}:{{.TAG}}" \
+          --address {{.KUSTOMIZE_OCI_REPO}} \
+          --tag "{{.TAG}}" \
+          --user env:GITHUB_USER \
+          --password env:GITHUB_TOKEN
