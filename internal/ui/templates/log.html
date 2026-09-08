@@ -1,0 +1,13 @@
+{{define "log"}}
+{{- if .Log}}
+{{- range .Log}}
+<div class="log-row sev-{{.Severity}}">
+  <span class="log-time">{{.Time}}</span>
+  <span class="log-title">{{.Title}}</span>
+  <span class="log-summary">{{.Summary}}</span>
+</div>
+{{- end}}
+{{- else}}
+<div class="empty-state">Nothing yet. Every point shows up here in the words the panel gets it in.</div>
+{{- end}}
+{{end}}

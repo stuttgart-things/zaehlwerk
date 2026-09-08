@@ -33,6 +33,10 @@ tasks:
           task demo          # in a second terminal: play a match
           task panel:open    # the 64x64 panel in a browser
 
+        Or score it by hand, in a browser:
+
+          task ui            # the scoring page, next to the panel
+
         Everything else:
 
           task --list
@@ -239,6 +243,14 @@ tasks:
             -d "{\"match_id\":\"$MATCH\",\"source\":\"demo\",\"player\":\"a\",\"delta\":1,\"event_id\":$i}" >/dev/null
         done
         curl -sS {{.API}}/matches/$MATCH | python3 -m json.tool
+
+  ui:
+    desc: Open the scoring page — play the match by hand, in a browser
+    silent: true
+    cmds:
+      - task: require-api
+      - '{{if eq OS "darwin"}}open{{else}}xdg-open{{end}} {{.API}}/ui >/dev/null 2>&1 &'
+      - echo "{{.API}}/ui"
 
   watch:
     # Not MATCH= — that is a built-in in task v3 (a []string), so a task
