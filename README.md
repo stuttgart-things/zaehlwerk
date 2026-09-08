@@ -593,6 +593,13 @@ is fed by whichever pod took the point. The strategy is `Recreate` for the same
 reason: a rolling update would run two processes that each believe they own the
 match.
 
+**The route belongs on an internal gateway.** There is no authentication in
+this service, so the route is the access control: whoever reaches the hostname
+can start a match, score it and end it. The single rule at `/` is a deliberate
+refusal to pretend a path split protects anything — the scoring page is
+self-contained under `/ui`, but it grants everything the JSON API grants, so a
+narrower rule would shrink the surface without removing a capability.
+
 **The panel stays outside.** Redis and the led-catcher are things this service
 talks to, not things it owns. They outlive any revision of it and are shared
 with everything else on the homerun bus, so a base that carried them would be a

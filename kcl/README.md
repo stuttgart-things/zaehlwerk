@@ -68,6 +68,34 @@ Four checks in `schema.k`, and the first is the one worth knowing:
 | `httpRouteEnabled` needs a `gatewayName` | A route to no gateway is accepted by the API server and reaches nobody. |
 | `secretsMode: external` needs a `secretStoreName` | Same failure shape: an ExternalSecret pointing at no store stays unresolved and silent. |
 
+## The route is the access control
+
+`httpRouteEnabled` puts one rule at `PathPrefix: /` in front of everything, and
+**that route belongs on an internal gateway.** There is no authentication in
+this service — no token, no session — so whoever reaches the hostname can start
+a match, score it, undo, end it, and with `CATCHER_URL` set take the LED panel.
+
+The single rule is a deliberate refusal to pretend otherwise. The endpoints
+fall into three groups:
+
+| | |
+| --- | --- |
+| `/ui/…` | the scoring page: form posts, undo, end, and its own SSE stream |
+| `/matches/…` | the JSON API, including the live stream and the lifecycle POSTs |
+| `/ingest/…` | button, piezo and phone |
+
+The page is self-contained, so a `/ui`-only route would serve it completely.
+It would also grant everything the API grants, because the page starts, scores
+and ends matches through its own routes — so the narrower rule would shrink the
+surface without removing a single capability. That is a boundary that reads as
+protection and is not one.
+
+What would genuinely be exposed further is `GET /matches/{id}/stream`,
+read-only, for the Schmetterpause live tab that `docs/adr/0001` describes —
+and that needs `config.allowedOrigins` set, which is empty by default and never
+`*`. A second, public route for that endpoint alone is the shape to reach for;
+this module does not render one yet, because nothing asks for it yet.
+
 ## Secrets
 
 Two values must not be readable from the namespace: `OMNI_PITCHER_TOKEN`, the
