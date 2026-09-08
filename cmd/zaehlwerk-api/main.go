@@ -29,6 +29,20 @@ const (
 	shutdownTimeout  = 10 * time.Second
 )
 
+// Set by the linker at build time; see .ko.yaml. They are plain variables
+// rather than constants because -X can only write to a variable, and they are
+// deliberately left empty rather than given defaults here: api.BuildInfo
+// decides what an unset field reads as, so there is one answer instead of two.
+//
+// version is the last git tag. It is empty on a build with no tags in reach —
+// which includes every CI image build today, because the shared ko workflow
+// checks out shallow and `git describe` then finds nothing.
+var (
+	version string
+	commit  string
+	date    string
+)
+
 func main() {
 	if err := run(); err != nil {
 		slog.Error("zaehlwerk-api stopped", "error", err)
@@ -83,6 +97,10 @@ func run() error {
 		apiOpts = append(apiOpts, api.WithHeartbeat(beat))
 		uiOpts = append(uiOpts, ui.WithHeartbeat(beat))
 	}
+
+	apiOpts = append(apiOpts, api.WithBuildInfo(api.BuildInfo{
+		Version: version, Commit: commit, Date: date,
+	}))
 
 	apiSrv := api.New(registry, apiOpts...)
 	srv := &http.Server{

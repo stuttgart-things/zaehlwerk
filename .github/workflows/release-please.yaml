@@ -1,0 +1,66 @@
+---
+# Cuts releases from the conventional-commit history: opens a release pull
+# request, and on merge tags the commit and creates the GitHub release.
+#
+# The reusable workflows this repository calls are referenced by @main; this
+# action is pinned by SHA because it is the one that tags and publishes.
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+
+# Read-only by default; the job widens it for itself alone.
+permissions:
+  contents: read
+
+concurrency:
+  # One release pull request at a time. Two pushes in quick succession would
+  # otherwise race to rewrite the same branch.
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    permissions:
+      # Creates the tag and the GitHub release.
+      contents: write
+      # Opens and updates the release pull request.
+      pull-requests: write
+      # Dispatches the image build at the new tag. See the step below.
+      actions: write
+    steps:
+      # v5.0.0 — the SHA is the pin, the tag is the comment.
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      # The tag alone wakes nobody. GitHub suppresses workflow triggers for
+      # events created with the GITHUB_TOKEN so that a workflow cannot loop by
+      # pushing, and release-please tags with exactly that token — so a
+      # `push: tags` trigger would never fire for a release. schmetterpause
+      # learned this by shipping a release whose image was only correct by
+      # coincidence (their issue #172).
+      #
+      # workflow_dispatch is the documented exception: it does fire under the
+      # GITHUB_TOKEN. So say plainly that a release happened rather than hoping
+      # the tag is noticed.
+      #
+      # Only the image build is dispatched, not the test workflow: the tree at
+      # the tag is the tree that just passed on main, and running the same
+      # tests against the same commit twice proves nothing. What differs is the
+      # artefact — the tag run publishes the version, the main run publishes
+      # `main`, and the two names never collide.
+      - name: Build the image at the new tag
+        if: ${{ steps.release.outputs.release_created }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag_name }}
+        run: |
+          echo "released ${TAG} — dispatching the image build at it"
+          gh workflow run build-scan-image.yaml \
+            --repo "${GITHUB_REPOSITORY}" --ref "${TAG}"
