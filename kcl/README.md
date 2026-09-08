@@ -102,7 +102,11 @@ config.vaultPath: zaehlwerk
 
 `config.image` is not in that list: `task kcl:publish` and CI both override it
 with the tag the artefact itself carries, so the profile's `:latest`
-placeholder never reaches a published base.
+placeholder never reaches a published base. CI does it through the
+`kcl-parameters` input of `call-push-kustomize.yaml`, which wins over the
+profile file — the base and the image it pins are published under the same
+name, so `zaehlwerk-kustomize:v0.1.0` carries `zaehlwerk:v0.1.0` and not
+whatever moved last.
 
 ## What is not rendered
 

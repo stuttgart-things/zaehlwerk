@@ -576,6 +576,11 @@ task kcl:check       # do all profiles still render?
 task kcl:apply       # to the current kube-context
 ```
 
+CI publishes the base to `ghcr.io/stuttgart-things/zaehlwerk-kustomize`
+alongside the image and under the same name — the version on a release tag,
+`main` on main — so an Application pinned to `v0.1.0` gets the manifests that
+belong to that image rather than to whatever the profile said last.
+
 [kcl/README.md](kcl/README.md) is the module: what each profile switches on,
 what an environment patches, and why `kcl run` directly is the way it goes
 wrong. Two things from it are worth knowing before reading any of the rest.
