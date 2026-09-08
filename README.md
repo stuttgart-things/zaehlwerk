@@ -534,9 +534,11 @@ $ curl -s localhost:8080/healthz
 {"status":"ok","version":"v0.1.0","commit":"a1b2c3d","date":"2026-09-08T09:12:44Z"}
 ```
 
-An unstamped build — a local `go build`, or any build with no git tag in reach
-— reports `dev` rather than an empty string, which is the honest answer and not
-a broken endpoint.
+The values come from the shared ko workflow, which exports `VERSION`
+(`git describe --tags --always`), `COMMIT` and `BUILD_DATE` to the build. An
+unstamped build — a local `go build`, or `task ci:image`, which goes through
+dagger and sets none of them — reports `dev` rather than an empty string, which
+is the honest answer and not a broken endpoint.
 
 **A release tag builds its own image.** GitHub suppresses workflow triggers for
 events created with the `GITHUB_TOKEN`, and release-please tags with exactly

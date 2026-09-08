@@ -11,24 +11,27 @@ builds:
       - -s
       - -w
       # Stamped into main.version/commit/date and reported by /healthz, so a
-      # running pod names its own revision. ko renders these with
-      # `missingkey=error`, so a field name that does not exist fails the build
-      # rather than producing an empty string — the fields are Env, GoEnv, Git,
-      # Date and Timestamp, and Git carries Branch, Tag, ShortCommit,
-      # FullCommit, CommitDate, CommitTimestamp, IsDirty, IsClean and TreeState.
+      # running pod names its own revision instead of leaving that to a
+      # comparison of registry digests.
       #
-      # CommitDate rather than Date: Date is the image creation time, which ko
-      # pins for reproducibility, and a build stamped 1970 is worse than one
-      # stamped with the commit it was built from.
-      - -X main.commit={{.Git.ShortCommit}}
-      - -X main.date={{.Git.CommitDate}}
-      # Tag is `git describe --tags`, and it comes out EMPTY in CI today: the
-      # shared call-ko-build.yaml checks out at the default depth, so the clone
-      # is shallow and carries no tags for describe to find. Measured, not
-      # assumed. api.BuildInfo turns the empty string into "dev" rather than
-      # serving a blank field, so this degrades honestly until the shared
-      # workflow can be told the version — see the issue linked from the pull
-      # request that added this.
+      # The values come from the shared call-ko-build.yaml, which already
+      # exports VERSION (`git describe --tags --always`), COMMIT and
+      # BUILD_DATE to the ko step. Nothing upstream had to change; the
+      # variables were there before this repository looked for them.
       #
-      # A local `ko build` in a full clone does stamp the real tag.
-      - -X main.version={{.Git.Tag}}
+      # `index .Env "…"` rather than `.Env.VERSION`, and the difference is not
+      # style: ko renders these with `missingkey=error`, so the field form
+      # fails the whole build when the variable is unset — which is every build
+      # outside that workflow, including `task ci:image`, because
+      # stuttgart-things/dagger/go's KoBuild sets neither. `index` yields an
+      # empty string instead, and api.BuildInfo turns that into "dev". Measured
+      # against ko 0.18.0, both forms, both ways.
+      #
+      # Not {{.Git.Tag}}: the shared workflow checks out shallow, and while a
+      # shallow clone does carry a tag that sits on the fetched commit, it
+      # carries none on a plain push to main — where `git describe` would then
+      # find nothing at all. VERSION handles both, because --always falls back
+      # to the commit.
+      - -X main.version={{index .Env "VERSION"}}
+      - -X main.commit={{index .Env "COMMIT"}}
+      - -X main.date={{index .Env "BUILD_DATE"}}

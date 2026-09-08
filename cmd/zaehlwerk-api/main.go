@@ -34,9 +34,9 @@ const (
 // deliberately left empty rather than given defaults here: api.BuildInfo
 // decides what an unset field reads as, so there is one answer instead of two.
 //
-// version is the last git tag. It is empty on a build with no tags in reach —
-// which includes every CI image build today, because the shared ko workflow
-// checks out shallow and `git describe` then finds nothing.
+// A build that stamps nothing — `go build`, or ko outside the shared CI
+// workflow — leaves all three empty, and /healthz then says dev rather than
+// serving blank fields.
 var (
 	version string
 	commit  string
