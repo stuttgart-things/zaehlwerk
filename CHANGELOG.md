@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.1.0...v0.2.0) (2026-09-08)
+
+
+### Features
+
+* a KCL module for running this on Kubernetes ([#31](https://github.com/stuttgart-things/zaehlwerk/issues/31)) ([acc45ff](https://github.com/stuttgart-things/zaehlwerk/commit/acc45ffb3046ac711e1a1e355ba5a83cc30a08c9))
+
 ## 0.1.0 (2026-09-08)
 
 
