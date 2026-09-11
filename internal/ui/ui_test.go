@@ -174,6 +174,59 @@ func TestAnUnknownMatchIsSaidRatherThanShown(t *testing.T) {
 	require.Contains(t, body, "no such match")
 }
 
+// The form is what nobody needs during a match and the first thing they need
+// without one. Open while a match runs, it sat between the scorekeeper's thumb
+// and the timeline for twenty minutes.
+func TestTheNewMatchFormFoldsAwayWhileAMatchRuns(t *testing.T) {
+	f := newFixture(t)
+	openForm := regexp.MustCompile(`<details class="card newmatch" open>`)
+
+	_, empty := f.do(http.MethodGet, "/ui", nil)
+	require.Regexp(t, openForm, empty, "nothing is running, so the form is the page")
+
+	m := f.match("Anna", "Bernd")
+	_, running := f.do(http.MethodGet, "/ui", nil)
+	require.Contains(t, running, `class="card newmatch"`)
+	require.NotRegexp(t, openForm, running)
+
+	f.do(http.MethodPost, "/ui/matches/"+m.ID+"/end", nil)
+	_, ended := f.do(http.MethodGet, "/ui?match="+m.ID, nil)
+	require.Regexp(t, openForm, ended, "an ended match is followed by the next one")
+}
+
+// The pills are radio buttons, and a radio button sends only what its name and
+// value say. A renamed one would start every match as a best of five with the
+// left player serving, and nothing on the page would look wrong.
+func TestTheFormSendsTheFieldsTheHandlerReads(t *testing.T) {
+	f := newFixture(t)
+
+	_, body := f.do(http.MethodGet, "/ui", nil)
+
+	for _, field := range []string{
+		`name="player_a"`, `name="player_b"`,
+		`name="best_of" value="3"`, `name="best_of" value="5" checked`, `name="best_of" value="7"`,
+		`name="first_server" value="a" checked`, `name="first_server" value="b"`,
+	} {
+		require.Contains(t, body, field)
+	}
+}
+
+// A won match says so on the winner's side. "ended" is for a match somebody
+// stopped, and calling a win that would read as if nobody had won it.
+func TestAWonMatchIsMarkedOnTheWinnersSide(t *testing.T) {
+	f := newFixture(t)
+	m := f.match("Anna", "Bernd")
+
+	var body string
+	for range 22 {
+		body = f.point(m, "b")
+	}
+	require.True(t, m.Scorer.State().Complete)
+
+	require.Regexp(t, `class="side winner">\s*<div class="name">Bernd</div>\s*<div class="status"><span class="state state-won">won</span>`, body)
+	require.NotContains(t, body, "state-ended")
+}
+
 func TestStartingAMatchGoesThroughTheLifecycle(t *testing.T) {
 	f := newFixture(t)
 

@@ -3,11 +3,11 @@
   <section class="card board" id="board" sse-swap="board" hx-swap="innerHTML">
     {{- template "board" . -}}
   </section>
-  <aside class="card timeline">
-    <h2>panel timeline</h2>
+  <section class="card timeline">
+    <h2>Panel timeline</h2>
     <div id="log" class="log" sse-swap="log" hx-swap="innerHTML">
       {{- template "log" . -}}
     </div>
-  </aside>
+  </section>
 </div>
 {{end}}

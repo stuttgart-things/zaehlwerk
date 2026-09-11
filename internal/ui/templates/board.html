@@ -1,58 +1,65 @@
 {{define "board"}}
 {{- if .Match}}
-<div class="score">
-  <div class="side{{if .Match.A.Serving}} serving{{end}}{{if .Match.A.Winner}} winner{{end}}">
-    <div class="name">{{.Match.A.Name}}</div>
-    <div class="points">{{.Match.A.Points}}</div>
-    <div class="sets">sets {{.Match.A.Sets}}</div>
-  </div>
-  <div class="colon">:</div>
-  <div class="side{{if .Match.B.Serving}} serving{{end}}{{if .Match.B.Winner}} winner{{end}}">
-    <div class="name">{{.Match.B.Name}}</div>
-    <div class="points">{{.Match.B.Points}}</div>
-    <div class="sets">sets {{.Match.B.Sets}}</div>
-  </div>
-</div>
-
-<div class="meta">
-  <span>set {{.Match.SetNumber}}</span>
-  <span class="match-id">match {{.Match.ID}}</span>
-  {{- if .Match.Complete}}<span class="badge won">won</span>
-  {{- else if not .Match.Running}}<span class="badge ended">ended</span>
-  {{- end}}
-  {{- range .Match.CompletedSets}}<span class="set-chip">{{index . 0}}:{{index . 1}}</span>{{end}}
-</div>
-
-<div class="panel-preview">
-  <span class="panel-label">panel</span>
-  <strong>{{.Match.Panel}}</strong>
-  <span class="panel-hint">the title this score is pitched to the matrix as</span>
-</div>
-
-<div class="controls">
 {{/* The braces around zwPoint are load-bearing: htmx wraps any js: expression
      that does not already start with "{" in braces of its own, so a bare
      zwPoint("a") is evaluated as {zwPoint("a")} — a SyntaxError thrown before
      the request is issued, which looks exactly like a dead button. */}}
-  <button type="button" id="point-a" class="point"
-          hx-post="/ui/matches/{{.Match.ID}}/point" hx-vals='js:{...zwPoint("a")}'
-          hx-target="#board" hx-swap="innerHTML"
-          {{if not .Match.Running}}disabled{{end}}>+1 {{.Match.A.Name}} <kbd>a</kbd></button>
-  <button type="button" id="point-b" class="point"
-          hx-post="/ui/matches/{{.Match.ID}}/point" hx-vals='js:{...zwPoint("b")}'
-          hx-target="#board" hx-swap="innerHTML"
-          {{if not .Match.Running}}disabled{{end}}>+1 {{.Match.B.Name}} <kbd>b</kbd></button>
+<div class="score">
+  <div class="side{{if .Match.A.Serving}} serving{{end}}{{if .Match.A.Winner}} winner{{end}}">
+    <div class="name">{{.Match.A.Name}}</div>
+    <div class="status">
+      {{- if .Match.A.Winner}}<span class="state state-won">won</span>
+      {{- else if .Match.A.Serving}}<span class="state state-serve">serves</span>{{end -}}
+    </div>
+    <div class="points">{{.Match.A.Points}}</div>
+    <div class="sets">sets <b>{{.Match.A.Sets}}</b></div>
+    <button type="button" id="point-a" class="point" aria-label="Point for {{.Match.A.Name}}"
+            hx-post="/ui/matches/{{.Match.ID}}/point" hx-vals='js:{...zwPoint("a")}'
+            hx-target="#board" hx-swap="innerHTML"
+            {{if not .Match.Running}}disabled{{end}}>+1<kbd>a</kbd></button>
+  </div>
+  <div class="side{{if .Match.B.Serving}} serving{{end}}{{if .Match.B.Winner}} winner{{end}}">
+    <div class="name">{{.Match.B.Name}}</div>
+    <div class="status">
+      {{- if .Match.B.Winner}}<span class="state state-won">won</span>
+      {{- else if .Match.B.Serving}}<span class="state state-serve">serves</span>{{end -}}
+    </div>
+    <div class="points">{{.Match.B.Points}}</div>
+    <div class="sets">sets <b>{{.Match.B.Sets}}</b></div>
+    <button type="button" id="point-b" class="point" aria-label="Point for {{.Match.B.Name}}"
+            hx-post="/ui/matches/{{.Match.ID}}/point" hx-vals='js:{...zwPoint("b")}'
+            hx-target="#board" hx-swap="innerHTML"
+            {{if not .Match.Running}}disabled{{end}}>+1<kbd>b</kbd></button>
+  </div>
+</div>
+
+<div class="controls">
   {{/* Undo is never disabled: taking back a wrongly awarded match point is
        exactly when it is needed, which is why the API does not gate it on the
        match still running either. */}}
   <button type="button" id="undo" class="secondary"
           hx-post="/ui/matches/{{.Match.ID}}/undo"
-          hx-target="#board" hx-swap="innerHTML">undo <kbd>u</kbd></button>
+          hx-target="#board" hx-swap="innerHTML">Undo<kbd>u</kbd></button>
   <button type="button" id="end" class="secondary"
           hx-post="/ui/matches/{{.Match.ID}}/end"
           hx-confirm="End this match and give the panel back?"
           hx-target="#board" hx-swap="innerHTML"
-          {{if not .Match.Running}}disabled{{end}}>end match</button>
+          {{if not .Match.Running}}disabled{{end}}>End match</button>
+</div>
+
+<div class="meta">
+  <span class="label">set {{.Match.SetNumber}}</span>
+  {{- range .Match.CompletedSets}}<span class="chip">{{index . 0}}:{{index . 1}}</span>{{end}}
+  {{- /* A won match says so on the winner's side; this is for one that was
+         ended without a winner. */}}
+  {{- if and (not .Match.Complete) (not .Match.Running)}}<span class="state state-ended">ended</span>{{end}}
+  <span class="match-id">{{.Match.ID}}</span>
+</div>
+
+<div class="panel-preview">
+  <span class="label">panel</span>
+  <strong>{{.Match.Panel}}</strong>
+  <span class="panel-hint">the title this score is pitched to the matrix as</span>
 </div>
 {{- else}}
 <div class="empty">

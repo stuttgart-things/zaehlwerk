@@ -1,371 +1,570 @@
 {{define "page"}}<!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ZÄHLWERK</title>
+    {{/* viewport-fit=cover so the safe-area insets below mean something: a
+         phone held in landscape at the table otherwise loses the edge of the
+         point buttons under the notch. */}}
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0a0a12">
+    <title>Zählwerk</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400..700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"></script>
     <style>
+        /* The palette, the type and the shapes are schmetterpause's
+           (web/static/css/app.css there), because this is the same product
+           family: somebody scores a match here and enters it there, and the
+           two should not look like they came from different offices. Copied
+           rather than shared — there is no asset pipeline between the two
+           repositories, and a handful of tokens does not justify one. A change
+           to them over there is worth carrying over here. */
         :root {
-            --bg-primary: #0f172a;
-            --bg-secondary: #1e293b;
-            --bg-tertiary: #334155;
-            --text-primary: #e2e8f0;
-            --text-secondary: #94a3b8;
-            --accent-indigo: #6366f1;
-            --accent-purple: #8b5cf6;
-            --accent-orange: #f97316;
-            --success: #22c55e;
-            --error: #ef4444;
+            color-scheme: dark;
+
+            --bg: #0a0a12;
+            --card: #15152a;
+            --panel: #1e1e3d;
+            --line: #2e2e55;
+            --field-line: #6a6aa8;
+
+            --fg: #ececff;
+            --fg-soft: #c6c6e4;
+            --muted: #8f8fb8;
+
+            /* One action colour, as over there: everything that scores or
+               starts something is this violet. */
+            --accent: #7452ff;
+            --accent-text: #8c70ff;
+            --accent-ink: #ffffff;
+
+            --ok: #3ddc97;
+            --bad: #ff5d73;
+
+            --font-ui: "Space Grotesk", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+            --radius: 0.875rem;
+            --radius-sm: 0.5rem;
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * { box-sizing: border-box; }
 
         body {
-            font-family: 'JetBrains Mono', monospace;
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            font-size: 13px;
+            margin: 0;
             min-height: 100vh;
-            padding-bottom: 40px;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg);
+            color: var(--fg);
+            font: 400 16px/1.55 var(--font-ui);
+            -webkit-font-smoothing: antialiased;
+            padding-bottom: env(safe-area-inset-bottom);
         }
 
-        .header {
-            background: linear-gradient(135deg, var(--accent-indigo), var(--accent-purple));
-            padding: 16px 24px;
-            border-bottom: 3px solid var(--accent-orange);
+        .topbar, main, .footer {
+            width: 100%;
+            max-width: 46rem;
+            margin: 0 auto;
+            padding-left: max(1rem, env(safe-area-inset-left));
+            padding-right: max(1rem, env(safe-area-inset-right));
+        }
+
+        /* --- Top bar ---------------------------------------------------- */
+
+        .topbar {
             display: flex;
             align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 12px;
+            gap: 0.75rem;
+            padding-top: 1rem;
+            padding-bottom: 0.9rem;
+            border-bottom: 1px solid var(--line);
         }
 
-        .header-title {
-            font-family: 'Press Start 2P', cursive;
-            font-size: 1.4rem;
-            color: white;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.4);
+        /* The wordmark splits the way schmetterpause's does, the second half
+           in the action colour. */
+        .brand {
+            font-weight: 700;
+            font-size: 1.35rem;
+            letter-spacing: -0.02em;
         }
 
-        .header-subtitle {
-            font-family: 'Press Start 2P', cursive;
-            font-size: 0.6rem;
-            color: var(--accent-orange);
-            margin-top: 6px;
+        .brand-mark { color: var(--accent-text); }
+
+        .tagline {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            letter-spacing: 0.12em;
             text-transform: uppercase;
+            color: var(--muted);
+            margin-right: auto;
         }
 
-        .badge-strip { display: flex; gap: 10px; flex-wrap: wrap; }
+        @media (max-width: 34rem) {
+            .tagline { display: none; }
+            .brand { margin-right: auto; }
+        }
 
-        .stat-badge {
-            background: rgba(255,255,255,0.15);
-            padding: 6px 12px;
-            border-radius: 6px;
+        /* Who is counting, where schmetterpause says who is signed in: the
+           nearest thing this page has to an identity is its source. */
+        .source {
+            flex: none;
+            font-family: var(--font-mono);
             font-size: 0.75rem;
-            color: white;
+            letter-spacing: 0.04em;
+            padding: 0.3rem 0.7rem;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            background: var(--card);
+            color: var(--fg-soft);
         }
 
-        .stat-badge strong { color: var(--accent-orange); }
+        main { flex: 1; padding-top: 1rem; padding-bottom: 1.5rem; }
 
-        .live {
-            display: grid;
-            grid-template-columns: 1fr 360px;
-            gap: 16px;
-            padding: 16px 24px;
-            align-items: start;
-        }
-
-        @media (max-width: 900px) { .live { grid-template-columns: 1fr; } }
+        /* --- Cards and labels ------------------------------------------- */
 
         .card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--bg-tertiary);
-            border-radius: 10px;
-            padding: 20px;
+            margin: 0 0 1rem;
+            padding: 1rem;
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            /* A grid or flex child refuses to shrink below its content
+               without this, and a long name then pushed the whole board past
+               the edge of a phone. */
+            min-width: 0;
         }
+
+        .label, .card h2, label, legend, summary {
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            font-weight: 400;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        .card h2 { margin: 0 0 0.6rem; }
+
+        /* --- Score ------------------------------------------------------ */
 
         .score {
             display: grid;
-            grid-template-columns: 1fr auto 1fr;
-            align-items: center;
-            gap: 8px;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 0.6rem;
         }
 
+        /* Each side is a box with its button under it, so the thumb that
+           scores for the left player is under the left score and nowhere
+           else — the arrangement schmetterpause's set entry uses. */
         .side {
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            min-width: 0;
+            padding: 0.8rem 0.6rem 0.6rem;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
             text-align: center;
-            padding: 14px 8px;
-            border-radius: 10px;
-            border: 2px solid transparent;
-            background: rgba(255,255,255,0.03);
         }
 
-        .side.serving {
-            border-color: var(--accent-orange);
-            background: rgba(249,115,22,0.08);
-        }
+        .side.serving { border-color: var(--field-line); }
 
         .side.winner {
-            border-color: var(--success);
-            background: rgba(34,197,94,0.10);
+            border-color: var(--ok);
+            background: color-mix(in srgb, var(--ok) 8%, var(--panel));
         }
 
-        .side .name {
-            font-family: 'Press Start 2P', cursive;
-            font-size: 0.7rem;
-            color: var(--text-secondary);
-            word-break: break-word;
+        .name {
+            font-weight: 600;
+            font-size: 1.05rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
-        .side.serving .name::after {
-            content: ' •';
-            color: var(--accent-orange);
+        /* Held to one line whatever happens next to it, so the number does
+           not jump down when the serve moves to this side. */
+        .status {
+            height: 1.25rem;
+            margin-top: 0.15rem;
         }
 
-        .side .points {
-            font-family: 'Press Start 2P', cursive;
-            /* The pixel font is wide, and a two-digit score on a phone held
-               over the table has to fit without wrapping. */
-            font-size: clamp(1.8rem, 9vw, 3rem);
-            margin: 14px 0 10px;
-            color: var(--text-primary);
+        .state {
+            display: inline-block;
+            padding: 0.05rem 0.45rem;
+            border-radius: 999px;
+            font-family: var(--font-mono);
+            font-size: 0.62rem;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            vertical-align: middle;
         }
 
-        .side .sets { font-size: 0.75rem; color: var(--text-secondary); }
+        .state-serve { color: var(--fg); background: color-mix(in srgb, var(--accent) 30%, transparent); }
+        .state-won { color: var(--bg); background: var(--ok); }
+        .state-ended { color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); }
 
-        .colon {
-            font-family: 'Press Start 2P', cursive;
+        /* Sized from the viewport, because the score is read from a phone
+           held over the table or from a laptop a step away, and both want it
+           as large as the column allows. Two digits have to fit a column of a
+           360px phone at the lower bound. */
+        .points {
+            margin: 0.1rem 0 0;
+            font-size: clamp(3.5rem, 21vw, 6.5rem);
+            font-weight: 700;
+            letter-spacing: -0.04em;
+            line-height: 1;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .sets {
+            margin: 0.35rem 0 0;
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        .sets b { color: var(--fg); font-weight: 700; }
+
+        /* --- Buttons ---------------------------------------------------- */
+
+        button {
+            font-family: var(--font-ui);
+            font-size: 1rem;
+            font-weight: 600;
+            padding: 0.6rem 1.1rem;
+            background: var(--accent);
+            color: var(--accent-ink);
+            border: 1px solid var(--accent);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            /* Two quick taps on the same point button are two points, not a
+               zoom, and a thumb sliding off must not select the score. */
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        button:hover { filter: brightness(1.1); }
+        button:active { transform: translateY(1px); }
+
+        button:focus-visible, input:focus-visible, summary:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+
+        button.secondary {
+            background: transparent;
+            color: var(--fg);
+            border-color: var(--line);
+        }
+
+        button.secondary:hover { background: var(--panel); filter: none; }
+
+        /* A flat outline rather than the accent at reduced opacity, which
+           reads as still loading — schmetterpause's reasoning, and the ended
+           match is exactly the case where that confusion would bite.
+
+           After .secondary on purpose, and as specific as it: a disabled "End
+           match" otherwise kept the foreground colour and looked pressable on
+           a match that was already over. */
+        button:disabled, button.secondary:disabled {
+            background: transparent;
+            color: var(--muted);
+            border-color: var(--line);
+            cursor: not-allowed;
+            filter: none;
+            transform: none;
+        }
+
+        /* The one thing on the page that is pressed without looking. Tall
+           enough to hit with a thumb while holding a bat, and it says it has
+           been hit while the request is on its way — htmx sets htmx-request on
+           the element for exactly that long. */
+        .point {
+            margin-top: 0.7rem;
+            min-height: clamp(3.75rem, 11vh, 5.5rem);
             font-size: 1.6rem;
-            color: var(--text-secondary);
-            opacity: 0.6;
+            font-weight: 700;
+            letter-spacing: -0.01em;
         }
+
+        .point.htmx-request { filter: brightness(0.8); }
+
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.6rem;
+            margin-top: 0.6rem;
+        }
+
+        .controls button { min-height: 3rem; }
+
+        kbd {
+            font-family: var(--font-mono);
+            font-size: 0.65rem;
+            font-weight: 400;
+            border: 1px solid currentColor;
+            border-radius: 4px;
+            padding: 0 0.3rem;
+            margin-left: 0.45rem;
+            opacity: 0.6;
+            vertical-align: middle;
+        }
+
+        /* A shortcut on a phone is a label for a key that is not there. */
+        @media (hover: none) { kbd, .keys { display: none; } }
+
+        /* --- Match line and panel --------------------------------------- */
 
         .meta {
             display: flex;
             flex-wrap: wrap;
-            gap: 8px;
             align-items: center;
-            margin-top: 16px;
+            gap: 0.4rem 0.5rem;
+            margin-top: 0.8rem;
+        }
+
+        .chip {
+            display: inline-flex;
+            align-items: baseline;
+            gap: 0.35rem;
+            padding: 0.2rem 0.6rem;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            font-family: var(--font-mono);
             font-size: 0.72rem;
-            color: var(--text-secondary);
+            letter-spacing: 0.04em;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
         }
 
-        .match-id { color: var(--text-secondary); opacity: 0.75; }
+        .match-id { margin-left: auto; font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); }
 
-        .badge {
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-size: 0.6rem;
-            font-weight: 700;
-        }
-
-        .badge.won { background: rgba(34,197,94,0.2); color: var(--success); border: 1px solid var(--success); }
-        .badge.ended { background: rgba(148,163,184,0.15); color: var(--text-secondary); border: 1px solid var(--text-secondary); }
-
-        .set-chip {
-            background: var(--bg-tertiary);
-            border-radius: 3px;
-            padding: 2px 6px;
-            font-size: 0.68rem;
-        }
-
+        /* What the matrix is being told, dark like the matrix, so the page and
+           the panel can be disagreed with in one glance. */
         .panel-preview {
-            margin-top: 16px;
-            padding: 10px 12px;
-            background: #000;
-            border: 1px solid var(--bg-tertiary);
-            border-radius: 8px;
             display: flex;
             align-items: baseline;
-            gap: 10px;
             flex-wrap: wrap;
-        }
-
-        .panel-label {
-            font-size: 0.6rem;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: var(--text-secondary);
+            gap: 0.3rem 0.7rem;
+            margin-top: 0.8rem;
+            padding: 0.55rem 0.8rem;
+            background: #000;
+            border: 1px solid var(--line);
+            border-radius: var(--radius-sm);
         }
 
         .panel-preview strong {
-            font-family: 'Press Start 2P', cursive;
-            font-size: 1.1rem;
-            color: var(--accent-orange);
-        }
-
-        .panel-hint { font-size: 0.65rem; color: var(--text-secondary); opacity: 0.8; }
-
-        .controls {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 18px;
-        }
-
-        button, .newmatch input, .newmatch select {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.8rem;
-            border-radius: 8px;
-            border: 1px solid var(--bg-tertiary);
-            padding: 12px 16px;
-            color: var(--text-primary);
-            background: var(--bg-tertiary);
-        }
-
-        button { cursor: pointer; transition: filter 0.15s, opacity 0.15s; }
-        button:hover:not(:disabled) { filter: brightness(1.25); }
-        button:disabled { opacity: 0.4; cursor: not-allowed; }
-
-        .point {
-            flex: 1 1 180px;
-            background: var(--accent-indigo);
-            border-color: var(--accent-purple);
-            color: white;
+            font-family: var(--font-mono);
+            font-size: 1.15rem;
             font-weight: 700;
+            color: var(--fg);
         }
 
-        .secondary { background: var(--bg-tertiary); }
+        .panel-hint { font-size: 0.8rem; color: var(--muted); }
 
-        /* On a phone the two point buttons get a row each: they are what a
-           thumb reaches for, and undo sits below rather than beside them. */
-        @media (max-width: 560px) {
-            .controls { display: grid; grid-template-columns: 1fr 1fr; }
-            .point { grid-column: span 2; }
-        }
-
-        kbd {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.6rem;
-            border: 1px solid rgba(255,255,255,0.35);
-            border-radius: 3px;
-            padding: 1px 4px;
-            margin-left: 6px;
-            opacity: 0.7;
-        }
-
-        .empty { color: var(--text-secondary); text-align: center; padding: 30px 10px; }
-        .empty .hint { margin-top: 10px; font-size: 0.72rem; opacity: 0.8; }
+        .empty { text-align: center; padding: 1.5rem 0.5rem; color: var(--fg-soft); }
+        .empty p { margin: 0; }
+        .empty .hint { margin-top: 0.5rem; font-size: 0.9rem; color: var(--muted); }
+        .empty code { font-family: var(--font-mono); font-size: 0.85em; }
 
         .error {
-            margin-top: 14px;
-            padding: 10px 12px;
-            border-radius: 6px;
-            background: rgba(239,68,68,0.15);
-            border: 1px solid var(--error);
-            color: var(--error);
-            font-size: 0.75rem;
+            margin-top: 0.8rem;
+            padding: 0.6rem 0.8rem;
+            border-radius: var(--radius-sm);
+            background: color-mix(in srgb, var(--bad) 14%, var(--card));
+            border: 1px solid color-mix(in srgb, var(--bad) 55%, transparent);
+            color: var(--bad);
+            font-size: 0.9rem;
         }
 
-        .timeline h2 {
-            font-family: 'Press Start 2P', cursive;
-            font-size: 0.6rem;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 14px;
-        }
+        /* --- Timeline --------------------------------------------------- */
 
-        .log { min-height: 120px; max-height: 420px; overflow-y: auto; }
+        .log { max-height: 22rem; overflow-y: auto; overscroll-behavior: contain; }
 
         .log-row {
             display: grid;
-            grid-template-columns: 62px 74px 1fr;
-            gap: 8px;
+            grid-template-columns: auto 5.5rem minmax(0, 1fr);
+            gap: 0.75rem;
             align-items: baseline;
-            padding: 6px 0;
-            border-bottom: 1px solid var(--bg-tertiary);
-            font-size: 0.72rem;
+            padding: 0.45rem 0;
+            border-bottom: 1px solid var(--line);
+            font-size: 0.9rem;
         }
 
-        .log-time { color: var(--text-secondary); }
-        .log-title { font-weight: 700; color: var(--accent-orange); }
-        .log-row.sev-SUCCESS .log-title { color: var(--success); }
-        .log-summary { color: var(--text-secondary); }
+        .log-row:last-child { border-bottom: none; }
 
-        .empty-state { color: var(--text-secondary); font-size: 0.72rem; opacity: 0.8; line-height: 1.5; }
+        .log-time, .log-title { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+        .log-time { font-size: 0.75rem; color: var(--muted); }
+        .log-title { font-weight: 700; white-space: nowrap; }
+        .log-row.sev-SUCCESS .log-title { color: var(--ok); }
+        .log-summary { color: var(--fg-soft); overflow-wrap: anywhere; }
 
-        .newmatch {
-            margin: 0 24px;
-            background: var(--bg-secondary);
-            border: 1px solid var(--bg-tertiary);
-            border-radius: 10px;
-            padding: 16px 20px;
+        /* On a phone the summary gets a line of its own: squeezed beside the
+           time and the title it wrapped after every word. */
+        @media (max-width: 30rem) {
+            .log-row { grid-template-columns: auto minmax(0, 1fr); gap: 0.1rem 0.75rem; }
+            .log-summary { grid-column: 2; font-size: 0.85rem; }
+        }
+
+        .empty-state { color: var(--muted); font-size: 0.9rem; }
+
+        /* --- New match -------------------------------------------------- */
+
+        .newmatch summary {
+            cursor: pointer;
+            list-style: none;
             display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
             align-items: center;
+            justify-content: space-between;
+            min-height: 1.5rem;
         }
 
-        .newmatch h2 {
-            font-family: 'Press Start 2P', cursive;
-            font-size: 0.6rem;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-right: 8px;
+        .newmatch summary::-webkit-details-marker { display: none; }
+        .newmatch summary::after { content: "+"; font-size: 1.1rem; color: var(--accent-text); }
+        .newmatch[open] summary::after { content: "−"; }
+        .newmatch[open] summary { margin-bottom: 0.8rem; }
+
+        .fields {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 0.6rem;
         }
 
-        .newmatch input { width: 150px; }
-        .newmatch button { background: var(--accent-orange); border-color: var(--accent-orange); color: #1c1917; font-weight: 700; }
+        .fields label { display: flex; flex-direction: column; gap: 0.25rem; }
+
+        /* 16px and up, or iOS zooms the whole page in on focus and leaves it
+           there. */
+        input[type="text"] {
+            width: 100%;
+            font: inherit;
+            font-size: 1rem;
+            padding: 0.6rem 0.7rem;
+            background: var(--panel);
+            color: var(--fg);
+            border: 1px solid var(--field-line);
+            border-radius: var(--radius-sm);
+            text-transform: none;
+            letter-spacing: normal;
+        }
+
+        input::placeholder { color: var(--muted); }
+
+        fieldset { border: 0; margin: 0.8rem 0 0; padding: 0; min-width: 0; }
+        legend { padding: 0; margin-bottom: 0.35rem; }
+
+        .picks { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+
+        /* A name to tap rather than a select to open: schmetterpause's .pick.
+           The radio is still there, hidden the accessible way, so it keeps
+           the click through the label, the tab order and its meaning. */
+        .pick { cursor: pointer; }
+
+        .pick input {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            margin: -1px;
+            overflow: hidden;
+            clip-path: inset(50%);
+        }
+
+        .pick span {
+            display: inline-block;
+            padding: 0.5rem 0.95rem;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            font-family: var(--font-ui);
+            font-size: 0.95rem;
+            letter-spacing: normal;
+            text-transform: none;
+            color: var(--fg);
+            line-height: 1.2;
+        }
+
+        .pick input:checked + span { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+        .pick input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+        .start { width: 100%; margin-top: 1rem; min-height: 3rem; }
+
+        /* --- Footer ----------------------------------------------------- */
 
         .footer {
-            margin-top: 16px;
-            padding: 10px 24px;
-            font-size: 0.68rem;
-            color: var(--text-secondary);
+            padding-top: 0.5rem;
+            padding-bottom: 1.25rem;
             display: flex;
-            gap: 16px;
             flex-wrap: wrap;
-            justify-content: space-between;
+            gap: 0.4rem 1rem;
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            color: var(--muted);
         }
 
-        .footer a { color: var(--accent-purple); text-decoration: none; }
-
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: var(--bg-primary); }
-        ::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 3px; }
+        .footer a { color: var(--muted); margin-left: auto; }
+        .footer a:hover { color: var(--accent-text); }
     </style>
 </head>
 <body>
-    <div class="header">
-        <div>
-            <div class="header-title">ZÄHLWERK</div>
-            <div class="header-subtitle">table tennis &mdash; scoring mock</div>
-        </div>
-        <div class="badge-strip">
-            <div class="stat-badge">Scoring as <strong id="source-badge">&hellip;</strong></div>
-            <div class="stat-badge">Points go to <strong>/ingest</strong>, same as the buttons</div>
-        </div>
-    </div>
+    <header class="topbar">
+        <span class="brand">Zähl<span class="brand-mark">werk</span></span>
+        <span class="tagline">Table tennis · live score</span>
+        <span class="source" title="This page's source. Each page counts for itself, so two phones on one match never share a counter.">
+            <span id="source-badge">&hellip;</span>
+        </span>
+    </header>
 
-    {{template "live" .}}
+    <main>
+        {{template "live" .}}
 
-    <form class="newmatch" hx-post="/ui/matches" hx-target="#live" hx-swap="outerHTML">
-        <h2>new match</h2>
-        <input type="text" name="player_a" placeholder="Anna" autocomplete="off" aria-label="first player">
-        <input type="text" name="player_b" placeholder="Bernd" autocomplete="off" aria-label="second player">
-        <select name="best_of" aria-label="best of">
-            <option value="3">best of 3</option>
-            <option value="5" selected>best of 5</option>
-            <option value="7">best of 7</option>
-        </select>
-        <select name="first_server" aria-label="first server">
-            <option value="a">first serve: left</option>
-            <option value="b">first serve: right</option>
-        </select>
-        <button type="submit">start</button>
-    </form>
+        {{/* Open when there is nothing to score, folded away while a match
+             runs: on a phone the form would otherwise sit between the
+             scorekeeper and the timeline for the whole match. */}}
+        <details class="card newmatch"{{if not (and .Match .Match.Running)}} open{{end}}>
+            <summary>New match</summary>
+            <form hx-post="/ui/matches" hx-target="#live" hx-swap="outerHTML">
+                <div class="fields">
+                    <label>Left
+                        <input type="text" name="player_a" placeholder="Anna" autocomplete="off" autocapitalize="words">
+                    </label>
+                    <label>Right
+                        <input type="text" name="player_b" placeholder="Bernd" autocomplete="off" autocapitalize="words">
+                    </label>
+                </div>
+                <fieldset>
+                    <legend>Best of</legend>
+                    <div class="picks">
+                        <label class="pick"><input type="radio" name="best_of" value="3"><span>3</span></label>
+                        <label class="pick"><input type="radio" name="best_of" value="5" checked><span>5</span></label>
+                        <label class="pick"><input type="radio" name="best_of" value="7"><span>7</span></label>
+                    </div>
+                </fieldset>
+                <fieldset>
+                    <legend>First serve</legend>
+                    <div class="picks">
+                        <label class="pick"><input type="radio" name="first_server" value="a" checked><span>Left</span></label>
+                        <label class="pick"><input type="radio" name="first_server" value="b"><span>Right</span></label>
+                    </div>
+                </fieldset>
+                <button type="submit" class="start">Start</button>
+            </form>
+        </details>
+    </main>
 
-    <div class="footer">
-        <span>a / b score, u takes one back. Each page counts for itself, so two phones on one match never share a counter.</span>
+    <footer class="footer">
+        <span>Points go to /ingest, same as the buttons.</span>
+        <span class="keys">a / b score, u takes one back.</span>
         <a href="https://github.com/stuttgart-things/zaehlwerk">stuttgart-things/zaehlwerk</a>
-    </div>
+    </footer>
 
     <script>
         // One source per page load and a counter that only goes up: what a
