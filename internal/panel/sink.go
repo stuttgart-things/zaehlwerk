@@ -235,16 +235,33 @@ func (s *Sink) pitch(t scorer.Transition) {
 // It is exported and pure so that the panel wording can be checked, and
 // changed, without a Redis anywhere near it.
 func Message(t scorer.Transition, system, author string, now time.Time) homerun.Message {
-	st := t.State
 	return homerun.Message{
 		System:    system,
 		Severity:  Severity(t.Kind),
 		Title:     Title(t),
 		Message:   Summary(t),
 		Author:    author,
-		Tags:      fmt.Sprintf("match=%s,set=%d", st.MatchID, st.SetNumber),
+		Tags:      Tags(t),
 		Timestamp: now.Format(time.RFC3339),
 	}
+}
+
+// Tags is what a catcher filters on without learning any table tennis: which
+// match and set, what happened, and which side it went to. A light at the
+// table flashes in the colour of `side`; a Teams post waits for
+// `transition=match_won` rather than for the wording of Summary.
+//
+// New tags go on the end. `match=` and `set=` come first and stay in that
+// order, so a rule written against them before the others existed still
+// matches. `side` is left out, not sent as `side=`, when the transition went
+// to nobody — an undo, or a correction that lowered a score — so a rule that
+// asks for a side cannot be satisfied by a transition that has none.
+func Tags(t scorer.Transition) string {
+	tags := fmt.Sprintf("match=%s,set=%d,transition=%s", t.State.MatchID, t.State.SetNumber, t.Kind)
+	if t.Side != "" {
+		tags += ",side=" + string(t.Side)
+	}
+	return tags
 }
 
 // Severity maps a transition to a homerun severity, which is what the catcher

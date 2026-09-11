@@ -119,6 +119,14 @@ func (h *harness) kinds() []TransitionKind {
 	return out
 }
 
+// last is the most recent transition emitted.
+func (h *harness) last() Transition {
+	h.t.Helper()
+
+	require.NotEmpty(h.t, h.seen, "no transition emitted")
+	return h.seen[len(h.seen)-1]
+}
+
 // repeat builds a point sequence, e.g. repeat("ab", 10) for twenty points.
 func repeat(seq string, n int) string {
 	out := ""
