@@ -228,9 +228,19 @@ else's phone lands on it. That is why `GET /matches/{id}/stream` can stay JSON:
 the clients that render differently keep the format that lets them, and the one
 page whose markup this service owns gets the format htmx wants.
 
-htmx and its SSE extension come off a CDN, the way the led-catcher's simulator
-loads them: the browser opening the page needs to reach `unpkg.com` once, and
-nothing else in the service does.
+**It looks like schmetterpause and is laid out for a phone first.** The page
+started as a copy of the led-catcher simulator's look, which was right for a
+mock and wrong for the product family: somebody scores a match here and enters
+it in schmetterpause, so the palette, the type (Space Grotesk and JetBrains
+Mono) and the shapes are schmetterpause's, copied into the page rather than
+shared. Each score has its `+1` directly under it, tall enough to hit with a
+thumb while holding a bat; the keyboard hints only show where there is a
+keyboard, and the new-match form folds away while a match is running.
+
+htmx, its SSE extension and the two typefaces come off a CDN, the way the
+led-catcher's simulator loads its dependencies: the browser opening the page
+needs to reach `unpkg.com` and Google Fonts once, and nothing else in the
+service does.
 
 The page is as unauthenticated as `/ingest/web` is — same network, same
 assumption.
