@@ -248,7 +248,7 @@ homerun2-led-catcher picks it up and renders it on the 64x64 matrix.
 | `title` | `7:5`, `SET 1:0`, `WIN 3:1` — the whole of what the panel shows |
 | `message` | `Anna 7 : 5 Bernd` — for the catcher's log, never on the matrix |
 | `author` | `zaehlwerk` |
-| `tags` | `match=<id>,set=<n>` |
+| `tags` | `match=<id>,set=<n>,transition=<kind>[,side=a\|b]` |
 
 The catcher renders `{{ title }}` and nothing else, so the score has to fit in
 a title: a 6x10 font at x=2 on a 64x64 panel is about ten glyphs, and anything
@@ -259,6 +259,27 @@ every score a match can reach.
 `2:1` are otherwise the same three characters, and the panel would be ambiguous
 exactly when it matters. Whether that is the right wording is a decision for
 the table — the simulator below is what makes it decidable without hardware.
+
+The tags are what other catchers on the stream filter on without learning any
+table tennis. `transition` is `point`, `set_won`, `match_won` or `undo`. `side`
+is the side the transition went to:
+
+| `transition` | `side` |
+| ------------ | ------ |
+| `point` | the player who scored |
+| `point`, a correction that lowered a score | absent — it went to nobody |
+| `set_won`, `match_won` | the side that took the set, decided by the score, which after a correction is not always the player the event was for |
+| `undo` | absent |
+
+`match` and `set` stay first and in that order, so a `tags_contain` rule
+written against them keeps matching.
+
+```
+match=36c17b30,set=2,transition=point,side=a
+match=36c17b30,set=2,transition=set_won,side=b
+match=36c17b30,set=3,transition=match_won,side=a
+match=36c17b30,set=2,transition=undo
+```
 
 ### Two ways onto the bus
 

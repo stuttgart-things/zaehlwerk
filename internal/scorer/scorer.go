@@ -165,6 +165,15 @@ const (
 type Transition struct {
 	Kind  TransitionKind
 	State State
+	// Side is the player the transition went to: whoever scored a point, or
+	// whoever took the set or the match. It is empty for an undo and for a
+	// correction that lowered a score, which went to nobody.
+	//
+	// It cannot be recovered from State — after a won set the points are
+	// already reset, and a correction and a point look the same from the
+	// score they leave — so it is decided in Apply, at the moment of the
+	// event, and never stored.
+	Side Player
 }
 
 // Errors returned by Apply and Undo. Callers classify with errors.Is.
@@ -340,9 +349,14 @@ func (s *Scorer) Apply(ev ScoreEvent) (Result, error) {
 	}
 
 	kind := TransitionPoint
+	var side Player
+	if next.points[i] > s.m.points[i] {
+		side = ev.Player
+	}
 	// Who took the set is decided by the score, not by who sent the event. A
 	// correction that lowers one side can complete a set for the other.
 	if w, won := s.setWinner(next.points); won {
+		side = playerAt(w)
 		next.completed = append(next.completed, next.points)
 		next.sets[w]++
 		if next.sets[w] >= s.setsToWin {
@@ -360,7 +374,7 @@ func (s *Scorer) Apply(ev ScoreEvent) (Result, error) {
 	s.m = next
 
 	st := s.state()
-	s.emit(Transition{Kind: kind, State: st})
+	s.emit(Transition{Kind: kind, State: st, Side: side})
 	return Result{Outcome: Applied, State: st}, nil
 }
 

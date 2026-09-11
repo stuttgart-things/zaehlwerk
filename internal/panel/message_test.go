@@ -195,8 +195,100 @@ func TestMessageCarriesTheFieldsTheCatcherRoutesOn(t *testing.T) {
 	require.Equal(t, "3:5", msg.Title)
 	require.Equal(t, "Anna 3 : 5 Bernd", msg.Message)
 	require.Equal(t, "zaehlwerk", msg.Author)
-	require.Equal(t, "match=m1,set=2", msg.Tags)
+	require.Equal(t, "match=m1,set=2,transition=point", msg.Tags)
 	require.Equal(t, "2026-09-05T18:30:00Z", msg.Timestamp)
+}
+
+func TestTagsSayWhatHappenedAndWhichSideItWentTo(t *testing.T) {
+	tests := []struct {
+		name string
+		tr   scorer.Transition
+		want string
+	}{
+		{
+			name: "a point",
+			tr:   scorer.Transition{Kind: scorer.TransitionPoint, Side: scorer.PlayerA, State: state([2]int{3, 5}, [2]int{1, 0})},
+			want: "match=m1,set=2,transition=point,side=a",
+		},
+		{
+			name: "a won set",
+			tr:   scorer.Transition{Kind: scorer.TransitionSetWon, Side: scorer.PlayerB, State: state([2]int{0, 0}, [2]int{0, 1})},
+			want: "match=m1,set=2,transition=set_won,side=b",
+		},
+		{
+			name: "a won match",
+			tr:   scorer.Transition{Kind: scorer.TransitionMatchWon, Side: scorer.PlayerA, State: state([2]int{11, 9}, [2]int{2, 0})},
+			want: "match=m1,set=3,transition=match_won,side=a",
+		},
+		{
+			name: "an undo went to nobody",
+			tr:   scorer.Transition{Kind: scorer.TransitionUndo, State: state([2]int{3, 4}, [2]int{1, 0})},
+			want: "match=m1,set=2,transition=undo",
+		},
+		{
+			name: "a correction that lowered a score went to nobody",
+			tr:   scorer.Transition{Kind: scorer.TransitionPoint, State: state([2]int{3, 1}, [2]int{1, 0})},
+			want: "match=m1,set=2,transition=point",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, Message(tt.tr, "tabletennis", "zaehlwerk", time.Now()).Tags)
+		})
+	}
+}
+
+// A `tags_contain` rule written before transition and side existed still has to
+// match, so the tags it was written against keep their place at the front.
+func TestTheNewTagsDoNotDisturbTheOnesRulesAlreadyMatch(t *testing.T) {
+	for _, kind := range []scorer.TransitionKind{
+		scorer.TransitionPoint, scorer.TransitionUndo,
+		scorer.TransitionSetWon, scorer.TransitionMatchWon,
+	} {
+		for _, side := range []scorer.Player{"", scorer.PlayerA, scorer.PlayerB} {
+			tags := Tags(scorer.Transition{Kind: kind, Side: side, State: state([2]int{0, 0}, [2]int{1, 0})})
+
+			require.True(t, strings.HasPrefix(tags, "match=m1,set=2,"), "kind=%s side=%q: %q", kind, side, tags)
+			require.NotContains(t, strings.Split(tags, ","), "side=", "an empty side is left out, not sent blank")
+		}
+	}
+}
+
+// The tags come from a real scorer here, not from a hand-built transition: the
+// side of a set won by a correction is the whole point, and it is decided in
+// Apply.
+func TestASetWonByACorrectionIsTaggedWithTheSideThatTookIt(t *testing.T) {
+	sc, err := scorer.New(scorer.Config{MatchID: "m1", Players: [2]string{"Anna", "Bernd"}, BestOf: 5})
+	require.NoError(t, err)
+
+	var tags []string
+	sc.Observe(func(tr scorer.Transition) {
+		tags = append(tags, Message(tr, DefaultSystem, DefaultAuthor, time.Now()).Tags)
+	})
+
+	id := uint64(0)
+	send := func(p scorer.Player, delta int) {
+		t.Helper()
+		id++
+		_, err := sc.Apply(scorer.ScoreEvent{MatchID: "m1", Player: p, Delta: delta, EventID: id, Source: "test"})
+		require.NoError(t, err)
+	}
+
+	// 10:11, then a point is taken off Anna: Bernd is two clear at eleven.
+	for range 10 {
+		send(scorer.PlayerA, 1)
+		send(scorer.PlayerB, 1)
+	}
+	send(scorer.PlayerB, 1)
+	send(scorer.PlayerA, -1)
+
+	require.Equal(t, "match=m1,set=1,transition=point,side=b", tags[len(tags)-2])
+	require.Equal(t, "match=m1,set=2,transition=set_won,side=b", tags[len(tags)-1])
+
+	_, err = sc.Undo()
+	require.NoError(t, err)
+	require.Equal(t, "match=m1,set=1,transition=undo", tags[len(tags)-1])
 }
 
 // Every field the catcher reads must be non-empty: homerun marshals with

@@ -125,11 +125,12 @@ func TestAgainstRedisTheCatcherCanResolveWhatWePublish(t *testing.T) {
 
 	require.Equal(t, "1:0", msgs[0].Title)
 	require.Equal(t, "1:1", msgs[1].Title)
+	require.Equal(t, "match=m1,set=1,transition=point,side=a", msgs[0].Tags)
+	require.Equal(t, "match=m1,set=1,transition=point,side=b", msgs[1].Tags)
 	for _, m := range msgs {
 		require.Equal(t, "tabletennis", m.System)
 		require.Equal(t, "INFO", m.Severity)
 		require.Equal(t, "zaehlwerk", m.Author)
-		require.Equal(t, "match=m1,set=1", m.Tags)
 
 		_, err := time.Parse(time.RFC3339, m.Timestamp)
 		require.NoError(t, err, "timestamp %q is not RFC3339", m.Timestamp)

@@ -141,7 +141,7 @@ func TestAPitchArrivesAsTheMessageWeBuilt(t *testing.T) {
 	require.Equal(t, "Anna 7 : 5 Bernd", got[0].Message)
 	require.Equal(t, "INFO", got[0].Severity)
 	require.Equal(t, "zaehlwerk", got[0].Author)
-	require.Equal(t, "match=m1,set=2", got[0].Tags)
+	require.Equal(t, "match=m1,set=2,transition=point", got[0].Tags)
 	require.NotEmpty(t, got[0].Timestamp)
 }
 
