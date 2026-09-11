@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.2.0...v0.3.0) (2026-09-11)
+
+
+### Features
+
+* give the scoring page schmetterpause's look and lay it out for a phone ([#38](https://github.com/stuttgart-things/zaehlwerk/issues/38)) ([2ad94ea](https://github.com/stuttgart-things/zaehlwerk/commit/2ad94ea922c7d2eae560bda4ea865f2d08fcb7bc))
+* tag each pitched transition with its kind and the side it went to ([#36](https://github.com/stuttgart-things/zaehlwerk/issues/36)) ([e040082](https://github.com/stuttgart-things/zaehlwerk/commit/e040082f7f6716c985f99141645df97dd93fbb6d)), closes [#35](https://github.com/stuttgart-things/zaehlwerk/issues/35)
+
 ## [0.2.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.1.0...v0.2.0) (2026-09-08)
 
 
