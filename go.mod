@@ -5,7 +5,7 @@ go 1.26.6
 require (
 	github.com/redis/go-redis/v9 v9.22.0
 	github.com/stretchr/testify v1.12.1
-	github.com/stuttgart-things/homerun-library/v4 v4.0.0
+	github.com/stuttgart-things/homerun-library/v4 v4.5.0
 )
 
 require (
