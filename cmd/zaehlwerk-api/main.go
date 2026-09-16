@@ -20,6 +20,8 @@ import (
 	"github.com/stuttgart-things/zaehlwerk/internal/live"
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/panel"
+	"github.com/stuttgart-things/zaehlwerk/internal/schmetterpause"
+	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 	"github.com/stuttgart-things/zaehlwerk/internal/ui"
 )
 
@@ -77,11 +79,30 @@ func run() error {
 		}()
 	}
 
+	// Off unless SCHMETTERPAUSE_URL is set, like every outbound coupling here
+	// (invariant 4). Nil client, nil reporter, and the page asks for two
+	// free-text names exactly as it does today.
+	spClient := schmetterpauseClient(log)
+
 	hub := live.New()
 	origins := allowedOrigins(log)
 	beat, tuned := heartbeat(log)
 
-	registry := match.NewRegistry(registryOptions(sink, hub, switcher)...)
+	// The reporter looks a match up by id, so it needs the registry it is an
+	// observer of. The closure closes that loop: it is registered now and
+	// assigned a moment later, and nothing can fire it in between because no
+	// match exists yet.
+	var reporter *schmetterpause.Reporter
+	opts := registryOptions(sink, hub, switcher)
+	if spClient != nil {
+		opts = append(opts, match.WithObserver(func(t scorer.Transition) {
+			reporter.Observe(t)
+		}))
+	}
+	registry := match.NewRegistry(opts...)
+	if spClient != nil {
+		reporter = schmetterpause.NewReporter(spClient, registry, schmetterpause.WithLogger(log))
+	}
 
 	apiOpts := []api.Option{
 		api.WithLogger(log),
@@ -101,6 +122,10 @@ func run() error {
 	apiOpts = append(apiOpts, api.WithBuildInfo(api.BuildInfo{
 		Version: version, Commit: commit, Date: date,
 	}))
+
+	if spClient != nil {
+		uiOpts = append(uiOpts, ui.WithSchmetterpause(spClient, reporter))
+	}
 
 	apiSrv := api.New(registry, apiOpts...)
 	srv := &http.Server{
@@ -141,6 +166,36 @@ func run() error {
 		return fmt.Errorf("shutting down: %w", err)
 	}
 	return <-errs
+}
+
+// schmetterpauseClient builds the coupling, or reports that it is off.
+//
+// SCHMETTERPAUSE_URL turns it on, in the shape CATCHER_URL and
+// OMNI_PITCHER_URL already have (ADR-0004). SCHMETTERPAUSE_TOKEN is the second
+// half: that application does not register its /api routes without a token
+// configured on its side, so without one here every call comes back 404 or
+// 401. ADR-0004 named only the URL because the receiving surface did not exist
+// yet; the token is that surface arriving, not a change of mind.
+func schmetterpauseClient(log *slog.Logger) *schmetterpause.Client {
+	url := os.Getenv("SCHMETTERPAUSE_URL")
+	if url == "" {
+		log.Info("schmetterpause handover disabled, SCHMETTERPAUSE_URL not configured")
+		return nil
+	}
+
+	client, err := schmetterpause.New(schmetterpause.Config{
+		BaseURL: url,
+		Token:   os.Getenv("SCHMETTERPAUSE_TOKEN"),
+	})
+	if err != nil {
+		log.Warn("schmetterpause handover disabled", "error", err)
+		return nil
+	}
+
+	log.Info("schmetterpause handover enabled", "url", url,
+		// Whether a token is set, never the token.
+		"authenticated", os.Getenv("SCHMETTERPAUSE_TOKEN") != "")
+	return client
 }
 
 func registryOptions(sink *panel.Sink, hub *live.Hub, switcher *panel.Switcher) []match.Option {

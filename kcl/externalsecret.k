@@ -45,6 +45,14 @@ externalSecret = {
                     property: config.vaultKeyPitcherToken
                 }
             }
+            if config.schmetterpauseURL:
+                {
+                    secretKey: "SCHMETTERPAUSE_TOKEN"
+                    remoteRef: {
+                        key: config.vaultPath
+                        property: config.vaultKeySchmetterpauseToken
+                    }
+                }
             {
                 secretKey: "REDIS_PASSWORD"
                 remoteRef: {

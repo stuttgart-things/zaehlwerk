@@ -57,6 +57,8 @@ go run ./cmd/zaehlwerk-api
 | `CATCHER_MATCH_STREAMS` | `tabletennis` | What the catcher listens to during a match |
 | `CATCHER_IDLE_STREAMS` | `messages` | What it goes back to |
 | `CATCHER_IDLE_TIMEOUT` | `20m` | Give the panel back after this long without a point |
+| `SCHMETTERPAUSE_URL` | — | Schmetterpause base URL. Unset, a match is scored and shown and reported nowhere |
+| `SCHMETTERPAUSE_TOKEN` | — | Bearer token for its `/api`; without one configured there, the routes do not exist |
 
 State is in memory and deliberately so — a match lasts twenty minutes and the
 finished result goes to Schmetterpause.

@@ -73,6 +73,15 @@ schema Zaehlwerk:
     # scores and serves and pitches nothing. omniPitcherURL wins over redisAddr
     # where both are set, which is the precedence main.go applies.
     panelStream: str = "tabletennis"
+    # Schmetterpause's base URL. Empty, and a finished match is reported
+    # nowhere: it is still scored, shown and pitched to the panel, which
+    # docs/adr/0004 keeps as a first-class way to run rather than a degraded
+    # one. Set it and the scoring page offers the players that application
+    # knows and hands the result over at the last point.
+    #
+    # The token is not here: it is a secret, and it comes through the
+    # ExternalSecret like OMNI_PITCHER_TOKEN does.
+    schmetterpauseURL: str = ""
     omniPitcherURL: str = ""
     omniPitcherPath: str = ""
     redisAddr: str = ""
@@ -97,6 +106,7 @@ schema Zaehlwerk:
     refreshInterval: str = "1h"
     vaultPath: str = "zaehlwerk"
     vaultKeyPitcherToken: str = "omni-pitcher-token"
+    vaultKeySchmetterpauseToken: str = "schmetterpause-token"
     vaultKeyRedisPassword: str = "redis-password"
 
     # ── Escape hatches ──────────────────────────────────────────────────────
