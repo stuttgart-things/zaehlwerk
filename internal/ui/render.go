@@ -32,10 +32,29 @@ type view struct {
 	// Stream says whether the page may open an SSE connection for this match.
 	// False without a hub, and false with no match to watch.
 	Stream bool
+	// Roster is the players Schmetterpause knows, fetched while this page was
+	// rendered and never cached (ADR-0004). Empty when the coupling is off,
+	// and then the form asks for two free-text names as it always has.
+	Roster []RosterPlayer
+	// RosterErr says why the list is missing when the coupling is on. Shown
+	// rather than swallowed: a form silently falling back to free text would
+	// start a match that cannot be reported, and nobody would find out until
+	// the last point.
+	RosterErr string
+}
+
+// RosterPlayer is one option in the three name pickers.
+type RosterPlayer struct {
+	ID   string
+	Name string
 }
 
 // matchView is one match as the scoreboard shows it.
 type matchView struct {
+	// Reported says what became of the handover to Schmetterpause. Nil when
+	// this match is not being reported, which is the ordinary case at a table
+	// with nothing else set up.
+	Reported      *reportView
 	ID            string
 	A             sideView
 	B             sideView
@@ -68,7 +87,22 @@ type logRow struct {
 }
 
 func (s *Server) matchView(m *match.Match, kind scorer.TransitionKind) *matchView {
-	return s.stateView(m.Scorer.State(), m.Running(), kind)
+	v := s.stateView(m.Scorer.State(), m.Running(), kind)
+	// Only a match that was meant to be reported can have a handover to show.
+	// stateView cannot do this: it renders a state, and the handover belongs
+	// to the match around it.
+	if m.Handover.Wanted() {
+		r := m.Report()
+		v.Reported = &reportView{
+			Done:     r.Done,
+			Failed:   !r.Done && r.Err != nil,
+			Attempts: r.Attempts,
+		}
+		if r.Err != nil {
+			v.Reported.Reason = r.Err.Error()
+		}
+	}
+	return v
 }
 
 // stateView renders one state rather than the match's current one, so that the
@@ -189,4 +223,22 @@ func partial(name string, v view) (string, error) {
 		return "", err
 	}
 	return buf.String(), nil
+}
+
+// reportView is the handover as the page shows it.
+//
+// It exists because ADR-0004 accepted that a result can be lost and asked for
+// the loss to be visible: without somewhere to say so, a match whose result
+// never arrived looks exactly like one that was never meant to be reported.
+type reportView struct {
+	// Done is true once Schmetterpause has the result. It says "pending
+	// there", not "counted": the result waits for one of the two players.
+	Done bool
+	// Failed is true when the last attempt did not get through and the result
+	// can still be retried.
+	Failed bool
+	// Reason is the sentence Schmetterpause gave, or the transport error.
+	Reason string
+	// Attempts is how many times it has been tried.
+	Attempts int
 }

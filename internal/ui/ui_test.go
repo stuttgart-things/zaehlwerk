@@ -27,14 +27,16 @@ type lifecycle struct {
 	registry *match.Registry
 	started  []string
 	ended    []string
+	handover match.Handover
 	err      error
 }
 
-func (l *lifecycle) StartMatch(cfg scorer.Config) (*match.Match, error) {
+func (l *lifecycle) StartMatch(cfg scorer.Config, handover match.Handover) (*match.Match, error) {
 	if l.err != nil {
 		return nil, l.err
 	}
-	m, err := l.registry.Create(cfg)
+	l.handover = handover
+	m, err := l.registry.CreateFor(cfg, handover)
 	if err != nil {
 		return nil, err
 	}
