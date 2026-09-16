@@ -107,7 +107,11 @@ func (r *Reporter) Observe(t scorer.Transition) {
 
 	go func() {
 		defer r.done()
-		r.Send(context.Background(), m)
+		// The error is already recorded on the match and logged by Send, and
+		// there is nobody here to return it to: this runs after the last point,
+		// with no request waiting on it. The page reads the outcome off the
+		// match and offers the retry.
+		_ = r.Send(context.Background(), m)
 	}()
 }
 

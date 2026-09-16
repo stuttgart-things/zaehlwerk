@@ -73,6 +73,7 @@ schema Zaehlwerk:
     # scores and serves and pitches nothing. omniPitcherURL wins over redisAddr
     # where both are set, which is the precedence main.go applies.
     panelStream: str = "tabletennis"
+
     # Schmetterpause's base URL. Empty, and a finished match is reported
     # nowhere: it is still scored, shown and pitched to the panel, which
     # docs/adr/0004 keeps as a first-class way to run rather than a degraded

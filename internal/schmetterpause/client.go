@@ -131,7 +131,7 @@ func (c *Client) Players(ctx context.Context) ([]Player, error) {
 	if err != nil {
 		return nil, fmt.Errorf("schmetterpause: fetching players: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("schmetterpause: fetching players: %w", statusError(resp))
@@ -167,7 +167,7 @@ func (c *Client) Report(ctx context.Context, result Result) (Accepted, error) {
 	if err != nil {
 		return Accepted{}, fmt.Errorf("schmetterpause: reporting the result: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated {
 		return Accepted{}, fmt.Errorf("schmetterpause: reporting the result: %w", statusError(resp))

@@ -185,6 +185,6 @@ func TestAFailedHandoverIsRecordedAndRetryable(t *testing.T) {
 }
 
 func decode(r *http.Request, v any) error {
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 	return json.NewDecoder(r.Body).Decode(v)
 }
