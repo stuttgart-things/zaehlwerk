@@ -445,6 +445,51 @@
 
         /* 16px and up, or iOS zooms the whole page in on focus and leaves it
            there. */
+        select {
+            width: 100%;
+            padding: 0.55rem 0.7rem;
+            border-radius: var(--radius);
+            border: 1px solid var(--line);
+            background: var(--sunk);
+            color: var(--ink);
+            font: inherit;
+            font-size: 1rem;
+        }
+
+        /* Why a select and not schmetterpause's .pick row: that pattern shows
+           every option at once, which is right for three set lengths and wrong
+           for a roster that grows. A native select also gives a phone its own
+           picker and type-ahead for free. */
+        select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+        /* Same shape as .panel-preview, so the two lines under the score read
+           as one row of facts about the match rather than two designs. */
+        .handover {
+            display: flex;
+            align-items: baseline;
+            gap: 0.6rem;
+            flex-wrap: wrap;
+            margin-top: 0.5rem;
+            padding: 0.5rem 0.7rem;
+            border-radius: var(--radius);
+            background: var(--sunk);
+            border: 1px solid var(--line);
+        }
+
+        .handover-failed { border-color: var(--warn, #f4b942); }
+
+        .handover .retry {
+            margin-left: auto;
+            padding: 0.35rem 0.7rem;
+            font-size: 0.8rem;
+        }
+
+        .rostererr {
+            margin: 0 0 0.75rem;
+            color: var(--warn, #f4b942);
+            font-size: 0.85rem;
+        }
+
         input[type="text"] {
             width: 100%;
             font: inherit;
@@ -532,6 +577,35 @@
         <details class="card newmatch"{{if not (and .Match .Match.Running)}} open{{end}}>
             <summary>New match</summary>
             <form hx-post="/ui/matches" hx-target="#live" hx-swap="outerHTML">
+                {{/* Three names rather than two when this instance reports to
+                     schmetterpause: the two playing, and whoever is keeping
+                     score. That application refuses a write that does not name
+                     an operator, and refuses one who is playing — which is not
+                     friction to route around but a description of what is
+                     already happening at the table (ADR-0004). */}}
+                {{if .Roster}}
+                <div class="fields">
+                    <label>Left
+                        <select name="home_id" required>
+                            <option value="">Pick a player</option>
+                            {{range .Roster}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+                        </select>
+                    </label>
+                    <label>Right
+                        <select name="away_id" required>
+                            <option value="">Pick a player</option>
+                            {{range .Roster}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+                        </select>
+                    </label>
+                    <label>Keeping score
+                        <select name="operator_id" required>
+                            <option value="">Pick a player</option>
+                            {{range .Roster}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+                        </select>
+                    </label>
+                </div>
+                {{else}}
+                {{if .RosterErr}}<p class="rostererr">The player list did not load, so this match cannot be reported: {{.RosterErr}}</p>{{end}}
                 <div class="fields">
                     <label>Left
                         <input type="text" name="player_a" placeholder="Anna" autocomplete="off" autocapitalize="words">
@@ -540,6 +614,7 @@
                         <input type="text" name="player_b" placeholder="Bernd" autocomplete="off" autocapitalize="words">
                     </label>
                 </div>
+                {{end}}
                 <fieldset>
                     <legend>Best of</legend>
                     <div class="picks">

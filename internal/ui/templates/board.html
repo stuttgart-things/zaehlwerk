@@ -61,6 +61,35 @@
   <strong>{{.Match.Panel}}</strong>
   <span class="panel-hint">the title this score is pitched to the matrix as</span>
 </div>
+
+{{/* What became of the handover. Only rendered for a match that was meant to
+     be reported, and only once it is finished — before that there is nothing
+     to say, and a "not yet sent" line on a match in its first set would read
+     as a problem.
+
+     ADR-0004 accepted that a result can be lost rather than give this service
+     persistence, and asked in exchange that the loss be visible. This is that
+     exchange: without it, a match whose result never arrived looks exactly
+     like one that was never meant to be reported. */}}
+{{- if and .Match.Reported .Match.Complete}}
+<div class="handover{{if .Match.Reported.Failed}} handover-failed{{end}}">
+  {{- if .Match.Reported.Done}}
+  <span class="label">schmetterpause</span>
+  <strong>result sent</strong>
+  <span class="panel-hint">it waits there until one of the two players confirms it</span>
+  {{- else if .Match.Reported.Failed}}
+  <span class="label">schmetterpause</span>
+  <strong>the result did not arrive</strong>
+  <span class="panel-hint">{{.Match.Reported.Reason}}</span>
+  <button type="button" class="retry"
+          hx-post="/ui/matches/{{.Match.ID}}/report"
+          hx-target="#live" hx-swap="outerHTML">Try again{{if gt .Match.Reported.Attempts 1}} ({{.Match.Reported.Attempts}} tries){{end}}</button>
+  {{- else}}
+  <span class="label">schmetterpause</span>
+  <strong>sending…</strong>
+  {{- end}}
+</div>
+{{- end}}
 {{- else}}
 <div class="empty">
   <p>No match is running.</p>

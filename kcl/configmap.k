@@ -45,6 +45,8 @@ configMap = {
             CATCHER_IDLE_STREAMS: config.catcherIdleStreams
         if config.catcherIdleTimeout:
             CATCHER_IDLE_TIMEOUT: config.catcherIdleTimeout
+        if config.schmetterpauseURL:
+            SCHMETTERPAUSE_URL: config.schmetterpauseURL
         **config.extraEnvVars
     }
 }

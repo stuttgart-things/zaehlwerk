@@ -37,6 +37,7 @@ _streamHeartbeat = option("config.streamHeartbeat")
 _allowedOrigins = option("config.allowedOrigins")
 _panelStream = option("config.panelStream")
 _omniPitcherURL = option("config.omniPitcherURL")
+_schmetterpauseURL = option("config.schmetterpauseURL")
 _omniPitcherPath = option("config.omniPitcherPath")
 _redisAddr = option("config.redisAddr")
 _redisPort = option("config.redisPort")
@@ -51,6 +52,7 @@ _externalSecretApiVersion = option("config.externalSecretApiVersion")
 _refreshInterval = option("config.refreshInterval")
 _vaultPath = option("config.vaultPath")
 _vaultKeyPitcherToken = option("config.vaultKeyPitcherToken")
+_vaultKeySchmetterpauseToken = option("config.vaultKeySchmetterpauseToken")
 _vaultKeyRedisPassword = option("config.vaultKeyRedisPassword")
 
 # A boolean that arrives as the string "false" is still truthy, so every
@@ -107,6 +109,8 @@ config: schema.Zaehlwerk = schema.Zaehlwerk {
         panelStream = _panelStream
     if _omniPitcherURL:
         omniPitcherURL = _omniPitcherURL
+    if _schmetterpauseURL:
+        schmetterpauseURL = _schmetterpauseURL
     if _omniPitcherPath:
         omniPitcherPath = _omniPitcherPath
     if _redisAddr:
@@ -135,6 +139,8 @@ config: schema.Zaehlwerk = schema.Zaehlwerk {
         vaultPath = _vaultPath
     if _vaultKeyPitcherToken:
         vaultKeyPitcherToken = _vaultKeyPitcherToken
+    if _vaultKeySchmetterpauseToken:
+        vaultKeySchmetterpauseToken = _vaultKeySchmetterpauseToken
     if _vaultKeyRedisPassword:
         vaultKeyRedisPassword = _vaultKeyRedisPassword
 }

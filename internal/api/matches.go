@@ -51,7 +51,11 @@ func (s *Server) createMatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	m, err := s.StartMatch(cfg)
+	// The JSON API names players as free text, so a match started through it
+	// is reported nowhere. Choosing from the real player list is something the
+	// page does, because it is the only caller that can show a list to pick
+	// from (ADR-0004).
+	m, err := s.StartMatch(cfg, match.Handover{})
 	if err != nil {
 		// The scorer rejects an even best-of or an unknown first server, which
 		// is the caller's doing. A failed id draw is ours.
@@ -113,8 +117,8 @@ func (s *Server) endMatch(w http.ResponseWriter, r *http.Request) {
 // Exported because the browser UI starts matches too (internal/ui), and where
 // the panel changes hands is ADR-0003's decision rather than a detail of one
 // handler — one caller of the switcher, not two.
-func (s *Server) StartMatch(cfg scorer.Config) (*match.Match, error) {
-	m, err := s.registry.Create(cfg)
+func (s *Server) StartMatch(cfg scorer.Config, handover match.Handover) (*match.Match, error) {
+	m, err := s.registry.CreateFor(cfg, handover)
 	if err != nil {
 		return nil, err
 	}
