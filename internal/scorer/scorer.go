@@ -309,6 +309,18 @@ func (s *Scorer) Observe(fn func(Transition)) {
 	s.observers = append(s.observers, fn)
 }
 
+// Rules reports the match format this scorer was built with, after the
+// defaults in [New] have been applied.
+//
+// It exists for the handover to Schmetterpause, which has to say what was
+// played rather than assume it: a caller that set neither value would
+// otherwise report zeroes instead of the best of five to eleven it actually
+// got. Reading the rules back is not a crack in invariant 5 — these are the
+// scorer's own rules, and it stays the only thing with an opinion about them.
+func (s *Scorer) Rules() (bestOf, pointsPerSet int) {
+	return s.cfg.BestOf, s.cfg.PointsPerSet
+}
+
 // State returns the current state of the match.
 func (s *Scorer) State() State {
 	s.mu.Lock()

@@ -30,15 +30,97 @@ var (
 	ErrIDGeneration = errors.New("could not generate a match id")
 )
 
+// Handover is who a finished match belongs to over in Schmetterpause.
+//
+// Empty when this match is not being reported: free-text names, no ids, no
+// operator. ADR-0004 keeps that a first-class case — a match without
+// Schmetterpause is still a match, scored and shown and pitched exactly the
+// same, reported nowhere.
+//
+// The ids live here for the length of the match and nowhere else. Not in the
+// scorer, which stays rule-only (invariant 5) and knows players as two display
+// names: an id is not something set logic can have an opinion about. Nothing is
+// written to disk, nothing survives a restart, and no player is known here for
+// a second longer than the match lasts.
+type Handover struct {
+	HomeID     string
+	AwayID     string
+	OperatorID string
+}
+
+// Wanted reports whether this match is meant to be reported.
+func (h Handover) Wanted() bool {
+	return h.HomeID != "" && h.AwayID != "" && h.OperatorID != ""
+}
+
+// Report is what became of the handover.
+//
+// It exists because ADR-0004 accepted that a result can be lost and asked for
+// the loss to be visible instead of silent: the page says the result did not
+// reach Schmetterpause, and the match stays in the registry long enough to try
+// again. Without somewhere to record the outcome there would be nothing for
+// the page to say.
+type Report struct {
+	// Done is true once Schmetterpause has accepted the result. A retry of an
+	// already-reported match is a no-op rather than a second row.
+	Done bool
+	// MatchID is what Schmetterpause called it, for the log and the page.
+	MatchID string
+	// Err is the last failure, and nil once Done.
+	Err error
+	// Attempts counts tries, so a page can say "tried twice" rather than
+	// implying nothing happened.
+	Attempts int
+}
+
 // Match is one match: the scorer that owns its state, plus the lifecycle around
 // it that the scorer has no opinion about.
 type Match struct {
 	ID      string
 	Scorer  *scorer.Scorer
 	Created time.Time
+	// Handover is fixed when the match is created and never changes after.
+	// Read without the lock for that reason.
+	Handover Handover
 
 	mu      sync.Mutex
 	endedAt time.Time
+	report  Report
+}
+
+// Report returns what became of the handover so far.
+func (m *Match) Report() Report {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.report
+}
+
+// Reported records a successful handover. Idempotent: the first success wins,
+// so a retry that races a late success does not undo it.
+func (m *Match) Reported(schmetterpauseID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.report.Attempts++
+	if m.report.Done {
+		return
+	}
+	m.report.Done = true
+	m.report.MatchID = schmetterpauseID
+	m.report.Err = nil
+}
+
+// ReportFailed records a failed handover, unless one has already succeeded.
+func (m *Match) ReportFailed(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.report.Attempts++
+	if m.report.Done {
+		return
+	}
+	m.report.Err = err
 }
 
 // End marks the match finished and reports when it ended. It is idempotent: a
@@ -124,6 +206,13 @@ func NewRegistry(opts ...Option) *Registry {
 
 // Create starts a match. The id in cfg is ignored and replaced by a fresh one.
 func (r *Registry) Create(cfg scorer.Config) (*Match, error) {
+	return r.CreateFor(cfg, Handover{})
+}
+
+// CreateFor is Create with the players named as Schmetterpause knows them, so
+// the finished result can belong to somebody. An empty Handover is exactly
+// Create: a match nobody reports.
+func (r *Registry) CreateFor(cfg scorer.Config, handover Handover) (*Match, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -142,7 +231,7 @@ func (r *Registry) Create(cfg scorer.Config) (*Match, error) {
 		s.Observe(fn)
 	}
 
-	m := &Match{ID: id, Scorer: s, Created: time.Now()}
+	m := &Match{ID: id, Scorer: s, Created: time.Now(), Handover: handover}
 	r.byID[id] = m
 	r.order = append(r.order, m)
 	r.evict()
