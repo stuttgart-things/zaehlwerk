@@ -57,6 +57,14 @@ _secretEnv = [
     }
 ] if labels.renderSecret else []
 
+# Where the cluster CA bundle is mounted, and what Go is told to read. A
+# directory, because SSL_CERT_DIR adds to the image's roots where SSL_CERT_FILE
+# would replace them.
+_caDir = "/etc/ssl/cluster-trust"
+
+_caEnv = [{name: "SSL_CERT_DIR", value: _caDir}] if config.caBundleEnabled else []
+_env = _secretEnv + _caEnv
+
 deployment = {
     apiVersion: "apps/v1"
     kind: "Deployment"
@@ -90,8 +98,10 @@ deployment = {
                         envFrom: [{
                             configMapRef: {name: labels.configMapName}
                         }]
-                        if _secretEnv:
-                            env: _secretEnv
+                        if _env:
+                            env: _env
+                        if config.caBundleEnabled:
+                            volumeMounts: [{name: "cluster-trust", mountPath: _caDir, readOnly: True}]
                         livenessProbe: {
                             httpGet: {path: "/healthz", port: "http"}
                             initialDelaySeconds: 3
@@ -110,6 +120,18 @@ deployment = {
                         }
                     }
                 ]
+                if config.caBundleEnabled:
+                    volumes: [{
+                        name: "cluster-trust"
+                        # Optional, so a cluster without trust-manager still
+                        # starts the pod: the mount is empty, public TLS is
+                        # unaffected, and only the internal CA stays untrusted.
+                        configMap: {
+                            name: config.caConfigMap
+                            optional: True
+                            items: [{key: config.caKey, path: "ca.pem"}]
+                        }
+                    }]
             }
         }
     }

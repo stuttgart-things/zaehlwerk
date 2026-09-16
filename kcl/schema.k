@@ -83,6 +83,24 @@ schema Zaehlwerk:
     # The token is not here: it is a secret, and it comes through the
     # ExternalSecret like OMNI_PITCHER_TOKEN does.
     schmetterpauseURL: str = ""
+
+    # Trust the cluster's own CA. trust-manager publishes the bundle into every
+    # namespace as a ConfigMap, and the certificate on the cluster gateway is
+    # signed by an internal CA that the image's public roots do not contain --
+    # so without this, reaching schmetterpause over its HTTPRoute fails with
+    # "x509: certificate signed by unknown authority" while the pod looks
+    # healthy (measured against v0.4.1, 2026-09-16).
+    #
+    # Mounted as a directory and named in SSL_CERT_DIR, which ADDS to the
+    # image's roots rather than replacing them. SSL_CERT_FILE would replace
+    # them, and only keeps public TLS working where the bundle happens to carry
+    # public roots too. The volume is optional: on a cluster without
+    # trust-manager the mount is empty, public TLS is unaffected, and only the
+    # internal CA stays untrusted -- exactly as without this setting. So it is
+    # on by default.
+    caBundleEnabled: bool = True
+    caConfigMap: str = "cluster-trust-bundle"
+    caKey: str = "trust-bundle.pem"
     omniPitcherURL: str = ""
     omniPitcherPath: str = ""
     redisAddr: str = ""

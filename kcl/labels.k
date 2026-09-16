@@ -38,6 +38,9 @@ _allowedOrigins = option("config.allowedOrigins")
 _panelStream = option("config.panelStream")
 _omniPitcherURL = option("config.omniPitcherURL")
 _schmetterpauseURL = option("config.schmetterpauseURL")
+_caBundleEnabled = option("config.caBundleEnabled")
+_caConfigMap = option("config.caConfigMap")
+_caKey = option("config.caKey")
 _omniPitcherPath = option("config.omniPitcherPath")
 _redisAddr = option("config.redisAddr")
 _redisPort = option("config.redisPort")
@@ -111,6 +114,12 @@ config: schema.Zaehlwerk = schema.Zaehlwerk {
         omniPitcherURL = _omniPitcherURL
     if _schmetterpauseURL:
         schmetterpauseURL = _schmetterpauseURL
+    if _caBundleEnabled != Undefined and _caBundleEnabled != None:
+        caBundleEnabled = _bool(_caBundleEnabled)
+    if _caConfigMap:
+        caConfigMap = _caConfigMap
+    if _caKey:
+        caKey = _caKey
     if _omniPitcherPath:
         omniPitcherPath = _omniPitcherPath
     if _redisAddr:

@@ -113,6 +113,41 @@ Both keys are read with `optional: true`, so a Secret carrying only one of them
 does not stop the pod from starting — which is the normal case, since the two
 panel paths are alternatives rather than a pair.
 
+## Trusting the cluster's CA
+
+The certificate on a stuttgart-things cluster gateway is signed by an internal CA,
+and the image carries only public roots. So without help, reaching schmetterpause
+over its HTTPRoute fails with `x509: certificate signed by unknown authority` —
+while the pod reports healthy and the coupling logs that it is enabled.
+
+trust-manager already publishes that CA into every namespace as the ConfigMap
+`cluster-trust-bundle`. The Deployment mounts it at `/etc/ssl/cluster-trust` and
+sets `SSL_CERT_DIR` to that directory. On by default:
+
+| Option | Default | |
+| --- | --- | --- |
+| `config.caBundleEnabled` | `true` | mount the bundle and point Go at it |
+| `config.caConfigMap` | `cluster-trust-bundle` | the ConfigMap trust-manager publishes |
+| `config.caKey` | `trust-bundle.pem` | its key |
+
+**`SSL_CERT_DIR`, not `SSL_CERT_FILE`.** The directory form adds the bundle to
+the image's roots; the file form replaces them and only keeps public TLS working
+where the bundle happens to include public roots as well.
+
+**The volume is optional, which is why this can default to on.** On a cluster
+without trust-manager the mount is empty: public TLS is unaffected and only the
+internal CA stays untrusted, exactly as with the option off.
+
+Measured on 2026-09-16 in the image's own runtime (Alpine, a Go client) against
+schmetterpause's gateway, including the symlink layout a ConfigMap volume really
+has (`ca.pem -> ..data/ca.pem`):
+
+| | schmetterpause via its HTTPRoute | public HTTPS |
+| --- | --- | --- |
+| no bundle | `x509: certificate signed by unknown authority` | ok |
+| bundle via `SSL_CERT_DIR` | ok (401, the right answer without a token) | ok |
+| empty mount, as without trust-manager | fails as before | ok |
+
 ## What an environment patches
 
 The published base is neutral. An environment's Argo Application patches these:
