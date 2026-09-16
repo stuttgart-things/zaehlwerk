@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.4.1...v0.5.0) (2026-09-16)
+
+
+### Features
+
+* trust the cluster CA, so schmetterpause is reachable over its HTTPRoute ([#45](https://github.com/stuttgart-things/zaehlwerk/issues/45)) ([e1be604](https://github.com/stuttgart-things/zaehlwerk/commit/e1be604037ecc035ed139dadbf3f1338de2e0a77))
+
 ## [0.4.1](https://github.com/stuttgart-things/zaehlwerk/compare/v0.4.0...v0.4.1) (2026-09-16)
 
 
