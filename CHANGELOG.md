@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.1](https://github.com/stuttgart-things/zaehlwerk/compare/v0.4.0...v0.4.1) (2026-09-16)
+
+
+### Bug Fixes
+
+* **deps:** update module github.com/stuttgart-things/homerun-library/v4 to v4.5.0 ([#39](https://github.com/stuttgart-things/zaehlwerk/issues/39)) ([4d2f3c0](https://github.com/stuttgart-things/zaehlwerk/commit/4d2f3c091650b12f49f047116e35990ae2486b24))
+* let SCHMETTERPAUSE_TOKEN reach the container ([#43](https://github.com/stuttgart-things/zaehlwerk/issues/43)) ([4087184](https://github.com/stuttgart-things/zaehlwerk/commit/4087184e9580188aea902ce2b408feff0d27c9a7))
+
 ## [0.4.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.3.0...v0.4.0) (2026-09-16)
 
 
