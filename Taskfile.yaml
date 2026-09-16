@@ -501,8 +501,33 @@ tasks:
           printf '%s\n' "${out}" | yq eval-all 'select(.kind == null) | .' - 2>/dev/null | grep -q . && {
             echo "FAIL  ${name} — a document has no kind"; status=1; continue
           }
+          # Every key the Secret fetches has to reach a container. The
+          # ConfigMap comes in whole, the Secret key by key, so a key added
+          # to externalsecret.k and not to deploy.k renders cleanly and is
+          # read by nobody. v0.4.0 shipped SCHMETTERPAUSE_TOKEN that way.
+          printf '%s\n' "${out}" | python3 kcl/check_secret_keys.py || {
+            echo "FAIL  ${name} — see above"; status=1; continue
+          }
           echo "ok    ${name} (${n} documents)"
         done
+
+        # The profiles above leave every optional coupling off, so a key that
+        # only renders when one is on is never checked by the loop -- which is
+        # exactly where v0.4.0's bug lived. One render with ALL of them on, for
+        # the secret-key guard alone.
+        full="$(kcl run kcl \
+          -D config.secretsMode=external -D config.secretStoreName=vault-cluster \
+          -D config.vaultPath=zaehlwerk \
+          -D config.omniPitcherURL=https://omni-pitcher.example.com \
+          -D config.redisAddr=redis.example.com \
+          -D config.schmetterpauseURL=https://schmetterpause.example.com 2>&1)" || {
+          echo "FAIL  all couplings on — did not render"; echo "${full}" | tail -5; exit 1
+        }
+        if printf '%s\n' "${full}" | python3 kcl/check_secret_keys.py; then
+          echo "ok    all couplings on — every fetched secret key reaches a container"
+        else
+          status=1
+        fi
         exit "${status}"
 
   kcl:apply:

@@ -41,6 +41,20 @@ _secretEnv = [
             secretKeyRef: {name: labels.secretName, key: "REDIS_PASSWORD", optional: True}
         }
     }
+    # Secret keys reach the container one at a time, from this list -- unlike
+    # the ConfigMap, which comes in whole through envFrom. So a key added to
+    # externalsecret.k is in the Secret and in nobody's environment until it is
+    # named here as well. v0.4.0 shipped exactly that: the token was fetched
+    # from Vault and never read, and every handover would have come back 401.
+    #
+    # Optional like its neighbours, so a deployment without the coupling starts
+    # the same as before.
+    {
+        name: "SCHMETTERPAUSE_TOKEN"
+        valueFrom: {
+            secretKeyRef: {name: labels.secretName, key: "SCHMETTERPAUSE_TOKEN", optional: True}
+        }
+    }
 ] if labels.renderSecret else []
 
 deployment = {
