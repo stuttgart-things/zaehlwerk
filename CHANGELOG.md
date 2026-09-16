@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.3.0...v0.4.0) (2026-09-16)
+
+
+### Features
+
+* report a finished match to schmetterpause ([#41](https://github.com/stuttgart-things/zaehlwerk/issues/41)) ([1c3f6de](https://github.com/stuttgart-things/zaehlwerk/commit/1c3f6def8f601cf9dbde87d590b24b4925010a11))
+
 ## [0.3.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.2.0...v0.3.0) (2026-09-11)
 
 
