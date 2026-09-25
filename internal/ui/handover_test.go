@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -18,11 +19,26 @@ type stubRoster struct {
 	players []schmetterpause.Player
 	err     error
 	calls   int
+	// observers are who /api/operators adds to the players; opErr fails that
+	// list alone.
+	observers []schmetterpause.Operator
+	opErr     error
 }
 
 func (s *stubRoster) Players(context.Context) ([]schmetterpause.Player, error) {
 	s.calls++
 	return s.players, s.err
+}
+
+func (s *stubRoster) Operators(context.Context) ([]schmetterpause.Operator, error) {
+	if s.opErr != nil {
+		return nil, s.opErr
+	}
+	out := make([]schmetterpause.Operator, 0, len(s.players)+len(s.observers))
+	for _, p := range s.players {
+		out = append(out, schmetterpause.Operator{ID: p.ID, DisplayName: p.DisplayName})
+	}
+	return append(out, s.observers...), nil
 }
 
 type stubHandover struct {
@@ -179,4 +195,66 @@ func TestTheRetryButtonSendsAgain(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, 1, h.calls)
+}
+
+// operatorPicker is the scorekeeper select of the page, and sides the two
+// player selects, so a test can say which list somebody appears in.
+func operatorPicker(t *testing.T, page string) (picker, sides string) {
+	t.Helper()
+	start := strings.Index(page, `name="operator_id"`)
+	require.Positive(t, start, "the page has no scorekeeper picker")
+	end := strings.Index(page[start:], "</select>")
+	require.Positive(t, end)
+	return page[start : start+end], page[:start]
+}
+
+// TestAnObserverIsOfferedToKeepScoreAndNeverToPlay is Schmetterpause's
+// ADR-0023: an observer never plays, and keeping score is exactly what they
+// are for.
+func TestAnObserverIsOfferedToKeepScoreAndNeverToPlay(t *testing.T) {
+	r := roster()
+	r.observers = []schmetterpause.Operator{{ID: "id-timo", DisplayName: "timoboll", Observer: true}}
+	f := newFixture(t, WithSchmetterpause(r, &stubHandover{}))
+
+	_, page := f.do(http.MethodGet, "/ui", nil)
+	picker, sides := operatorPicker(t, page)
+
+	require.Contains(t, picker, `value="id-timo"`)
+	require.Contains(t, picker, "timoboll (observer)")
+	require.Contains(t, picker, `value="id-anna"`, "a player who is not playing may still keep score")
+	require.Less(t, strings.Index(picker, "id-timo"), strings.Index(picker, "id-anna"),
+		"observers come first: keeping score is what they are for")
+	require.NotContains(t, sides, "id-timo", "an observer is never offered as a side")
+}
+
+// TestAnObserverChosenToKeepScoreReachesTheMatch: handoverFrom takes the id
+// from the form whether or not it is in the player list.
+func TestAnObserverChosenToKeepScoreReachesTheMatch(t *testing.T) {
+	r := roster()
+	r.observers = []schmetterpause.Operator{{ID: "id-timo", DisplayName: "timoboll", Observer: true}}
+	f := newFixture(t, WithSchmetterpause(r, &stubHandover{}))
+
+	_, body := f.do(http.MethodPost, "/ui/matches", url.Values{
+		"home_id": {"id-anna"}, "away_id": {"id-bernd"}, "operator_id": {"id-timo"},
+	})
+
+	require.Equal(t, match.Handover{
+		HomeID: "id-anna", AwayID: "id-bernd", OperatorID: "id-timo",
+	}, f.life.handover)
+	require.Contains(t, body, "Anna")
+}
+
+// TestAFailingOperatorListOffersThePlayers: the players are still somebody who
+// may keep score, so one failed list must not stop a match from starting.
+func TestAFailingOperatorListOffersThePlayers(t *testing.T) {
+	r := roster()
+	r.opErr = errors.New("connection reset")
+	f := newFixture(t, WithSchmetterpause(r, &stubHandover{}))
+
+	_, page := f.do(http.MethodGet, "/ui", nil)
+	picker, _ := operatorPicker(t, page)
+
+	require.Contains(t, picker, `value="id-anna"`)
+	require.Contains(t, picker, `value="id-cem"`)
+	require.NotContains(t, page, "cannot be reported")
 }

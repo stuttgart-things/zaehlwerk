@@ -103,3 +103,64 @@ func TestPlayersFailsLoudlyOnARefusal(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "a bearer token is required")
 }
+
+func TestOperatorsAreFetchedWithTheToken(t *testing.T) {
+	var gotAuth, gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth, gotPath = r.Header.Get("Authorization"), r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id":"o1","display_name":"timoboll","observer":true},{"id":"p1","display_name":"Anna","observer":false}]`))
+	}))
+	defer srv.Close()
+
+	c, err := New(Config{BaseURL: srv.URL, Token: "tok"})
+	require.NoError(t, err)
+
+	operators, err := c.Operators(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "/api/operators", gotPath)
+	require.Equal(t, "Bearer tok", gotAuth)
+	require.Equal(t, []Operator{
+		{ID: "o1", DisplayName: "timoboll", Observer: true},
+		{ID: "p1", DisplayName: "Anna"},
+	}, operators)
+}
+
+// TestOperatorsFallBackToPlayersOnAnOlderSchmetterpause: before its ADR-0023
+// there is no /api/operators, and the player list is what an operator was
+// picked from.
+func TestOperatorsFallBackToPlayersOnAnOlderSchmetterpause(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		if r.URL.Path == "/api/operators" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id":"p1","display_name":"Anna","ttr":1000}]`))
+	}))
+	defer srv.Close()
+
+	c, err := New(Config{BaseURL: srv.URL, Token: "tok"})
+	require.NoError(t, err)
+
+	operators, err := c.Operators(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, []string{"/api/operators", "/api/players"}, paths)
+	require.Equal(t, []Operator{{ID: "p1", DisplayName: "Anna"}}, operators)
+}
+
+func TestOperatorsFailsLoudlyOnARefusal(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":"a bearer token is required"}`, http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	c, err := New(Config{BaseURL: srv.URL, Token: "wrong"})
+	require.NoError(t, err)
+
+	_, err = c.Operators(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "fetching operators")
+}

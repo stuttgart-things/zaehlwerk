@@ -66,6 +66,17 @@ type Player struct {
 	TTR         int    `json:"ttr"`
 }
 
+// Operator is one entry of the list of people who may keep score.
+//
+// Everybody Schmetterpause knows, observers included and flagged: an observer
+// never plays, and somebody who watches and counts is exactly what an operator
+// is (Schmetterpause ADR-0014, ADR-0022, ADR-0023). Fetched fresh, like Player.
+type Operator struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+	Observer    bool   `json:"observer"`
+}
+
 // Result is a finished match, in the shape Schmetterpause accepts.
 //
 // Sets are pairs because scorer.State.CompletedSets is [][2]int and exists for
@@ -142,6 +153,46 @@ func (c *Client) Players(ctx context.Context) ([]Player, error) {
 		return nil, fmt.Errorf("schmetterpause: decoding players: %w", err)
 	}
 	return players, nil
+}
+
+// Operators fetches who may keep score, every time it is asked.
+//
+// A Schmetterpause older than its ADR-0023 has no /api/operators and answers
+// 404. That is not a failure: the player list is what an operator could be
+// picked from before, so it is returned instead, nobody flagged as an observer.
+func (c *Client) Operators(ctx context.Context) ([]Operator, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/api/operators", nil)
+	if err != nil {
+		return nil, fmt.Errorf("schmetterpause: building the operator request: %w", err)
+	}
+	c.authorize(req)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("schmetterpause: fetching operators: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusNotFound {
+		players, err := c.Players(ctx)
+		if err != nil {
+			return nil, err
+		}
+		operators := make([]Operator, 0, len(players))
+		for _, p := range players {
+			operators = append(operators, Operator{ID: p.ID, DisplayName: p.DisplayName})
+		}
+		return operators, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("schmetterpause: fetching operators: %w", statusError(resp))
+	}
+
+	var operators []Operator
+	if err := json.NewDecoder(resp.Body).Decode(&operators); err != nil {
+		return nil, fmt.Errorf("schmetterpause: decoding operators: %w", err)
+	}
+	return operators, nil
 }
 
 // Report hands a finished result over.

@@ -58,7 +58,7 @@ go run ./cmd/zaehlwerk-api
 | `CATCHER_IDLE_STREAMS` | `messages` | What it goes back to |
 | `CATCHER_IDLE_TIMEOUT` | `20m` | Give the panel back after this long without a point |
 | `SCHMETTERPAUSE_URL` | — | Schmetterpause base URL. Unset, a match is scored and shown and reported nowhere |
-| `SCHMETTERPAUSE_TOKEN` | — | Bearer token for its `/api`; without one configured there, the routes do not exist |
+| `SCHMETTERPAUSE_TOKEN` | — | Bearer token for its `/api`; without one configured there, the routes do not exist. The scoring page names both players from `/api/players` and whoever keeps score from `/api/operators`, which adds observers: accounts that never play but may count (Schmetterpause ADR-0023). Against a Schmetterpause without that route, the players are offered instead |
 
 State is in memory and deliberately so — a match lasts twenty minutes and the
 finished result goes to Schmetterpause.

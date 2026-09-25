@@ -62,6 +62,9 @@ type Lifecycle interface {
 // free-text names, which is what ADR-0004 keeps as a first-class case.
 type Roster interface {
 	Players(ctx context.Context) ([]schmetterpause.Player, error)
+	// Operators is who may keep score: the players and the observers, who
+	// never play but may count (Schmetterpause ADR-0023).
+	Operators(ctx context.Context) ([]schmetterpause.Operator, error)
 }
 
 // Handover posts a finished result, for the retry button.
@@ -274,6 +277,25 @@ func (s *Server) fillRoster(ctx context.Context, v *view) {
 	v.Roster = make([]RosterPlayer, 0, len(players))
 	for _, p := range players {
 		v.Roster = append(v.Roster, RosterPlayer{ID: p.ID, Name: p.DisplayName})
+	}
+
+	// Who keeps score is a list of its own: an observer is offered here and
+	// never as a side. Observers first, since keeping score is what they are
+	// for. If the list fails, the players are still somebody who may count,
+	// so the form falls back to them rather than refusing to start a match.
+	operators, err := s.roster.Operators(ctx)
+	if err != nil {
+		s.log.Warn("fetching the operator list failed, offering the players", "error", err)
+		v.Operators = v.Roster
+		return
+	}
+	v.Operators = make([]RosterPlayer, 0, len(operators))
+	for _, observer := range []bool{true, false} {
+		for _, o := range operators {
+			if o.Observer == observer {
+				v.Operators = append(v.Operators, RosterPlayer{ID: o.ID, Name: o.DisplayName, Observer: o.Observer})
+			}
+		}
 	}
 }
 
