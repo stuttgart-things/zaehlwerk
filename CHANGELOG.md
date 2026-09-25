@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.5.0...v0.6.0) (2026-09-25)
+
+
+### Features
+
+* offer observers to keep score, from Schmetterpause's /api/operators ([#49](https://github.com/stuttgart-things/zaehlwerk/issues/49)) ([1f33431](https://github.com/stuttgart-things/zaehlwerk/commit/1f33431f808e2c2717738717af8d384e667bcebf))
+
 ## [0.5.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.4.1...v0.5.0) (2026-09-16)
 
 
