@@ -599,8 +599,8 @@
                     </label>
                     <label>Keeping score
                         <select name="operator_id" required>
-                            <option value="">Pick a player</option>
-                            {{range .Roster}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+                            <option value="">Pick who keeps score</option>
+                            {{range .Operators}}<option value="{{.ID}}">{{.Name}}{{if .Observer}} (observer){{end}}</option>{{end}}
                         </select>
                     </label>
                 </div>

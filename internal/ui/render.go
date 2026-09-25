@@ -41,12 +41,18 @@ type view struct {
 	// start a match that cannot be reported, and nobody would find out until
 	// the last point.
 	RosterErr string
+	// Operators is who may keep score: the players plus the observers, who
+	// never play and so are never in Roster. Observers come first.
+	Operators []RosterPlayer
 }
 
-// RosterPlayer is one option in the three name pickers.
+// RosterPlayer is one option in the name pickers.
 type RosterPlayer struct {
 	ID   string
 	Name string
+	// Observer marks somebody who never plays; only the scorekeeper picker
+	// offers them.
+	Observer bool
 }
 
 // matchView is one match as the scoreboard shows it.
