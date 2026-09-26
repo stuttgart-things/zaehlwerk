@@ -92,7 +92,7 @@ curl -s -X POST localhost:8080/matches/{id}/end          # idempotent
 ```
 
 `POST /matches` takes `players`, `best_of`, `points_per_set` and `first_server`,
-all optional — the defaults are a best of five to eleven with `a` serving.
+all optional — the defaults are a best of five to eleven with `a` serving. `best_of` is any odd number; the scoring page offers 1 (a single game, one set decides), 3, 5 and 7.
 
 Undo is not gated on the match still running: taking back a wrongly awarded
 match point is exactly when it is needed. Ending a match is not the same as
