@@ -206,7 +206,7 @@ func TestTheFormSendsTheFieldsTheHandlerReads(t *testing.T) {
 
 	for _, field := range []string{
 		`name="player_a"`, `name="player_b"`,
-		`name="best_of" value="3"`, `name="best_of" value="5" checked`, `name="best_of" value="7"`,
+		`name="best_of" value="1"`, `name="best_of" value="3"`, `name="best_of" value="5" checked`, `name="best_of" value="7"`,
 		`name="first_server" value="a" checked`, `name="first_server" value="b"`,
 	} {
 		require.Contains(t, body, field)
@@ -227,6 +227,34 @@ func TestAWonMatchIsMarkedOnTheWinnersSide(t *testing.T) {
 
 	require.Regexp(t, `class="side winner">\s*<div class="name">Bernd</div>\s*<div class="status"><span class="state state-won">won</span>`, body)
 	require.NotContains(t, body, "state-ended")
+}
+
+// TestASingleGameIsDecidedByOneSet: best of 1, picked on the page, ends the
+// match with the first set -- eleven points, not two sets of them.
+func TestASingleGameIsDecidedByOneSet(t *testing.T) {
+	f := newFixture(t)
+
+	rec, _ := f.do(http.MethodPost, "/ui/matches", url.Values{
+		"player_a": {"Ada"}, "player_b": {"Grace"}, "best_of": {"1"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, f.life.started, 1)
+	m, err := f.registry.Get(f.life.started[0])
+	require.NoError(t, err)
+
+	bestOf, _ := m.Scorer.Rules()
+	require.Equal(t, 1, bestOf)
+
+	for range 10 {
+		f.point(m, "a")
+	}
+	require.False(t, m.Scorer.State().Complete, "ten points are not a set")
+
+	body := f.point(m, "a")
+	st := m.Scorer.State()
+	require.True(t, st.Complete, "the eleventh point wins the set, and the set is the match")
+	require.Equal(t, [][2]int{{11, 0}}, st.CompletedSets)
+	require.Regexp(t, `class="side winner">\s*<div class="name">Ada</div>`, body)
 }
 
 func TestStartingAMatchGoesThroughTheLifecycle(t *testing.T) {
