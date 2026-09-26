@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.6.0...v0.7.0) (2026-09-26)
+
+
+### Features
+
+* offer a single game on the scoring page (best of 1) ([#51](https://github.com/stuttgart-things/zaehlwerk/issues/51)) ([3f89817](https://github.com/stuttgart-things/zaehlwerk/commit/3f8981729348120877bd1c43a2a428a43e6edbfa))
+
 ## [0.6.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.5.0...v0.6.0) (2026-09-25)
 
 
