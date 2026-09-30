@@ -87,12 +87,18 @@ curl -s -X POST localhost:8080/matches \
   -d '{"players": ["Anna", "Bernd"], "best_of": 5}'      # 201, Location: /matches/{id}
 
 curl -s localhost:8080/matches/{id}
+curl -s localhost:8080/matches/current                  # 404 when nothing is running
 curl -s -X POST localhost:8080/matches/{id}/undo         # 409 if there is nothing to take back
 curl -s -X POST localhost:8080/matches/{id}/end          # idempotent
 ```
 
 `POST /matches` takes `players`, `best_of`, `points_per_set` and `first_server`,
 all optional — the defaults are a best of five to eleven with `a` serving. `best_of` is any odd number; the scoring page offers 1 (a single game, one set decides), 3, 5 and 7.
+
+`GET /matches/current` is the match hardware ingest would land in: the most
+recently created one still running. A board asks it before its first point, to
+label its halves and know who serves (zaehlwerk-firmware ADR-0006); a won or
+ended match is not current.
 
 Undo is not gated on the match still running: taking back a wrongly awarded
 match point is exactly when it is needed. Ending a match is not the same as

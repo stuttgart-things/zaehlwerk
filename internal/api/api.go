@@ -138,6 +138,9 @@ func New(registry *match.Registry, opts ...Option) *Server {
 	s.mux.HandleFunc("GET /healthz", s.healthz)
 
 	s.mux.HandleFunc("POST /matches", s.createMatch)
+	// A literal segment is more specific than {id}, so the mux routes this one
+	// here; a match id is eight hex digits and can never read "current".
+	s.mux.HandleFunc("GET /matches/current", s.currentMatch)
 	s.mux.HandleFunc("GET /matches/{id}", s.getMatch)
 	s.mux.HandleFunc("POST /matches/{id}/undo", s.undo)
 	s.mux.HandleFunc("POST /matches/{id}/end", s.endMatch)
