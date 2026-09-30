@@ -25,4 +25,6 @@ jobs:
       hostname-prefix: zaehlwerk-pr
       hostname-domain: ${{ vars.HOMERUN2_PREVIEW_DOMAIN }}
       health-path: /healthz
+      # The preview namespace, zaehlwerk-pr-<n> (platforms/zaehlwerk-pr-preview).
+      namespace-prefix: zaehlwerk-pr
     secrets: inherit # pragma: allowlist secret
