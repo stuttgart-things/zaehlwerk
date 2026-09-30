@@ -1,12 +1,15 @@
-package main
+package fakesp
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +17,9 @@ import (
 	"github.com/google/uuid"
 )
 
+// Package fakesp is a Schmetterpause that answers the three routes zaehlwerk
+// calls, and nothing else.
+//
 // The fake Schmetterpause answers the three routes this service calls, with the
 // refusals the real one gives, and nothing else. It is modelled on
 // schmetterpause internal/server/api.go: same status codes, same order of
@@ -27,25 +33,25 @@ import (
 // Modes the fake can be put in, so the lost-result path from ADR-0004 is
 // something to watch rather than to take on trust.
 const (
-	modeAccept = "accept"
-	modeRefuse = "refuse" // 503, as an unreachable or broken instance would look
-	modeHang   = "hang"   // never answers; the client's own timeout ends it
+	ModeAccept = "accept"
+	ModeRefuse = "refuse" // 503, as an unreachable or broken instance would look
+	ModeHang   = "hang"   // never answers; the client's own timeout ends it
 )
 
 // hangCap bounds mode hang, well past the five seconds zaehlwerk waits.
 const hangCap = time.Minute
 
-type rosterEntry struct {
+type Person struct {
 	ID          uuid.UUID `json:"id"`
 	DisplayName string    `json:"display_name"`
 	TTR         int       `json:"ttr"`
 	Observer    bool      `json:"-"`
 }
 
-// defaultRoster is fixed so the Taskfile can name ids without asking first.
+// DefaultRoster is fixed so the Taskfile can name ids without asking first.
 // Olga is the observer: offered as an operator, never as a side, which is the
 // distinction Schmetterpause ADR-0022 and ADR-0023 draw.
-var defaultRoster = []rosterEntry{
+var DefaultRoster = []Person{
 	{ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), DisplayName: "Anna", TTR: 1520},
 	{ID: uuid.MustParse("22222222-2222-4222-8222-222222222222"), DisplayName: "Bernd", TTR: 1480},
 	{ID: uuid.MustParse("33333333-3333-4333-8333-333333333333"), DisplayName: "Clara", TTR: 1610},
@@ -64,9 +70,9 @@ type resultBody struct {
 	PlayedAt    *time.Time `json:"played_at,omitempty"`
 }
 
-// storedResult is one accepted result, with the names resolved so that
+// Result is one accepted result, with the names resolved so that
 // GET /results reads as a match rather than as three uuids.
-type storedResult struct {
+type Result struct {
 	MatchID    uuid.UUID  `json:"match_id"`
 	Status     string     `json:"status"`
 	Home       string     `json:"home"`
@@ -78,32 +84,34 @@ type storedResult struct {
 	ReceivedAt time.Time  `json:"received_at"`
 }
 
-type fakeSchmetterpause struct {
+// Server is the fake. Roster may be replaced before it serves, for a test that
+// needs other people in it.
+type Server struct {
 	token  string
-	roster []rosterEntry
+	Roster []Person
 	log    *slog.Logger
 
 	mu      sync.Mutex
 	mode    string
-	results []storedResult
+	results []Result
 }
 
-func newFakeSchmetterpause(token, mode string, log *slog.Logger) (*fakeSchmetterpause, error) {
+func New(token, mode string, log *slog.Logger) (*Server, error) {
 	if err := checkMode(mode); err != nil {
 		return nil, err
 	}
-	return &fakeSchmetterpause{token: token, roster: defaultRoster, mode: mode, log: log}, nil
+	return &Server{token: token, Roster: DefaultRoster, mode: mode, log: log}, nil
 }
 
 func checkMode(mode string) error {
 	switch mode {
-	case modeAccept, modeRefuse, modeHang:
+	case ModeAccept, ModeRefuse, ModeHang:
 		return nil
 	}
-	return fmt.Errorf("mode %q: want %s, %s or %s", mode, modeAccept, modeRefuse, modeHang)
+	return fmt.Errorf("mode %q: want %s, %s or %s", mode, ModeAccept, ModeRefuse, ModeHang)
 }
 
-func (f *fakeSchmetterpause) handler() http.Handler {
+func (f *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
 	// Unset token, no routes: the real one does not register /api at all
@@ -123,25 +131,25 @@ func (f *fakeSchmetterpause) handler() http.Handler {
 	return mux
 }
 
-func (f *fakeSchmetterpause) authorized(r *http.Request) bool {
+func (f *Server) authorized(r *http.Request) bool {
 	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	return ok && subtle.ConstantTimeCompare([]byte(token), []byte(f.token)) == 1
 }
 
-func (f *fakeSchmetterpause) refuse(w http.ResponseWriter, status int, msg string) {
+func (f *Server) refuse(w http.ResponseWriter, status int, msg string) {
 	f.log.Info("refused", "status", status, "error", msg)
 	writeJSON(w, status, struct {
 		Error string `json:"error"`
 	}{msg})
 }
 
-func (f *fakeSchmetterpause) players(w http.ResponseWriter, r *http.Request) {
+func (f *Server) players(w http.ResponseWriter, r *http.Request) {
 	if !f.authorized(r) {
 		f.refuse(w, http.StatusUnauthorized, "a bearer token is required")
 		return
 	}
-	out := []rosterEntry{}
-	for _, p := range f.roster {
+	out := []Person{}
+	for _, p := range f.Roster {
 		if !p.Observer {
 			out = append(out, p)
 		}
@@ -149,7 +157,7 @@ func (f *fakeSchmetterpause) players(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (f *fakeSchmetterpause) operators(w http.ResponseWriter, r *http.Request) {
+func (f *Server) operators(w http.ResponseWriter, r *http.Request) {
 	if !f.authorized(r) {
 		f.refuse(w, http.StatusUnauthorized, "a bearer token is required")
 		return
@@ -159,24 +167,24 @@ func (f *fakeSchmetterpause) operators(w http.ResponseWriter, r *http.Request) {
 		DisplayName string    `json:"display_name"`
 		Observer    bool      `json:"observer"`
 	}
-	out := make([]operator, 0, len(f.roster))
-	for _, p := range f.roster {
+	out := make([]operator, 0, len(f.Roster))
+	for _, p := range f.Roster {
 		out = append(out, operator{ID: p.ID, DisplayName: p.DisplayName, Observer: p.Observer})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (f *fakeSchmetterpause) result(w http.ResponseWriter, r *http.Request) {
+func (f *Server) result(w http.ResponseWriter, r *http.Request) {
 	if !f.authorized(r) {
 		f.refuse(w, http.StatusUnauthorized, "a bearer token is required")
 		return
 	}
 
-	switch f.currentMode() {
-	case modeRefuse:
+	switch f.Mode() {
+	case ModeRefuse:
 		f.refuse(w, http.StatusServiceUnavailable, "fake schmetterpause is refusing results (mode refuse)")
 		return
-	case modeHang:
+	case ModeHang:
 		f.log.Info("holding a result without answering (mode hang)")
 		// Read first: net/http only notices a client that gave up once the
 		// body is consumed, and until then the request context never ends.
@@ -218,8 +226,8 @@ func (f *fakeSchmetterpause) result(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	names := make(map[uuid.UUID]rosterEntry, len(f.roster))
-	for _, p := range f.roster {
+	names := make(map[uuid.UUID]Person, len(f.Roster))
+	for _, p := range f.Roster {
 		names[p.ID] = p
 	}
 	for _, id := range []uuid.UUID{body.HomeID, body.AwayID, body.OperatorID} {
@@ -235,7 +243,7 @@ func (f *fakeSchmetterpause) result(w http.ResponseWriter, r *http.Request) {
 
 	// Pending, as the real one stores every scoreboard result while its
 	// ADR-0015 test phase runs: a player confirms it before it counts.
-	stored := storedResult{
+	stored := Result{
 		MatchID:    uuid.New(),
 		Status:     "pending",
 		Home:       names[body.HomeID].DisplayName,
@@ -312,29 +320,29 @@ func validateResult(b resultBody) string {
 	return ""
 }
 
-func (f *fakeSchmetterpause) currentMode() string {
+func (f *Server) Mode() string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.mode
 }
 
-func (f *fakeSchmetterpause) stored() []storedResult {
+func (f *Server) Results() []Result {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]storedResult{}, f.results...)
+	return append([]Result{}, f.results...)
 }
 
-func (f *fakeSchmetterpause) listResults(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, f.stored())
+func (f *Server) listResults(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, f.Results())
 }
 
-func (f *fakeSchmetterpause) getMode(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"mode": f.currentMode()})
+func (f *Server) getMode(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"mode": f.Mode()})
 }
 
 // setMode switches while running, so a match can be lost on purpose and then
 // retried from the page without restarting anything in between.
-func (f *fakeSchmetterpause) setMode(w http.ResponseWriter, r *http.Request) {
+func (f *Server) setMode(w http.ResponseWriter, r *http.Request) {
 	mode := r.FormValue("mode")
 	if err := checkMode(mode); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -351,4 +359,40 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// RunFromEnv serves the fake until ctx ends, configured the way everything here
+// is: environment variables with defaults.
+func RunFromEnv(ctx context.Context, log *slog.Logger) error {
+	token := os.Getenv("SCHMETTERPAUSE_TOKEN")
+	fake, err := New(token, env("SCHMETTERPAUSE_MODE", ModeAccept), log)
+	if err != nil {
+		return fmt.Errorf("SCHMETTERPAUSE_MODE: %w", err)
+	}
+	if token == "" {
+		log.Warn("SCHMETTERPAUSE_TOKEN not set, so /api does not exist — as with the real one")
+	}
+
+	srv := &http.Server{
+		Addr:              env("SCHMETTERPAUSE_ADDR", ":8082"),
+		Handler:           fake.Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		<-ctx.Done()
+		_ = srv.Shutdown(context.Background())
+	}()
+
+	log.Info("listening", "addr", srv.Addr, "mode", fake.Mode())
+	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+		return fmt.Errorf("serving: %w", err)
+	}
+	return nil
+}
+
+func env(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
