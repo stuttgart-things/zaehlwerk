@@ -323,6 +323,11 @@ tasks:
       - task: require-api
       - go run ./tools/chain-mock piezo
 
+  chain:e2e:
+    desc: The whole chain once through the real binaries, as CI runs it
+    cmds:
+      - tools/chain-mock/e2e.sh
+
   chain:results:
     desc: What reached the fake Schmetterpause
     silent: true

@@ -596,6 +596,17 @@ the first rally and says so.
 | `PIEZO_JOIN` | `false` | `true` waits for the page instead of starting a match |
 | `PIEZO_BEST_OF` | `3` | when it starts the match |
 
+`task chain:e2e` plays all of this once without anybody at the keyboard. It
+checks that the result arrives, that a resent event is a duplicate, and that a
+refused result gets through on the retry. CI runs the same script on every pull
+request (`chain-e2e.yaml`).
+
+The board also ships as its own image, `ghcr.io/stuttgart-things/zaehlwerk-piezo`,
+built from `tools/chain-mock/cmd/piezo`. It has the same tags as the zaehlwerk
+image (`pr-<n>-<sha>` and `pr-<n>` on pull requests, `main` and the release on
+main), and takes the variables above. It logs JSON rather than text, because it
+runs where logs are collected.
+
 The board pushes, because the ingest contract is a push (ADR-0002). A board
 could instead follow `/matches/{id}/stream` to see a correction without asking
 for it, but that is the firmware's choice and the mock does not make it.
