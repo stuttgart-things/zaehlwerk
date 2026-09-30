@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -180,6 +181,38 @@ func TestGetMatch(t *testing.T) {
 	require.Equal(t, [2]int{0, 0}, st.Points)
 
 	c.failure(http.StatusNotFound, http.MethodGet, "/matches/nope", "")
+}
+
+// A board joins the match the page created and needs to know which one before
+// its first point, so it asks by the same rule hardware ingest resolves by.
+func TestABoardFindsTheMatchItsPointsWillLandIn(t *testing.T) {
+	c := newClient(t)
+	c.newMatch("")
+	second := c.newMatch(`{"players":["Anna","Bernd"]}`)
+
+	st := c.state(http.StatusOK, http.MethodGet, "/matches/current", "")
+	require.Equal(t, second, st.MatchID)
+	require.Equal(t, [2]string{"Anna", "Bernd"}, st.Players)
+
+	landed := c.state(http.StatusOK, http.MethodPost, "/ingest/piezo",
+		`{"source":"piezo-1","player":"a","delta":1,"event_id":1}`)
+	require.Equal(t, st.MatchID, landed.MatchID)
+}
+
+func TestNoCurrentMatchWhenNothingIsRunning(t *testing.T) {
+	c := newClient(t)
+	c.failure(http.StatusNotFound, http.MethodGet, "/matches/current", "")
+
+	ended := c.newMatch("")
+	c.state(http.StatusOK, http.MethodPost, "/matches/"+ended+"/end", "")
+	c.failure(http.StatusNotFound, http.MethodGet, "/matches/current", "")
+
+	won := c.newMatch(`{"best_of":1,"points_per_set":2}`)
+	for id := 1; id <= 2; id++ {
+		c.state(http.StatusOK, http.MethodPost, "/ingest/web",
+			fmt.Sprintf(`{"match_id":%q,"source":"phone","player":"a","event_id":%d}`, won, id))
+	}
+	c.failure(http.StatusNotFound, http.MethodGet, "/matches/current", "")
 }
 
 func TestRoutingRejectsTheWrongMethodAndPath(t *testing.T) {

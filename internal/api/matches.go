@@ -79,6 +79,24 @@ func (s *Server) getMatch(w http.ResponseWriter, r *http.Request) {
 	s.writeState(w, http.StatusOK, m.Scorer.State())
 }
 
+// currentMatch is how a board learns which match it is scoring into before it
+// scores anything.
+//
+// A piezo joins the match the page created rather than creating one
+// (zaehlwerk-firmware ADR-0006), and it needs the names to label its halves and
+// who serves to judge a rally. Hardware ingest already resolves the match
+// through the same Registry.Current, so what this answers is the match the
+// board's next point will land in — asking by any other rule would let the two
+// disagree. Player ids are not in the state and stay on the match (ADR-0004).
+func (s *Server) currentMatch(w http.ResponseWriter, r *http.Request) {
+	m, err := s.registry.Current()
+	if err != nil {
+		s.fail(w, r, http.StatusNotFound, err, nil)
+		return
+	}
+	s.writeState(w, http.StatusOK, m.Scorer.State())
+}
+
 // undo is not gated on the match still running. Taking back a wrongly awarded
 // match point is exactly when it is needed.
 func (s *Server) undo(w http.ResponseWriter, r *http.Request) {
