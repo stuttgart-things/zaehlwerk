@@ -65,10 +65,8 @@ jobs:
   # not the ":latest" placeholder the profile carries. That is what
   # kcl-parameters is for; it wins over the profile file.
   #
-  # Not on a pull request. A per-PR artefact exists to feed a preview
-  # environment, and this service has none: the preview machinery next door
-  # serves a database we do not have. `task kcl:publish TAG=…` covers the
-  # by-hand case.
+  # Not on a pull request: push-kustomize-pr.yaml publishes the per-PR base
+  # (pr-<n>-<head sha>) the preview environment deploys.
   kustomize:
     if: github.event_name != 'pull_request'
     needs: build-main

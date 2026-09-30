@@ -1,0 +1,30 @@
+---
+name: Comment Preview URL on PR
+on:
+  pull_request:
+    # No `opened`: a PR created with `preview` already attached fires both
+    # `opened` and `labeled`, and two runs would post two comments. `labeled`
+    # covers the at-creation case.
+    types: [reopened, labeled]
+    branches:
+      - main
+
+jobs:
+  comment:
+    # Only for the `preview` label (what the ApplicationSet keys on), and only
+    # when the org variable HOMERUN2_PREVIEW_DOMAIN names the preview cluster --
+    # the same variable the homerun2 components use, since the previews share
+    # one cluster.
+    if: |
+      vars.HOMERUN2_PREVIEW_DOMAIN != '' && (
+        (github.event.action == 'labeled' && github.event.label.name == 'preview') ||
+        (github.event.action == 'reopened' && contains(github.event.pull_request.labels.*.name, 'preview'))
+      )
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-comment-preview-url.yaml@main
+    with:
+      hostname-prefix: zaehlwerk-pr
+      hostname-domain: ${{ vars.HOMERUN2_PREVIEW_DOMAIN }}
+      health-path: /healthz
+      # The preview namespace, zaehlwerk-pr-<n> (platforms/zaehlwerk-pr-preview).
+      namespace-prefix: zaehlwerk-pr
+    secrets: inherit # pragma: allowlist secret
