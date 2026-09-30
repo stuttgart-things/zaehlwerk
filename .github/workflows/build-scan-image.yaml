@@ -46,6 +46,42 @@ jobs:
             || 'main' }}
     secrets: inherit # pragma: allowlist secret
 
+  # The chain mock's board, as its own image for the PR preview's simulator
+  # job (stuttgart-things/argocd, opt-in with the preview-sim label). Same
+  # call and same tags as zaehlwerk, so a preview names both by one string.
+  # Not scanned: a test client that never runs next to real users, and the
+  # zaehlwerk scan already covers the same module's dependencies.
+  build-piezo-pr:
+    if: github.event_name == 'pull_request'
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
+    with:
+      runs-on: ubuntu-latest
+      go-version: "1.26.6"
+      build-path: ./tools/chain-mock/cmd/piezo
+      registry: ghcr.io
+      image-repo: stuttgart-things/zaehlwerk-piezo
+      # The tag names the head sha, so the image has to be built from it and
+      # not from the merge commit a pull_request checks out by default.
+      ref: ${{ github.event.pull_request.head.sha }}
+      tags: pr-${{ github.event.number }}-${{ github.event.pull_request.head.sha }},pr-${{ github.event.number }}
+    secrets: inherit # pragma: allowlist secret
+
+  build-piezo-main:
+    if: github.event_name != 'pull_request'
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
+    with:
+      runs-on: ubuntu-latest
+      go-version: "1.26.6"
+      build-path: ./tools/chain-mock/cmd/piezo
+      registry: ghcr.io
+      image-repo: stuttgart-things/zaehlwerk-piezo
+      # The same two namespaces as build-main.
+      tags: >-
+        ${{ github.ref_type == 'tag'
+            && format('{0},latest', github.ref_name)
+            || 'main' }}
+    secrets: inherit # pragma: allowlist secret
+
   # Scans what ko just pushed. Report-only for now — an image scan takes an
   # inventory of a whole artefact, and the first findings are usually
   # transitive; gate on it once the list has been read.

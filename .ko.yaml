@@ -35,3 +35,14 @@ builds:
       - -X main.version={{index .Env "VERSION"}}
       - -X main.commit={{index .Env "COMMIT"}}
       - -X main.date={{index .Env "BUILD_DATE"}}
+
+  # The chain mock's board (tools/chain-mock), published as zaehlwerk-piezo
+  # for the preview's simulator. No version stamping: it reports nothing about
+  # itself, and the image tag already says which commit it came from.
+  - id: zaehlwerk-piezo
+    main: ./tools/chain-mock/cmd/piezo
+    flags:
+      - -trimpath
+    ldflags:
+      - -s
+      - -w
