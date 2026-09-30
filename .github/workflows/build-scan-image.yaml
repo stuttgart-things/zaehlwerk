@@ -23,6 +23,11 @@ jobs:
       # The binary is under cmd/, so the default "." would find no package.
       build-path: ./cmd/zaehlwerk-api
       registry: ghcr.io
+      # The tag names the head sha, so the image has to be built from it and
+      # not from the merge commit a pull_request checks out by default. The
+      # preview deploys pr-<n>-<head sha> expecting exactly that commit, and
+      # push-kustomize-pr.yaml already builds its base from the head.
+      ref: ${{ github.event.pull_request.head.sha }}
       tags: pr-${{ github.event.number }}-${{ github.event.pull_request.head.sha }},pr-${{ github.event.number }}
     secrets: inherit # pragma: allowlist secret
 
@@ -60,8 +65,7 @@ jobs:
       build-path: ./tools/chain-mock/cmd/piezo
       registry: ghcr.io
       image-repo: stuttgart-things/zaehlwerk-piezo
-      # The tag names the head sha, so the image has to be built from it and
-      # not from the merge commit a pull_request checks out by default.
+      # From the head, for the reason given at build-pr.
       ref: ${{ github.event.pull_request.head.sha }}
       tags: pr-${{ github.event.number }}-${{ github.event.pull_request.head.sha }},pr-${{ github.event.number }}
     secrets: inherit # pragma: allowlist secret
