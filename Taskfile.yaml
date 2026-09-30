@@ -21,6 +21,11 @@ vars:
   KUSTOMIZE_OCI_REPO: ghcr.io/stuttgart-things/zaehlwerk-kustomize
   IMAGE_REPO: ghcr.io/stuttgart-things/zaehlwerk
   ZW_REDIS_PORT: '{{.ZW_REDIS_PORT | default "6379"}}'
+  ZW_SCHMETTERPAUSE_PORT: '{{.ZW_SCHMETTERPAUSE_PORT | default "8082"}}'
+  FAKE_SCHMETTERPAUSE: http://localhost:{{.ZW_SCHMETTERPAUSE_PORT | default "8082"}}
+  # Shared by both ends of the chain, so the fake and zaehlwerk agree on it
+  # without anybody typing it twice. Not a secret: nothing real is behind it.
+  CHAIN_TOKEN: chain-mock
   API: http://localhost:{{.ZW_PORT | default "8080"}}
   SIMULATOR: http://localhost:{{.ZW_SIMULATOR_PORT | default "8081"}}
 
@@ -275,6 +280,60 @@ tasks:
         fi
         echo "streaming match {{.ID}} — Ctrl-C to stop"
         curl -sN {{.API}}/matches/{{.ID}}/stream
+
+  ## ──────────────────────────────────────────────
+  ## THE CHAIN: PIEZO → ZAEHLWERK → SCHMETTERPAUSE
+  ## ──────────────────────────────────────────────
+
+  chain:schmetterpause:
+    desc: A fake Schmetterpause — roster out, results in, in memory (Ctrl-C to stop)
+    env:
+      SCHMETTERPAUSE_ADDR: ':{{.ZW_SCHMETTERPAUSE_PORT}}'
+      SCHMETTERPAUSE_TOKEN: '{{.CHAIN_TOKEN}}'
+      SCHMETTERPAUSE_MODE: '{{.MODE | default "accept"}}'
+    cmds:
+      - go run ./tools/chain-mock schmetterpause
+
+  chain:run:
+    desc: Run zaehlwerk reporting to the fake Schmetterpause (Ctrl-C to stop)
+    deps: [port-free]
+    env:
+      HTTP_ADDR: ':{{.ZW_PORT}}'
+      SCHMETTERPAUSE_URL: '{{.FAKE_SCHMETTERPAUSE}}'
+      SCHMETTERPAUSE_TOKEN: '{{.CHAIN_TOKEN}}'
+      LOG_LEVEL: '{{.LOG_LEVEL | default "INFO"}}'
+    cmds:
+      - go run ./cmd/zaehlwerk-api
+
+  chain:piezo:
+    # The board reads its players from the Schmetterpause zaehlwerk reports
+    # to, so the same task runs against the fake or a real instance:
+    #   SCHMETTERPAUSE_URL=https://… SCHMETTERPAUSE_TOKEN=… task chain:piezo
+    # JOIN=1 is what a real board does — it never starts a match, it waits
+    # for one to be started on the page and joins it.
+    desc: 'A piezo board that plays a match to the end. JOIN=1 waits for the page instead'
+    env:
+      ZAEHLWERK_URL: '{{.API}}'
+      SCHMETTERPAUSE_URL: '{{.SCHMETTERPAUSE_URL | default .FAKE_SCHMETTERPAUSE}}'
+      SCHMETTERPAUSE_TOKEN: '{{.SCHMETTERPAUSE_TOKEN | default .CHAIN_TOKEN}}'
+      PIEZO_PACE: '{{.PACE | default "1s"}}'
+      PIEZO_BEST_OF: '{{.BEST_OF | default "3"}}'
+      PIEZO_JOIN: '{{if .JOIN}}true{{else}}false{{end}}'
+    cmds:
+      - task: require-api
+      - go run ./tools/chain-mock piezo
+
+  chain:results:
+    desc: What reached the fake Schmetterpause
+    silent: true
+    cmds:
+      - curl -sS {{.FAKE_SCHMETTERPAUSE}}/results | python3 -m json.tool
+
+  chain:mode:
+    desc: 'Make the fake refuse, hang or accept: task chain:mode MODE=refuse'
+    silent: true
+    cmds:
+      - curl -sS -X POST {{.FAKE_SCHMETTERPAUSE}}/mode -d 'mode={{.MODE | default "accept"}}'
 
   port-free:
     # Better here than as a bind error thirty lines into the startup log, which

@@ -518,6 +518,88 @@ screen time and is not cut short. That is why the `fallback` rule keeps one:
 something that is not the score should scroll past rather than sit on the panel
 until the next point lands.
 
+## The chain, without a board or Schmetterpause
+
+`tools/chain-mock` stands in for both ends of piezo → zaehlwerk →
+Schmetterpause, so the whole path runs on a laptop
+([#55](https://github.com/stuttgart-things/zaehlwerk/issues/55)). It is a
+development tool and is not deployed.
+
+```bash
+task chain:schmetterpause   # the fake: roster out, results in, in memory
+task chain:run              # zaehlwerk with SCHMETTERPAUSE_URL pointed at it
+task chain:piezo            # a board plays a best of three to the end
+task chain:results          # what arrived at the other end
+```
+
+**The fake Schmetterpause** answers `/api/players`, `/api/operators` and
+`/api/results` with the refusals the real one gives. Those are a 401 without the
+token, and a 400 or 422 for a result it would not store: an operator who is
+playing, an observer as a side, an unknown id, a set won by one. Its roster is
+fixed: Anna, Bernd and Clara play, Olga only watches. A contract test drives it
+with this service's own client, so it cannot quietly speak a different API.
+`task chain:mode MODE=refuse` or `MODE=hang` loses the next result on purpose,
+and the page then offers the retry that ADR-0004 promises. `MODE=accept` lets
+that retry through.
+
+**The board** does what zaehlwerk-firmware#41 describes, and is meant as the
+reference for it:
+
+- It joins through `GET /matches/current` and asks again before every rally,
+  so an undo from the phone changes who serves.
+- It sends one `POST /ingest/piezo` per rally, with a counter that only goes
+  up.
+- It maps table half to player and swaps them at each set boundary.
+- It misbehaves the way a real sender does:
+  - some rallies go out as `delta: 0`
+  - some events go out twice, and it stops with an error if the second one
+    changes the score
+  - some points are taken back through the undo route
+- It never counts. The score always comes from the response.
+
+By default the board starts the match itself, through the page's form. It
+picks two players from `GET /api/players` and whoever keeps score from
+`GET /api/operators`, preferring an observer. It never assumes a name or an id:
+against the fake it finds Anna, Bernd, Clara and Olga, and against a real
+instance it finds whoever is there. `task chain:piezo JOIN=1` behaves like the
+real board instead: it waits until somebody starts a match on the page, then
+joins it.
+
+**Against a real Schmetterpause**, a preview with seed data for instance, point
+zaehlwerk and the board at the same instance:
+
+```bash
+SCHMETTERPAUSE_URL=https://schmetterpause.example SCHMETTERPAUSE_TOKEN=… task run:bare
+SCHMETTERPAUSE_URL=https://schmetterpause.example SCHMETTERPAUSE_TOKEN=… task chain:piezo
+```
+
+Against a deployed zaehlwerk, set `ZAEHLWERK_URL` and run
+`go run ./tools/chain-mock piezo` directly. The result arrives there pending,
+and one of the two players confirms it as with any scoreboard result
+(Schmetterpause ADR-0015). If zaehlwerk names the players differently from the
+roster the board read, the two are not using the same instance. In that case
+the result would be refused at the end of the match, so the board stops before
+the first rally and says so.
+
+| Variable | Default | |
+| -------- | ------- | - |
+| `SCHMETTERPAUSE_ADDR` | `:8082` | where the fake listens (`ZW_SCHMETTERPAUSE_PORT` in `.env`) |
+| `SCHMETTERPAUSE_TOKEN` | — | the fake: unset, `/api` does not exist, as with the real one. The board: the bearer token it sends |
+| `SCHMETTERPAUSE_MODE` | `accept` | `refuse`, `hang` |
+| `SCHMETTERPAUSE_URL` | — | where the board reads its players from. Unset, it starts a match nobody reports |
+| `ZAEHLWERK_URL` | `http://localhost:8080` | |
+| `PIEZO_SOURCE` | `piezo-mock` | |
+| `PIEZO_PACE` | `1s` | between rallies |
+| `PIEZO_AMBIGUOUS`, `PIEZO_RESEND`, `PIEZO_UNDO` | `0.1`, `0.1`, `0.05` | shares of rallies |
+| `PIEZO_SEED` | `1` | so a run can be repeated, and the same players picked |
+| `PIEZO_MATCHES` | `1` | `0` keeps playing |
+| `PIEZO_JOIN` | `false` | `true` waits for the page instead of starting a match |
+| `PIEZO_BEST_OF` | `3` | when it starts the match |
+
+The board pushes, because the ingest contract is a push (ADR-0002). A board
+could instead follow `/matches/{id}/stream` to see a correction without asking
+for it, but that is the firmware's choice and the mock does not make it.
+
 ## CI
 
 Two workflows, on every pull request and on main.
