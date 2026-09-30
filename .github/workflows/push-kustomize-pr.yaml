@@ -1,0 +1,35 @@
+---
+name: Push PR Kustomize OCI
+on:
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # The kustomize base a PR preview deploys (stuttgart-things/argocd
+  # platforms/zaehlwerk-pr-preview). Tagged pr-<n>-<head sha>, the string the
+  # preview ApplicationSet composes from its own `.head_sha`; its image is the
+  # one build-pr in build-scan-image.yaml pushes under the same tag.
+  push-kustomize:
+    # Declared here as well as in the called workflow: a reusable workflow
+    # can narrow the caller's token but never widen it.
+    permissions:
+      contents: read
+      packages: write
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-push-kustomize.yaml@main
+    with:
+      runs-on: ubuntu-latest
+      # The head of the pull request, not the merge commit GitHub checks out
+      # by default -- the tag names the head sha, so the artefact must be it.
+      ref: ${{ github.event.pull_request.head.sha }}
+      kcl-source-dir: kcl
+      kcl-profile-file: kcl/profiles/base.yaml
+      kustomize-oci-repo: ghcr.io/stuttgart-things/zaehlwerk-kustomize
+      # One line on purpose, as in build-scan-image.yaml.
+      kcl-parameters: "config.image=ghcr.io/stuttgart-things/zaehlwerk:pr-${{ github.event.number }}-${{ github.event.pull_request.head.sha }}"
+      tag: pr-${{ github.event.number }}-${{ github.event.pull_request.head.sha }}
+    secrets: inherit # pragma: allowlist secret
