@@ -306,15 +306,19 @@ tasks:
       - go run ./cmd/zaehlwerk-api
 
   chain:piezo:
-    # Anna and Bernd playing, Olga keeping score: the fake's fixed roster.
+    # The board reads its players from the Schmetterpause zaehlwerk reports
+    # to, so the same task runs against the fake or a real instance:
+    #   SCHMETTERPAUSE_URL=https://… SCHMETTERPAUSE_TOKEN=… task chain:piezo
     # JOIN=1 is what a real board does — it never starts a match, it waits
     # for one to be started on the page and joins it.
     desc: 'A piezo board that plays a match to the end. JOIN=1 waits for the page instead'
     env:
       ZAEHLWERK_URL: '{{.API}}'
+      SCHMETTERPAUSE_URL: '{{.SCHMETTERPAUSE_URL | default .FAKE_SCHMETTERPAUSE}}'
+      SCHMETTERPAUSE_TOKEN: '{{.SCHMETTERPAUSE_TOKEN | default .CHAIN_TOKEN}}'
       PIEZO_PACE: '{{.PACE | default "1s"}}'
       PIEZO_BEST_OF: '{{.BEST_OF | default "3"}}'
-      PIEZO_CREATE: '{{if not .JOIN}}11111111-1111-4111-8111-111111111111,22222222-2222-4222-8222-222222222222,44444444-4444-4444-8444-444444444444{{end}}'
+      PIEZO_JOIN: '{{if .JOIN}}true{{else}}false{{end}}'
     cmds:
       - task: require-api
       - go run ./tools/chain-mock piezo

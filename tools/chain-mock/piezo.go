@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stuttgart-things/zaehlwerk/internal/schmetterpause"
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 )
 
@@ -47,16 +48,30 @@ type boardConfig struct {
 	Undo    float64
 	Seed    int64
 	Matches int // matches to play before exiting; 0 keeps going
-	// Create, when set, starts the match through the page's form instead of
-	// waiting for somebody to.
-	Create *createForm
+	// Join waits for a match started on the page, which is all a real board
+	// ever does. Unset, the mock starts one itself through the page's form.
+	Join   bool
+	BestOf int
+	// Roster is where the players come from when the mock starts the match:
+	// the Schmetterpause zaehlwerk reports to. Nil starts a match with no
+	// players named, which is scored and reported nowhere.
+	Roster Roster
 }
 
-// createForm is what a person picks on the page: two players and whoever keeps
-// score, by their Schmetterpause ids.
-type createForm struct {
-	HomeID, AwayID, OperatorID string
-	BestOf                     int
+// Roster is the half of the Schmetterpause client the board needs. Asked, never
+// assumed: against the fake the names are fixed, against a real instance —
+// a preview with its seed data — they are whatever it holds, and a match meant
+// to be reported can only be started with ids that instance knows (ADR-0004).
+type Roster interface {
+	Players(ctx context.Context) ([]schmetterpause.Player, error)
+	Operators(ctx context.Context) ([]schmetterpause.Operator, error)
+}
+
+// lineup is what a person picks on the page: two players and whoever keeps
+// score.
+type lineup struct {
+	home, away schmetterpause.Player
+	operator   schmetterpause.Operator
 }
 
 type board struct {
@@ -88,8 +103,10 @@ var errMatchOver = errors.New("the match is over")
 
 func (b *board) run(ctx context.Context) error {
 	for played := 0; b.cfg.Matches == 0 || played < b.cfg.Matches; played++ {
-		if b.cfg.Create != nil {
-			if err := b.create(ctx); err != nil {
+		var picked *lineup
+		if !b.cfg.Join {
+			var err error
+			if picked, err = b.create(ctx); err != nil {
 				return err
 			}
 		}
@@ -97,6 +114,15 @@ func (b *board) run(ctx context.Context) error {
 		st, err := b.join(ctx)
 		if err != nil {
 			return err
+		}
+		if picked != nil && st.Players != [2]string{picked.home.DisplayName, picked.away.DisplayName} {
+			// zaehlwerk names the players from its own Schmetterpause. If the
+			// names differ, the two are not the same instance, and the result
+			// would be refused at the end of the match for ids it does not
+			// know — better said now than after a best of five.
+			return fmt.Errorf("zaehlwerk named the players %q, the roster %q and %q: "+
+				"is it reporting to the same Schmetterpause as SCHMETTERPAUSE_URL here?",
+				st.Players, picked.home.DisplayName, picked.away.DisplayName)
 		}
 		if err := b.play(ctx, st); err != nil {
 			return err
@@ -109,23 +135,35 @@ func (b *board) run(ctx context.Context) error {
 // only door there is: the JSON API names players as free text and starts a
 // match nobody reports (ADR-0004), so a match meant to reach Schmetterpause is
 // started where a person would start it.
-func (b *board) create(ctx context.Context) error {
-	form := url.Values{
-		"home_id":     {b.cfg.Create.HomeID},
-		"away_id":     {b.cfg.Create.AwayID},
-		"operator_id": {b.cfg.Create.OperatorID},
-		"best_of":     {strconv.Itoa(b.cfg.Create.BestOf)},
+func (b *board) create(ctx context.Context) (*lineup, error) {
+	form := url.Values{"best_of": {strconv.Itoa(b.cfg.BestOf)}}
+
+	var picked *lineup
+	if b.cfg.Roster != nil {
+		l, err := b.pick(ctx)
+		if err != nil {
+			return nil, err
+		}
+		picked = &l
+		form.Set("home_id", l.home.ID)
+		form.Set("away_id", l.away.ID)
+		form.Set("operator_id", l.operator.ID)
+		b.log.Info("starting a match", "home", l.home.DisplayName, "away", l.away.DisplayName,
+			"operator", l.operator.DisplayName, "best_of", b.cfg.BestOf)
+	} else {
+		b.log.Info("starting a match nobody reports, no SCHMETTERPAUSE_URL", "best_of", b.cfg.BestOf)
 	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.cfg.API+"/ui/matches",
 		strings.NewReader(form.Encode()))
 	if err != nil {
-		return fmt.Errorf("building the new-match form: %w", err)
+		return nil, fmt.Errorf("building the new-match form: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := b.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("posting the new-match form: %w", err)
+		return nil, fmt.Errorf("posting the new-match form: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	page, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -133,12 +171,51 @@ func (b *board) create(ctx context.Context) error {
 	// The page answers a bad form with 200 and the reason in the markup,
 	// because htmx swaps it in where the form was.
 	if m := pageError.FindSubmatch(page); m != nil {
-		return fmt.Errorf("the page did not start the match: %s", html.UnescapeString(string(m[1])))
+		return nil, fmt.Errorf("the page did not start the match: %s", html.UnescapeString(string(m[1])))
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("posting the new-match form: %s", resp.Status)
+		return nil, fmt.Errorf("posting the new-match form: %s", resp.Status)
 	}
-	return nil
+	return picked, nil
+}
+
+// pick chooses two players and somebody to keep score, from whatever the
+// roster holds. An observer counts if there is one, because that is what an
+// observer is for; otherwise anybody not playing. The seed decides, so a run
+// can be repeated against the same data.
+func (b *board) pick(ctx context.Context) (lineup, error) {
+	players, err := b.cfg.Roster.Players(ctx)
+	if err != nil {
+		return lineup{}, fmt.Errorf("reading the players: %w", err)
+	}
+	if len(players) < 2 {
+		return lineup{}, fmt.Errorf("the roster has %d players, a match needs two", len(players))
+	}
+	order := b.rnd.Perm(len(players))
+	l := lineup{home: players[order[0]], away: players[order[1]]}
+
+	operators, err := b.cfg.Roster.Operators(ctx)
+	if err != nil {
+		return lineup{}, fmt.Errorf("reading who may keep score: %w", err)
+	}
+	var free []schmetterpause.Operator
+	for _, o := range operators {
+		if o.ID != l.home.ID && o.ID != l.away.ID {
+			free = append(free, o)
+		}
+	}
+	if len(free) == 0 {
+		return lineup{}, errors.New("nobody but the two players may keep score, and they may not")
+	}
+	b.rnd.Shuffle(len(free), func(i, j int) { free[i], free[j] = free[j], free[i] })
+	l.operator = free[0]
+	for _, o := range free {
+		if o.Observer {
+			l.operator = o
+			break
+		}
+	}
+	return l, nil
 }
 
 var pageError = regexp.MustCompile(`<div class="error">([^<]*)</div>`)

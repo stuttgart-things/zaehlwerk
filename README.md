@@ -557,23 +557,44 @@ reference for it:
   - some points are taken back through the undo route
 - It never counts. The score always comes from the response.
 
-By default it starts the match itself through the page's form, as Anna against
-Bernd with Olga counting. `task chain:piezo JOIN=1` behaves like the real board
-instead: it waits until somebody starts a match on the page, then joins it.
+By default the board starts the match itself, through the page's form. It
+picks two players from `GET /api/players` and whoever keeps score from
+`GET /api/operators`, preferring an observer. It never assumes a name or an id:
+against the fake it finds Anna, Bernd, Clara and Olga, and against a real
+instance it finds whoever is there. `task chain:piezo JOIN=1` behaves like the
+real board instead: it waits until somebody starts a match on the page, then
+joins it.
+
+**Against a real Schmetterpause**, a preview with seed data for instance, point
+zaehlwerk and the board at the same instance:
+
+```bash
+SCHMETTERPAUSE_URL=https://schmetterpause.example SCHMETTERPAUSE_TOKEN=… task run:bare
+SCHMETTERPAUSE_URL=https://schmetterpause.example SCHMETTERPAUSE_TOKEN=… task chain:piezo
+```
+
+Against a deployed zaehlwerk, set `ZAEHLWERK_URL` and run
+`go run ./tools/chain-mock piezo` directly. The result arrives there pending,
+and one of the two players confirms it as with any scoreboard result
+(Schmetterpause ADR-0015). If zaehlwerk names the players differently from the
+roster the board read, the two are not using the same instance. In that case
+the result would be refused at the end of the match, so the board stops before
+the first rally and says so.
 
 | Variable | Default | |
 | -------- | ------- | - |
 | `SCHMETTERPAUSE_ADDR` | `:8082` | where the fake listens (`ZW_SCHMETTERPAUSE_PORT` in `.env`) |
-| `SCHMETTERPAUSE_TOKEN` | — | unset, `/api` does not exist, as with the real one |
+| `SCHMETTERPAUSE_TOKEN` | — | the fake: unset, `/api` does not exist, as with the real one. The board: the bearer token it sends |
 | `SCHMETTERPAUSE_MODE` | `accept` | `refuse`, `hang` |
+| `SCHMETTERPAUSE_URL` | — | where the board reads its players from. Unset, it starts a match nobody reports |
 | `ZAEHLWERK_URL` | `http://localhost:8080` | |
 | `PIEZO_SOURCE` | `piezo-mock` | |
 | `PIEZO_PACE` | `1s` | between rallies |
 | `PIEZO_AMBIGUOUS`, `PIEZO_RESEND`, `PIEZO_UNDO` | `0.1`, `0.1`, `0.05` | shares of rallies |
-| `PIEZO_SEED` | `1` | so a run can be repeated |
+| `PIEZO_SEED` | `1` | so a run can be repeated, and the same players picked |
 | `PIEZO_MATCHES` | `1` | `0` keeps playing |
-| `PIEZO_CREATE` | — | `home,away,operator` ids; unset joins instead |
-| `PIEZO_BEST_OF` | `3` | with `PIEZO_CREATE` |
+| `PIEZO_JOIN` | `false` | `true` waits for the page instead of starting a match |
+| `PIEZO_BEST_OF` | `3` | when it starts the match |
 
 The board pushes, because the ingest contract is a push (ADR-0002). A board
 could instead follow `/matches/{id}/stream` to see a correction without asking

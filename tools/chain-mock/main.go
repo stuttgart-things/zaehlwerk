@@ -23,6 +23,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/stuttgart-things/zaehlwerk/internal/schmetterpause"
 )
 
 func main() {
@@ -104,23 +106,29 @@ func runPiezo(ctx context.Context, log *slog.Logger) error {
 		return fmt.Errorf("PIEZO_MATCHES: %w", err)
 	}
 
-	// PIEZO_CREATE=home,away,operator starts the match through the page
-	// rather than waiting for somebody to. Unset is the board's real
-	// behaviour: it never creates a match, it joins one.
-	if raw := os.Getenv("PIEZO_CREATE"); raw != "" {
-		ids := strings.Split(raw, ",")
-		if len(ids) != 3 {
-			return fmt.Errorf("PIEZO_CREATE %q: want home,away,operator", raw)
-		}
-		bestOf, err := strconv.Atoi(env("PIEZO_BEST_OF", "3"))
+	if cfg.Join, err = strconv.ParseBool(env("PIEZO_JOIN", "false")); err != nil {
+		return fmt.Errorf("PIEZO_JOIN: %w", err)
+	}
+	if cfg.BestOf, err = strconv.Atoi(env("PIEZO_BEST_OF", "3")); err != nil {
+		return fmt.Errorf("PIEZO_BEST_OF: %w", err)
+	}
+
+	// The same two variables zaehlwerk reads, pointed at the same instance:
+	// the board picks the players from there, and zaehlwerk later reports
+	// the result to there. Fake or real makes no difference to the board.
+	if base := os.Getenv("SCHMETTERPAUSE_URL"); base != "" && !cfg.Join {
+		client, err := schmetterpause.New(schmetterpause.Config{
+			BaseURL: base,
+			Token:   os.Getenv("SCHMETTERPAUSE_TOKEN"),
+		})
 		if err != nil {
-			return fmt.Errorf("PIEZO_BEST_OF: %w", err)
+			return fmt.Errorf("SCHMETTERPAUSE_URL: %w", err)
 		}
-		cfg.Create = &createForm{HomeID: ids[0], AwayID: ids[1], OperatorID: ids[2], BestOf: bestOf}
+		cfg.Roster = client
 	}
 
 	log.Info("board up", "api", cfg.API, "source", cfg.Source, "pace", cfg.Pace,
-		"creates_match", cfg.Create != nil)
+		"joins", cfg.Join, "roster", cfg.Roster != nil)
 	return newBoard(cfg, log).run(ctx)
 }
 

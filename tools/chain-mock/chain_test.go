@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stuttgart-things/zaehlwerk/internal/api"
@@ -170,9 +171,8 @@ func TestABoardPlaysAMatchFromThePageIntoSchmetterpause(t *testing.T) {
 	zw := chain(t, sp)
 
 	b := newBoard(boardConfig{
-		API: zw.URL, Source: "piezo-test", Matches: 1, Seed: 7,
-		Ambiguous: 0.2, Resend: 0.3, Undo: 0.1,
-		Create: &createForm{HomeID: anna, AwayID: bernd, OperatorID: olga, BestOf: 3},
+		API: zw.URL, Source: "piezo-test", Matches: 1, Seed: 7, BestOf: 3,
+		Ambiguous: 0.2, Resend: 0.3, Undo: 0.1, Roster: sp,
 	}, quiet)
 	require.NoError(t, b.run(context.Background()))
 
@@ -180,20 +180,56 @@ func TestABoardPlaysAMatchFromThePageIntoSchmetterpause(t *testing.T) {
 		2*time.Second, 10*time.Millisecond, "the reporter posts the result from a goroutine")
 
 	got := f.stored()[0]
-	require.Equal(t, "Anna", got.Home)
-	require.Equal(t, "Bernd", got.Away)
-	require.Equal(t, "Olga", got.Operator)
+	require.NotEqual(t, got.Home, got.Away)
+	require.Equal(t, "Olga", got.Operator, "an observer keeps score when there is one")
 	require.Equal(t, 3, got.BestOf)
 	require.NotEmpty(t, got.Sets)
 }
 
-func TestABoardMadeToCreateAnImpossibleMatchSaysWhy(t *testing.T) {
-	_, _, sp := fake(t, modeAccept)
+// The board reads the players rather than knowing them, so it runs unchanged
+// against a Schmetterpause with other people in it.
+func TestTheBoardPlaysWhoeverTheRosterHolds(t *testing.T) {
+	f, _, sp := fake(t, modeAccept)
+	f.roster = []rosterEntry{
+		{ID: uuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"), DisplayName: "Ada"},
+		{ID: uuid.MustParse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"), DisplayName: "Grace"},
+		{ID: uuid.MustParse("cccccccc-cccc-4ccc-8ccc-cccccccccccc"), DisplayName: "Linus"},
+	}
 	zw := chain(t, sp)
 
-	b := newBoard(boardConfig{API: zw.URL, Source: "piezo-test", Matches: 1,
-		Create: &createForm{HomeID: anna, AwayID: bernd, OperatorID: anna, BestOf: 3}}, quiet)
-	require.ErrorContains(t, b.run(context.Background()), "may not be playing")
+	b := newBoard(boardConfig{API: zw.URL, Source: "piezo-test", Matches: 1, Seed: 3, BestOf: 1, Roster: sp}, quiet)
+	require.NoError(t, b.run(context.Background()))
+
+	require.Eventually(t, func() bool { return len(f.stored()) == 1 }, 2*time.Second, 10*time.Millisecond)
+	got := f.stored()[0]
+	names := []string{got.Home, got.Away, got.Operator}
+	require.ElementsMatch(t, []string{"Ada", "Grace", "Linus"}, names,
+		"two play and the third keeps score, with no observer to prefer")
+}
+
+func TestABoardWithOnlyTwoPeopleCannotStartAMatch(t *testing.T) {
+	f, _, sp := fake(t, modeAccept)
+	f.roster = f.roster[:2]
+	zw := chain(t, sp)
+
+	b := newBoard(boardConfig{API: zw.URL, Source: "piezo-test", Matches: 1, BestOf: 3, Roster: sp}, quiet)
+	require.ErrorContains(t, b.run(context.Background()), "may not")
+}
+
+// zaehlwerk reporting somewhere else would refuse the result at the very end;
+// the board says so before the first rally instead.
+func TestABoardNoticesZaehlwerkReadsAnotherSchmetterpause(t *testing.T) {
+	_, _, ours := fake(t, modeAccept)
+	theirs, _, other := fake(t, modeAccept)
+	theirs.roster = []rosterEntry{
+		{ID: uuid.MustParse(anna), DisplayName: "Anna Other"},
+		{ID: uuid.MustParse(bernd), DisplayName: "Bernd Other"},
+		{ID: uuid.MustParse("33333333-3333-4333-8333-333333333333"), DisplayName: "Clara Other"},
+	}
+	zw := chain(t, other)
+
+	b := newBoard(boardConfig{API: zw.URL, Source: "piezo-test", Matches: 1, BestOf: 3, Roster: ours}, quiet)
+	require.ErrorContains(t, b.run(context.Background()), "same Schmetterpause")
 }
 
 // A sensor stays under its half; the players do not.
