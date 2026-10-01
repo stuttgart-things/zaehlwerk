@@ -13,6 +13,6 @@ jobs:
     uses: stuttgart-things/github-workflow-templates/.github/workflows/call-cleanup-pr-artifacts.yaml@main
     with:
       runs-on: ubuntu-latest
-      packages: zaehlwerk,zaehlwerk-kustomize
+      packages: zaehlwerk,zaehlwerk-kustomize,zaehlwerk-piezo
       dry-run: false
     secrets: inherit # pragma: allowlist secret

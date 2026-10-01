@@ -1,4 +1,4 @@
-package main
+package piezo
 
 import (
 	"bytes"
@@ -12,6 +12,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,6 +22,8 @@ import (
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 )
 
+// Package piezo is a board that joins the running match and scores into it.
+//
 // The board is zaehlwerk-firmware#41 written as a program: join the running
 // match, push one ingest event per rally, and take the score from the answer
 // rather than counting it. It is the reference client for that issue as much as
@@ -35,7 +38,7 @@ import (
 // from the page to the table in the meantime; a second is plenty.
 const joinPoll = time.Second
 
-type boardConfig struct {
+type Config struct {
 	API    string
 	Source string
 	Pace   time.Duration
@@ -74,8 +77,8 @@ type lineup struct {
 	operator   schmetterpause.Operator
 }
 
-type board struct {
-	cfg  boardConfig
+type Board struct {
+	cfg  Config
 	http *http.Client
 	log  *slog.Logger
 	rnd  *rand.Rand
@@ -87,8 +90,8 @@ type board struct {
 	eventID uint64
 }
 
-func newBoard(cfg boardConfig, log *slog.Logger) *board {
-	return &board{
+func New(cfg Config, log *slog.Logger) *Board {
+	return &Board{
 		cfg:     cfg,
 		http:    &http.Client{Timeout: 5 * time.Second},
 		log:     log,
@@ -101,7 +104,7 @@ func newBoard(cfg boardConfig, log *slog.Logger) *board {
 // replaced by a newer one.
 var errMatchOver = errors.New("the match is over")
 
-func (b *board) run(ctx context.Context) error {
+func (b *Board) Run(ctx context.Context) error {
 	for played := 0; b.cfg.Matches == 0 || played < b.cfg.Matches; played++ {
 		var picked *lineup
 		if !b.cfg.Join {
@@ -135,7 +138,7 @@ func (b *board) run(ctx context.Context) error {
 // only door there is: the JSON API names players as free text and starts a
 // match nobody reports (ADR-0004), so a match meant to reach Schmetterpause is
 // started where a person would start it.
-func (b *board) create(ctx context.Context) (*lineup, error) {
+func (b *Board) create(ctx context.Context) (*lineup, error) {
 	form := url.Values{"best_of": {strconv.Itoa(b.cfg.BestOf)}}
 
 	var picked *lineup
@@ -183,7 +186,7 @@ func (b *board) create(ctx context.Context) (*lineup, error) {
 // roster holds. An observer counts if there is one, because that is what an
 // observer is for; otherwise anybody not playing. The seed decides, so a run
 // can be repeated against the same data.
-func (b *board) pick(ctx context.Context) (lineup, error) {
+func (b *Board) pick(ctx context.Context) (lineup, error) {
 	players, err := b.cfg.Roster.Players(ctx)
 	if err != nil {
 		return lineup{}, fmt.Errorf("reading the players: %w", err)
@@ -221,7 +224,7 @@ func (b *board) pick(ctx context.Context) (lineup, error) {
 var pageError = regexp.MustCompile(`<div class="error">([^<]*)</div>`)
 
 // join waits for a running match, as a board does after power-up.
-func (b *board) join(ctx context.Context) (scorer.State, error) {
+func (b *Board) join(ctx context.Context) (scorer.State, error) {
 	waiting := false
 	for {
 		st, status, err := b.call(ctx, http.MethodGet, "/matches/current", nil)
@@ -248,7 +251,7 @@ func (b *board) join(ctx context.Context) (scorer.State, error) {
 	}
 }
 
-func (b *board) play(ctx context.Context, st scorer.State) error {
+func (b *Board) play(ctx context.Context, st scorer.State) error {
 	id := st.MatchID
 	for {
 		// Asked again before every rally, because the phone may have taken a
@@ -294,7 +297,7 @@ type ingestBody struct {
 	EventID uint64 `json:"event_id"`
 }
 
-func (b *board) rally(ctx context.Context, st scorer.State) error {
+func (b *Board) rally(ctx context.Context, st scorer.State) error {
 	half := "A"
 	if b.rnd.Intn(2) == 1 {
 		half = "B"
@@ -345,7 +348,7 @@ func (b *board) rally(ctx context.Context, st scorer.State) error {
 	return nil
 }
 
-func (b *board) ingest(ctx context.Context, ev ingestBody) (scorer.State, error) {
+func (b *Board) ingest(ctx context.Context, ev ingestBody) (scorer.State, error) {
 	st, status, err := b.call(ctx, http.MethodPost, "/ingest/piezo", ev)
 	switch {
 	case err != nil:
@@ -362,7 +365,7 @@ func (b *board) ingest(ctx context.Context, ev ingestBody) (scorer.State, error)
 // call sends a request and decodes the state, from the body or from the state
 // an error body carries. The status is returned rather than judged here,
 // because a 404 means "wait" to join and "over" to a rally.
-func (b *board) call(ctx context.Context, method, path string, body any) (scorer.State, int, error) {
+func (b *Board) call(ctx context.Context, method, path string, body any) (scorer.State, int, error) {
 	var st scorer.State
 
 	var reader io.Reader
@@ -430,4 +433,74 @@ func index(p scorer.Player) int {
 		return 1
 	}
 	return 0
+}
+
+// RunFromEnv plays until the configured number of matches is over or ctx ends.
+// The variables are the ones zaehlwerk reads where the two overlap, so one
+// SCHMETTERPAUSE_URL points both at the same instance.
+func RunFromEnv(ctx context.Context, log *slog.Logger) error {
+	cfg := Config{
+		API:    strings.TrimRight(env("ZAEHLWERK_URL", "http://localhost:8080"), "/"),
+		Source: env("PIEZO_SOURCE", "piezo-mock"),
+	}
+
+	var err error
+	if cfg.Pace, err = time.ParseDuration(env("PIEZO_PACE", "1s")); err != nil {
+		return fmt.Errorf("PIEZO_PACE: %w", err)
+	}
+	if cfg.Ambiguous, err = share("PIEZO_AMBIGUOUS", "0.1"); err != nil {
+		return err
+	}
+	if cfg.Resend, err = share("PIEZO_RESEND", "0.1"); err != nil {
+		return err
+	}
+	if cfg.Undo, err = share("PIEZO_UNDO", "0.05"); err != nil {
+		return err
+	}
+	if cfg.Seed, err = strconv.ParseInt(env("PIEZO_SEED", "1"), 10, 64); err != nil {
+		return fmt.Errorf("PIEZO_SEED: %w", err)
+	}
+	if cfg.Matches, err = strconv.Atoi(env("PIEZO_MATCHES", "1")); err != nil {
+		return fmt.Errorf("PIEZO_MATCHES: %w", err)
+	}
+
+	if cfg.Join, err = strconv.ParseBool(env("PIEZO_JOIN", "false")); err != nil {
+		return fmt.Errorf("PIEZO_JOIN: %w", err)
+	}
+	if cfg.BestOf, err = strconv.Atoi(env("PIEZO_BEST_OF", "3")); err != nil {
+		return fmt.Errorf("PIEZO_BEST_OF: %w", err)
+	}
+
+	// The same two variables zaehlwerk reads, pointed at the same instance:
+	// the board picks the players from there, and zaehlwerk later reports
+	// the result to there. Fake or real makes no difference to the board.
+	if base := os.Getenv("SCHMETTERPAUSE_URL"); base != "" && !cfg.Join {
+		client, err := schmetterpause.New(schmetterpause.Config{
+			BaseURL: base,
+			Token:   os.Getenv("SCHMETTERPAUSE_TOKEN"),
+		})
+		if err != nil {
+			return fmt.Errorf("SCHMETTERPAUSE_URL: %w", err)
+		}
+		cfg.Roster = client
+	}
+
+	log.Info("board up", "api", cfg.API, "source", cfg.Source, "pace", cfg.Pace,
+		"joins", cfg.Join, "roster", cfg.Roster != nil)
+	return New(cfg, log).Run(ctx)
+}
+
+func share(key, fallback string) (float64, error) {
+	v, err := strconv.ParseFloat(env(key, fallback), 64)
+	if err != nil || v < 0 || v > 1 {
+		return 0, fmt.Errorf("%s: want a share between 0 and 1", key)
+	}
+	return v, nil
+}
+
+func env(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
