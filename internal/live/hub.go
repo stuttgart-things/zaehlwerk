@@ -116,6 +116,43 @@ func (h *Hub) publish(ev Event) {
 	for sub := range h.subs[ev.State.MatchID] {
 		sub.send(ev)
 	}
+	for sub := range h.subs[tableKey] {
+		sub.send(ev)
+	}
+}
+
+// tableKey is the subscription key that receives every match's events. No
+// match can carry it: ids come from the registry and are never empty-prefixed.
+const tableKey = "\x00table"
+
+// Kinds of events that are not scorer transitions. They reach table watchers
+// only (see [Hub.Announce]): the per-match stream has never sent them, and a
+// client of it knows which match it asked for.
+const (
+	// KindStarted: a match was created and is now the table's.
+	KindStarted = "match_started"
+	// KindEnded: a match was ended before it was won.
+	KindEnded = "match_ended"
+)
+
+// SubscribeTable subscribes to the table rather than one match: every match's
+// transitions plus what [Hub.Announce] sends. The table-level stream (#48)
+// decides from these which match is current.
+func (h *Hub) SubscribeTable() *Subscription { return h.Subscribe(tableKey) }
+
+// TableSubscribers reports how many table subscriptions are open.
+func (h *Hub) TableSubscribers() int { return h.Subscribers(tableKey) }
+
+// Announce sends ev to table watchers only -- a match started, or ended before
+// it was won, which the scorer has no transition for. Like Observe it never
+// blocks.
+func (h *Hub) Announce(ev Event) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for sub := range h.subs[tableKey] {
+		sub.send(ev)
+	}
 }
 
 // send queues ev, making room by discarding the oldest if it has to. Newest

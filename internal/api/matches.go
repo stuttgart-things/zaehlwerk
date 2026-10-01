@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/stuttgart-things/zaehlwerk/internal/live"
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 )
@@ -145,6 +146,9 @@ func (s *Server) StartMatch(cfg scorer.Config, handover match.Handover) (*match.
 		s.switcher.Start(m.ID)
 	}
 
+	if s.hub != nil {
+		s.hub.Announce(live.Event{Kind: live.KindStarted, State: m.Scorer.State()})
+	}
 	s.log.Info("match created", "match_id", m.ID)
 	return m, nil
 }
@@ -164,6 +168,9 @@ func (s *Server) EndMatch(m *match.Match) scorer.State {
 		s.switcher.Release(m.ID)
 	}
 
+	if s.hub != nil {
+		s.hub.Announce(live.Event{Kind: live.KindEnded, State: m.Scorer.State()})
+	}
 	s.log.Info("match ended", "match_id", m.ID, "ended_at", endedAt,
 		"complete", st.Complete, "sets", st.Sets)
 	return st

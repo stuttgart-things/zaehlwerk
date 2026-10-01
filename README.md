@@ -174,6 +174,40 @@ same state JSON the REST endpoints return. A comment every `STREAM_HEARTBEAT`
 keeps the connection through a proxy; it carries no data, and there is no
 polling or periodic resend.
 
+### The table, not one match
+
+    GET /live/stream
+
+The same events for whatever match is **current** — the one hardware ingest
+lands in — for a page that stays open all afternoon and cannot know a match id
+in advance (Schmetterpause's running score, stuttgart-things/schmetterpause#188):
+
+```bash
+curl -N localhost:8080/live/stream
+```
+
+```
+data: {"kind":"no_match"}
+
+data: {"kind":"snapshot","state":{"match_id":"a1b2c3d4","points":[0,0],…},"home_id":"…","away_id":"…"}
+
+data: {"kind":"point","state":{"match_id":"a1b2c3d4","points":[1,0],…},"home_id":"…","away_id":"…"}
+```
+
+- On connect: the current match's `snapshot`, or `no_match` between matches.
+- A match that becomes current — started on the page or over the API — arrives
+  as its `snapshot`, then its transitions; the client never reconnects.
+- When the match is won (`match_won`) or ended early (`match_ended`), that
+  event, then the next running match's `snapshot` if there is one, else
+  `no_match`.
+- `home_id` / `away_id` are the players' Schmetterpause ids, present exactly
+  when the match is being reported. They are added at the API layer; the scorer
+  knows players by name only. A match nobody reports has none.
+
+Same guarantees as the per-match stream: `ALLOWED_ORIGINS`, heartbeat, a write
+deadline, slow clients dropped rather than waited for. One table, one current
+match (ADR-0003); missed events are not replayed.
+
 JSON rather than rendered HTML: the led-catcher's own UI swaps HTML partials
 over SSE because htmx does the swapping there. The scoring page below does the
 same, over a stream of its own — but this one is for the clients that do not
