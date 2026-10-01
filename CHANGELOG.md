@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.8.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.7.0...v0.8.0) (2026-09-30)
+## [0.8.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.7.0...v0.8.0) (2026-10-01)
 
 
 ### Features
@@ -8,6 +8,7 @@
 * **ci:** per-PR kustomize base, cleanup and preview URL for PR previews ([#54](https://github.com/stuttgart-things/zaehlwerk/issues/54)) ([c08503e](https://github.com/stuttgart-things/zaehlwerk/commit/c08503e7934fdf8ca1437b009b48694303561de9))
 * let a board find the running match before its first point ([#57](https://github.com/stuttgart-things/zaehlwerk/issues/57)) ([82855e8](https://github.com/stuttgart-things/zaehlwerk/commit/82855e873fdc6b34738835f3047ca1f3ef33d3c9)), closes [#53](https://github.com/stuttgart-things/zaehlwerk/issues/53)
 * mock the chain piezo → zaehlwerk → Schmetterpause ([#58](https://github.com/stuttgart-things/zaehlwerk/issues/58)) ([27f9ab1](https://github.com/stuttgart-things/zaehlwerk/commit/27f9ab16fd6eb2a50ca4a59473ac1b6da94afb36))
+* ship the board as the zaehlwerk-piezo image and play the chain in CI ([#59](https://github.com/stuttgart-things/zaehlwerk/issues/59)) ([89f7271](https://github.com/stuttgart-things/zaehlwerk/commit/89f7271116de72c907f6b6b57e8be8caed093c03))
 
 ## [0.7.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.6.0...v0.7.0) (2026-09-26)
 
