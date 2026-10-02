@@ -146,6 +146,8 @@ func New(registry *match.Registry, opts ...Option) *Server {
 	s.mux.HandleFunc("POST /matches/{id}/end", s.endMatch)
 	s.mux.HandleFunc("GET /matches/{id}/stream", s.stream)
 	s.mux.HandleFunc("OPTIONS /matches/{id}/stream", s.streamPreflight)
+	s.mux.HandleFunc("GET /live/stream", s.liveStream)
+	s.mux.HandleFunc("OPTIONS /live/stream", s.streamPreflight)
 
 	s.mux.HandleFunc("POST /ingest/button", s.ingestButton)
 	s.mux.HandleFunc("POST /ingest/piezo", s.ingestPiezo)
