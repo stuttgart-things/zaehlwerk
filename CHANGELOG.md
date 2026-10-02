@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.8.0...v0.9.0) (2026-10-02)
+
+
+### Features
+
+* GET /live/stream follows the table, not one match, with player ids when reported ([#62](https://github.com/stuttgart-things/zaehlwerk/issues/62)) ([d5f7c0e](https://github.com/stuttgart-things/zaehlwerk/commit/d5f7c0e7cb04c970bcd773c971a0bd812c8f7437)), closes [#48](https://github.com/stuttgart-things/zaehlwerk/issues/48)
+
 ## [0.8.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.7.0...v0.8.0) (2026-09-30)
 
 
