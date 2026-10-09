@@ -4,12 +4,14 @@
 //
 //	chain-mock schmetterpause   the three routes zaehlwerk calls, in memory
 //	chain-mock piezo            a board that joins the running match and scores
+//	chain-mock buttons          two buttons and their hub, pressed on a page
 //
 // A development tool, not part of the service: cmd/zaehlwerk-api stays the
 // only place the service reads its environment. It is configured the same way
 // anyway — environment variables with defaults, no flags — so the Taskfile
-// sets one thing for both sides. The board also ships on its own, as
-// cmd/piezo, for running it where there is no Taskfile.
+// sets one thing for both sides. The board and the buttons also ship on their
+// own, as cmd/piezo and cmd/buttons, for running them where there is no
+// Taskfile.
 package main
 
 import (
@@ -21,6 +23,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/stuttgart-things/zaehlwerk/tools/chain-mock/buttons"
 	"github.com/stuttgart-things/zaehlwerk/tools/chain-mock/fakesp"
 	"github.com/stuttgart-things/zaehlwerk/tools/chain-mock/piezo"
 )
@@ -29,7 +32,7 @@ func main() {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	if len(os.Args) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: chain-mock schmetterpause | piezo")
+		fmt.Fprintln(os.Stderr, "usage: chain-mock schmetterpause | piezo | buttons")
 		os.Exit(2)
 	}
 
@@ -42,8 +45,10 @@ func main() {
 		err = fakesp.RunFromEnv(ctx, log.With("part", "schmetterpause"))
 	case "piezo":
 		err = piezo.RunFromEnv(ctx, log.With("part", "piezo"))
+	case "buttons":
+		err = buttons.RunFromEnv(ctx, log.With("part", "buttons"))
 	default:
-		err = fmt.Errorf("unknown part %q: want schmetterpause or piezo", os.Args[1])
+		err = fmt.Errorf("unknown part %q: want schmetterpause, piezo or buttons", os.Args[1])
 	}
 	if err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("stopped", "error", err)

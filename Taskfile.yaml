@@ -23,6 +23,7 @@ vars:
   ZW_REDIS_PORT: '{{.ZW_REDIS_PORT | default "6379"}}'
   ZW_SCHMETTERPAUSE_PORT: '{{.ZW_SCHMETTERPAUSE_PORT | default "8082"}}'
   FAKE_SCHMETTERPAUSE: http://localhost:{{.ZW_SCHMETTERPAUSE_PORT | default "8082"}}
+  ZW_BUTTONS_PORT: '{{.ZW_BUTTONS_PORT | default "8084"}}'
   # Shared by both ends of the chain, so the fake and zaehlwerk agree on it
   # without anybody typing it twice. Not a secret: nothing real is behind it.
   CHAIN_TOKEN: chain-mock
@@ -322,6 +323,19 @@ tasks:
     cmds:
       - task: require-api
       - go run ./tools/chain-mock piezo
+
+  chain:buttons:
+    # Joins whatever match is running, like the hardware: start one on the
+    # page first. The page is where the buttons are pressed and where every
+    # fault the radio and the hub can have is switched on.
+    desc: 'Two buttons and their hub, pressed in a browser (Ctrl-C to stop)'
+    env:
+      ZAEHLWERK_URL: '{{.API}}'
+      BUTTONS_ADDR: ':{{.ZW_BUTTONS_PORT}}'
+    cmds:
+      - task: require-api
+      - echo "buttons on http://localhost:{{.ZW_BUTTONS_PORT}} — start a match on {{.API}}/ui first"
+      - go run ./tools/chain-mock buttons
 
   chain:e2e:
     desc: The whole chain once through the real binaries, as CI runs it

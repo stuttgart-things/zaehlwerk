@@ -1,0 +1,285 @@
+{{define "page"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0a0a12">
+    <title>Zählwerk buttons</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400..700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <style>
+        /* The scoring page's tokens (internal/ui/templates/page.html), which
+           are schmetterpause's. Copied for the same reason they were copied
+           there. */
+        :root {
+            color-scheme: dark;
+            --bg: #0a0a12;
+            --card: #15152a;
+            --panel: #1e1e3d;
+            --line: #2e2e55;
+            --fg: #ececff;
+            --fg-soft: #c6c6e4;
+            --muted: #8f8fb8;
+            --accent: #7452ff;
+            --accent-text: #8c70ff;
+            --ok: #3ddc97;
+            --bad: #ff5d73;
+            --font-ui: "Space Grotesk", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+            --radius: 0.875rem;
+            --radius-sm: 0.5rem;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--fg);
+            font: 400 16px/1.5 var(--font-ui);
+            -webkit-font-smoothing: antialiased;
+        }
+        main {
+            max-width: 52rem;
+            margin: 0 auto;
+            padding: 1rem max(1rem, env(safe-area-inset-left)) 3rem;
+            display: grid;
+            gap: 1rem;
+        }
+        h1 { font-size: 1.25rem; margin: 0; }
+        h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 0.75rem; }
+        .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem; }
+        .muted { color: var(--muted); }
+        a { color: var(--accent-text); }
+        code, .mono { font-family: var(--font-mono); font-size: 0.85em; }
+
+        /* --- The two buttons -------------------------------------------- */
+
+        .table { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .half { display: grid; justify-items: center; gap: 0.6rem; text-align: center; }
+        .half .who { font-weight: 600; }
+        /* Held, not clicked: the press is timed between pointerdown and
+           pointerup, and the ring fills over the long-press time so the
+           moment a press becomes a long one can be seen while holding. */
+        .press {
+            --long: 1000ms;
+            position: relative;
+            width: min(40vw, 11rem);
+            aspect-ratio: 1;
+            border-radius: 50%;
+            border: 0;
+            background: radial-gradient(circle at 35% 30%, #8f78ff, var(--accent) 60%, #4b2fd0);
+            color: #fff;
+            font: 700 2.25rem var(--font-ui);
+            cursor: pointer;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+            box-shadow: 0 0.5rem 0 #34209a, 0 0.75rem 1.5rem rgb(0 0 0 / 0.5);
+            transition: transform 60ms, box-shadow 60ms;
+        }
+        .press.down { transform: translateY(0.4rem); box-shadow: 0 0.1rem 0 #34209a, 0 0.25rem 0.5rem rgb(0 0 0 / 0.5); }
+        .press::after {
+            content: "";
+            position: absolute;
+            inset: -0.5rem;
+            border-radius: 50%;
+            background: conic-gradient(var(--ok) var(--p, 0%), transparent 0);
+            -webkit-mask: radial-gradient(circle, transparent 66%, #000 67%);
+                    mask: radial-gradient(circle, transparent 66%, #000 67%);
+            pointer-events: none;
+        }
+        .press.down::after { animation: fill var(--long) linear forwards; }
+        @property --p { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
+        @keyframes fill { to { --p: 100%; } }
+
+        .quick { display: flex; gap: 0.4rem; flex-wrap: wrap; justify-content: center; }
+        button.small {
+            background: var(--panel);
+            color: var(--fg);
+            border: 1px solid var(--line);
+            border-radius: var(--radius-sm);
+            padding: 0.35rem 0.7rem;
+            font: 500 0.85rem var(--font-ui);
+            cursor: pointer;
+        }
+        button.small:hover { border-color: var(--accent); }
+        .both { display: flex; justify-content: center; margin-top: 1rem; }
+
+        /* --- Score ------------------------------------------------------ */
+
+        .score { display: flex; align-items: baseline; justify-content: center; gap: 1rem; font-family: var(--font-mono); }
+        .score .pts { font-size: 2.5rem; font-weight: 700; }
+        .score .sets { color: var(--muted); }
+        .notice { color: var(--muted); text-align: center; }
+
+        /* --- Settings --------------------------------------------------- */
+
+        form.settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 0.6rem 1.25rem; }
+        form.settings label { display: flex; gap: 0.5rem; align-items: flex-start; font-size: 0.9rem; }
+        form.settings label small { display: block; color: var(--muted); }
+        form.settings input[type=number] {
+            width: 5.5rem;
+            background: var(--panel);
+            color: var(--fg);
+            border: 1px solid var(--line);
+            border-radius: var(--radius-sm);
+            padding: 0.2rem 0.4rem;
+            font: inherit;
+        }
+        form.settings input[type=checkbox] { margin-top: 0.3rem; accent-color: var(--accent); }
+
+        /* --- Log -------------------------------------------------------- */
+
+        .log { font-family: var(--font-mono); font-size: 0.78rem; display: grid; gap: 0.15rem; max-height: 28rem; overflow-y: auto; }
+        .log div { display: grid; grid-template-columns: 6.5rem 5.5rem 1fr; gap: 0.5rem; padding: 0.15rem 0.3rem; border-radius: 0.25rem; }
+        .log .at { color: var(--muted); }
+        .log .layer { color: var(--accent-text); }
+        .log .msg { overflow-wrap: anywhere; color: var(--fg-soft); }
+        .log .bad { background: rgb(255 93 115 / 0.12); }
+        .log .bad .msg { color: var(--bad); }
+        .loghead { display: flex; justify-content: space-between; align-items: baseline; }
+
+        @media (max-width: 30rem) {
+            .log div { grid-template-columns: 1fr; gap: 0; }
+        }
+    </style>
+</head>
+<body>
+<main>
+    <header>
+        <h1>Zählwerk buttons</h1>
+        <div class="muted">Two buttons under the table and the hub they report to, simulated.
+            Score into the match running on <a href="{{.ZaehlwerkUI}}" target="_blank" rel="noopener">the zaehlwerk page</a>.</div>
+    </header>
+
+    <section class="card">
+        <h2>The table</h2>
+        <div class="table">
+            <div class="half">
+                <div class="who" id="who-A">half A</div>
+                <button class="press" data-side="A" aria-label="Button on half A">A</button>
+                <div class="quick">
+                    <button class="small" hx-post="/press" hx-vals='{"side":"A","held_ms":"150"}' hx-target="#live" hx-swap="outerHTML">short</button>
+                    <button class="small" hx-post="/press" hx-vals='{"side":"A","held_ms":"5000"}' hx-target="#live" hx-swap="outerHTML">long</button>
+                </div>
+                <div class="muted mono">{{index .Sources 0}}</div>
+            </div>
+            <div class="half">
+                <div class="who" id="who-B">half B</div>
+                <button class="press" data-side="B" aria-label="Button on half B">B</button>
+                <div class="quick">
+                    <button class="small" hx-post="/press" hx-vals='{"side":"B","held_ms":"150"}' hx-target="#live" hx-swap="outerHTML">short</button>
+                    <button class="small" hx-post="/press" hx-vals='{"side":"B","held_ms":"5000"}' hx-target="#live" hx-swap="outerHTML">long</button>
+                </div>
+                <div class="muted mono">{{index .Sources 1}}</div>
+            </div>
+        </div>
+        <div class="both">
+            <button class="small" hx-post="/press-both" hx-vals='{"held_ms":"5000"}' hx-target="#live" hx-swap="outerHTML">both long</button>
+        </div>
+        <p class="muted" style="margin-bottom:0">Hold a big button: short is a point, held past the ring is
+            a long press and takes the last point back, both held is <code>both_long</code>. On a phone
+            both can be held at once.</p>
+    </section>
+
+    <section class="card">
+        <h2>Button, radio and hub</h2>
+        {{/* Outside #live on purpose: the log refreshes every second, and a
+             form inside it would lose a half-typed number on every refresh. */}}
+        <form class="settings" hx-post="/settings" hx-trigger="change" hx-target="#live" hx-swap="outerHTML">
+            <label><input type="number" name="long_ms" id="long_ms" min="100" max="5000" step="50" value="{{ms .Settings.LongPress}}">
+                <span>ms long press<small>held this long, a press is a long one</small></span></label>
+            <label><input type="number" name="window_ms" min="0" max="3000" step="50" value="{{ms .Settings.BothWindow}}">
+                <span>ms both window<small>the hub waits this long after a long press; every undo is this late</small></span></label>
+            <label><input type="checkbox" name="debounce" {{if .Settings.Debounce}}checked{{end}}>
+                <span>Debounce on the button<small>off: a bouncing contact wakes it twice, two ids</small></span></label>
+            <label><input type="checkbox" name="radio_ack_lost" {{if .Settings.RadioAckLost}}checked{{end}}>
+                <span>Radio ACK lost<small>the button resends every frame, same id</small></span></label>
+            <label><input type="checkbox" name="hub_dedup" {{if .Settings.HubDedup}}checked{{end}}>
+                <span>Hub drops repeated frames<small>per source and event id</small></span></label>
+            <label><input type="checkbox" name="api_response_lost" {{if .Settings.APIResponseLost}}checked{{end}}>
+                <span>API response lost<small>the hub retries every call to zaehlwerk</small></span></label>
+            <label><input type="checkbox" name="both_long_ends" {{if .Settings.BothLongEndsMatch}}checked{{end}}>
+                <span>both_long ends the match<small>off: logged, nothing called</small></span></label>
+        </form>
+    </section>
+
+    {{template "live" .}}
+</main>
+
+<script>
+    // The one thing htmx does not do: time a hold. Each big button times its
+    // own pointer, so two fingers on a phone hold both at once, which is the
+    // only way to press both_long the way it is meant to be pressed.
+    const longInput = document.getElementById('long_ms');
+
+    document.querySelectorAll('.press').forEach(function (el) {
+        let downAt = null;
+
+        el.addEventListener('pointerdown', function (e) {
+            e.preventDefault();
+            el.setPointerCapture(e.pointerId);
+            el.style.setProperty('--long', (longInput.value || 1000) + 'ms');
+            downAt = performance.now();
+            el.classList.add('down');
+        });
+
+        function release(send) {
+            if (downAt === null) return;
+            const held = Math.round(performance.now() - downAt);
+            downAt = null;
+            el.classList.remove('down');
+            if (!send) return;
+            htmx.ajax('POST', '/press', {
+                values: { side: el.dataset.side, held_ms: held },
+                target: '#live',
+                swap: 'outerHTML',
+            });
+        }
+
+        el.addEventListener('pointerup', function () { release(true); });
+        // Cancelled by the browser — a scroll, a call coming in — is not a
+        // press anybody meant.
+        el.addEventListener('pointercancel', function () { release(false); });
+    });
+</script>
+</body>
+</html>
+{{end}}
+
+{{define "live"}}
+<section id="live" hx-get="/live" hx-trigger="every 1s" hx-swap="outerHTML" style="display:grid;gap:1rem">
+    <div class="card">
+        <h2>zaehlwerk</h2>
+        {{if .APIError}}
+            <div class="notice">zaehlwerk is not answering: <span class="mono">{{.APIError}}</span></div>
+        {{else if .Running}}
+            <div class="score">
+                <span>{{index .State.Players 0}}</span>
+                <span class="pts">{{index .State.Points 0}}:{{index .State.Points 1}}</span>
+                <span>{{index .State.Players 1}}</span>
+            </div>
+            <div class="notice">set {{.State.SetNumber}} · sets {{index .State.Sets 0}}:{{index .State.Sets 1}}
+                · half A is {{name .State "A"}}, half B is {{name .State "B"}}
+                · match <span class="mono">{{.State.MatchID}}</span></div>
+        {{else}}
+            <div class="notice">No match running. <a href="{{.ZaehlwerkUI}}" target="_blank" rel="noopener">Start one on the zaehlwerk page</a> — a button never starts one.</div>
+        {{end}}
+    </div>
+
+    <div class="card">
+        <div class="loghead">
+            <h2>What happened, newest first</h2>
+            <button class="small" hx-post="/clear" hx-target="#live" hx-swap="outerHTML">clear</button>
+        </div>
+        <div class="log">
+            {{range .Entries}}
+            <div{{if .Bad}} class="bad"{{end}}><span class="at">{{clock .At}}</span><span class="layer">{{.Layer}}</span><span class="msg">{{.Text}}</span></div>
+            {{else}}
+            <div><span class="at"></span><span class="layer"></span><span class="msg muted">Nothing pressed yet.</span></div>
+            {{end}}
+        </div>
+    </div>
+</section>
+{{end}}
