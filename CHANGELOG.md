@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.11.0...v0.12.0) (2026-10-09)
+
+
+### Features
+
+* a display variant in the table mock, two zones instead of gestures ([#73](https://github.com/stuttgart-things/zaehlwerk/issues/73)) ([54a953f](https://github.com/stuttgart-things/zaehlwerk/commit/54a953f34d60ab94eb18e41fdc1e25e86f4c2b54)), closes [#72](https://github.com/stuttgart-things/zaehlwerk/issues/72)
+
 ## [0.11.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.10.0...v0.11.0) (2026-10-09)
 
 
