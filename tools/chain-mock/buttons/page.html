@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#0a0a12">
-    <title>Zählwerk buttons</title>
+    <title>Zählwerk table mock</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400..700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -140,6 +140,15 @@
         .log .bad .msg { color: var(--bad); }
         .loghead { display: flex; justify-content: space-between; align-items: baseline; }
 
+        /* --- Piezo ------------------------------------------------------ */
+
+        .piezo-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+        .piezo-head h2 { margin: 0; }
+        button.go { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .badge { font: 600 0.75rem var(--font-mono); padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+        .badge.on { color: var(--ok); border-color: var(--ok); }
+        .badge.off { color: var(--bad); border-color: var(--bad); }
+
         @media (max-width: 30rem) {
             .log div { grid-template-columns: 1fr; gap: 0; }
         }
@@ -148,8 +157,8 @@
 <body>
 <main>
     <header>
-        <h1>Zählwerk buttons</h1>
-        <div class="muted">Two buttons under the table and the hub they report to, simulated.
+        <h1>Zählwerk table mock</h1>
+        <div class="muted">Two buttons under the table and the hub they report to, simulated{{if .PiezoOn}}, and the piezo board next to them{{end}}.
             Score into the match running on <a href="{{.ZaehlwerkUI}}" target="_blank" rel="noopener">the zaehlwerk page</a>.</div>
     </header>
 
@@ -204,6 +213,8 @@
                 <span>both_long ends the match<small>off: logged, nothing called</small></span></label>
         </form>
     </section>
+
+    {{if .PiezoOn}}{{template "piezo" .}}{{end}}
 
     {{template "live" .}}
 </main>
@@ -266,6 +277,11 @@
         {{else}}
             <div class="notice">No match running. <a href="{{.ZaehlwerkUI}}" target="_blank" rel="noopener">Start one on the zaehlwerk page</a> — a button never starts one.</div>
         {{end}}
+        {{if .PiezoOn}}
+            <div class="notice" style="margin-top:0.5rem">piezo board:
+            {{if .Piezo}}<span class="badge {{if .Piezo.Paused}}off{{else}}on{{end}}">{{.Piezo.Doing}}</span>{{if .Piezo.Paused}} — scores nothing until it is resumed{{end}}
+            {{else}}<span class="badge off">not answering</span> <span class="mono">{{.PiezoError}}</span>{{end}}</div>
+        {{end}}
     </div>
 
     <div class="card">
@@ -281,5 +297,37 @@
             {{end}}
         </div>
     </div>
+</section>
+{{end}}
+
+{{define "piezo"}}
+<section class="card" id="piezo">
+    {{/* Its own partial, swapped only when it is posted: like the settings,
+         it holds inputs the one-second refresh of #live would wipe. */}}
+    {{if .Piezo}}
+    <div class="piezo-head">
+        <h2>Piezo board</h2>
+        {{if .Piezo.Paused}}
+            <button class="small go" hx-post="/piezo" hx-vals='{"action":"resume"}' hx-target="#piezo" hx-swap="outerHTML">resume</button>
+        {{else}}
+            <button class="small" hx-post="/piezo" hx-vals='{"action":"pause"}' hx-target="#piezo" hx-swap="outerHTML">pause</button>
+        {{end}}
+    </div>
+    <form class="settings" hx-post="/piezo" hx-trigger="change" hx-target="#piezo" hx-swap="outerHTML">
+        <label><input type="number" name="pace_ms" min="100" max="60000" step="100" value="{{.Piezo.PaceMs}}">
+            <span>ms pace<small>between two rallies</small></span></label>
+        <label><input type="number" name="ambiguous" min="0" max="100" value="{{pct .Piezo.Ambiguous}}">
+            <span>% ambiguous<small>a hit it cannot attribute, sent as delta 0</small></span></label>
+        <label><input type="number" name="resend" min="0" max="100" value="{{pct .Piezo.Resend}}">
+            <span>% resent<small>the same event twice, as after a lost ACK</small></span></label>
+        <label><input type="number" name="undo" min="0" max="100" value="{{pct .Piezo.Undo}}">
+            <span>% taken back<small>through POST /undo, as the correction button does</small></span></label>
+    </form>
+    <p class="muted" style="margin-bottom:0">Pause it to try the buttons without a second scorer.
+        Paused here is a runtime switch; in a cluster, EDGE_ESP_MOCK_REPLICAS is the hard one.</p>
+    {{else}}
+    <h2>Piezo board</h2>
+    <div class="notice">The piezo board is not answering: <span class="mono">{{.PiezoError}}</span></div>
+    {{end}}
 </section>
 {{end}}
