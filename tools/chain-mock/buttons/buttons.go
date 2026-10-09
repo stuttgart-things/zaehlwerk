@@ -47,6 +47,20 @@ const (
 	// BothLong is both buttons held. No single button can see it, so the hub
 	// makes it out of two long presses close together.
 	BothLong Gesture = "both_long"
+
+	// Point and Undo are what a display device sends (zaehlwerk-firmware#61,
+	// prototype B): two zones on a screen, so the frame carries the intent
+	// rather than a press the hub has to interpret.
+	Point Gesture = "point"
+	Undo  Gesture = "undo"
+)
+
+// The two kinds of device the page can put on the table.
+const (
+	// DevicePushButton is one button per half, read as short/long/both_long.
+	DevicePushButton = "button"
+	// DeviceDisplay is a small screen per half with a "+1" and an "undo" zone.
+	DeviceDisplay = "display"
 )
 
 // Frame is the ESP-NOW payload, in the fields zaehlwerk-firmware#58 lists for
@@ -64,6 +78,9 @@ type Frame struct {
 
 // Settings are what the page lets a person change while pressing.
 type Settings struct {
+	// Device is DevicePushButton or DeviceDisplay.
+	Device string
+
 	// LongPress is the hold after which a press is a long one.
 	LongPress time.Duration
 	// BothWindow is how long the hub waits after one long press for the
@@ -94,6 +111,7 @@ type Settings struct {
 // DefaultSettings is a button that works, on a radio that does.
 func DefaultSettings() Settings {
 	return Settings{
+		Device:     DevicePushButton,
 		LongPress:  time.Second,
 		BothWindow: 400 * time.Millisecond,
 		Debounce:   true,
@@ -142,6 +160,23 @@ type Rig struct {
 	seen map[string]uint64
 	// pending is a long press waiting out BothWindow.
 	pending *pendingLong
+
+	// acks is what each display was last told, per half. Guarded by mu.
+	acks map[string]Ack
+}
+
+// Ack is what the hub sends back to a display device with the radio ACK of
+// its press: the score after it. A display that sleeps between taps knows
+// nothing newer, so the page shows this rather than the live score -- and
+// how old it is, which is the part that matters when deciding whether a
+// screen is worth it.
+type Ack struct {
+	At      time.Time
+	OK      bool
+	Did     string
+	Players [2]string
+	Points  [2]int
+	Sets    [2]int
 }
 
 type pendingLong struct {
@@ -162,6 +197,61 @@ func New(api, sourcePrefix string, settings Settings, log *slog.Logger) *Rig {
 			"B": {side: "B", source: sourcePrefix + "-b", eventID: start},
 		},
 		seen: map[string]uint64{},
+		acks: map[string]Ack{},
+	}
+}
+
+// Acks returns what each half's display was last told.
+func (r *Rig) Acks() map[string]Ack {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make(map[string]Ack, len(r.acks))
+	for k, v := range r.acks {
+		out[k] = v
+	}
+	return out
+}
+
+// Tap is a person tapping a zone on the display on side: Point or Undo.
+func (r *Rig) Tap(ctx context.Context, side string, action Gesture) error {
+	if action != Point && action != Undo {
+		return fmt.Errorf("a display sends point or undo, not %q", action)
+	}
+
+	r.mu.Lock()
+	b, ok := r.buttons[side]
+	s := r.settings
+	if !ok {
+		r.mu.Unlock()
+		return fmt.Errorf("no display on side %q", side)
+	}
+	// No debounce to switch off: a touch controller reports one touch, and
+	// the zone is decided where the finger is, not by how long it stayed.
+	b.eventID++
+	f := Frame{
+		Kind: "display", SourceID: b.source, Side: side, Gesture: action,
+		EventID: b.eventID, BatteryMV: 3950, FWVersion: "mock",
+	}
+	r.mu.Unlock()
+
+	r.note("display "+side, fmt.Sprintf("tapped %s", action), false)
+	r.receive(ctx, f)
+	if s.RadioAckLost {
+		r.receive(ctx, f)
+	}
+	return nil
+}
+
+func (r *Rig) ack(f Frame, st scorer.State, ok bool, did string) {
+	if f.Kind != "display" {
+		return
+	}
+	a := Ack{At: time.Now(), OK: ok, Did: did, Players: st.Players, Points: st.Points, Sets: st.Sets}
+	r.mu.Lock()
+	r.acks[f.Side] = a
+	r.mu.Unlock()
+	if ok {
+		r.note("hub", fmt.Sprintf("ACK to display %s carries %s", f.Side, score(st)), false)
 	}
 }
 
@@ -177,9 +267,9 @@ func (r *Rig) SetSettings(s Settings) {
 	r.mu.Lock()
 	r.settings = s
 	r.mu.Unlock()
-	r.note("page", fmt.Sprintf("settings: long press %s, both window %s, debounce %t, "+
+	r.note("page", fmt.Sprintf("settings: device %s, long press %s, both window %s, debounce %t, "+
 		"radio ack lost %t, hub dedup %t, api response lost %t, both long ends match %t",
-		s.LongPress, s.BothWindow, s.Debounce, s.RadioAckLost, s.HubDedup,
+		s.Device, s.LongPress, s.BothWindow, s.Debounce, s.RadioAckLost, s.HubDedup,
 		s.APIResponseLost, s.BothLongEndsMatch), false)
 }
 
@@ -317,6 +407,14 @@ func (r *Rig) receive(ctx context.Context, f Frame) {
 	switch f.Gesture {
 	case Short:
 		r.point(ctx, f)
+	case Point:
+		st, ok := r.point(ctx, f)
+		r.ack(f, st, ok, "+1")
+	case Undo:
+		r.note("hub", fmt.Sprintf("undo from display %s, at once: the zone says what it means, "+
+			"so there is no window to wait out", f.Side), false)
+		st, ok := r.undo(ctx, f)
+		r.ack(f, st, ok, "undo")
 	case Long:
 		r.long(ctx, f, s.BothWindow)
 	default:
@@ -355,7 +453,7 @@ func (r *Rig) long(ctx context.Context, f Frame, window time.Duration) {
 		if r.pending == p {
 			r.pending = nil
 		}
-		r.undo(context.WithoutCancel(ctx), p.frame)
+		_, _ = r.undo(context.WithoutCancel(ctx), p.frame)
 	})
 	r.pending = p
 }
@@ -373,15 +471,17 @@ type ingestEvent struct {
 	EventID uint64 `json:"event_id"`
 }
 
-func (r *Rig) point(ctx context.Context, f Frame) {
+// point scores for the half f came from. It returns the score after it, and
+// false when nothing was scored -- what an ACK to a display would carry.
+func (r *Rig) point(ctx context.Context, f Frame) (scorer.State, bool) {
 	cur, status, err := r.call(ctx, http.MethodGet, "/matches/current", nil)
 	if err != nil {
 		r.note("api", err.Error(), true)
-		return
+		return cur, false
 	}
 	if status != http.StatusOK {
 		r.note("api", "no match running — start one on the zaehlwerk page; the press goes nowhere", true)
-		return
+		return cur, false
 	}
 
 	// The ingest contract takes a player, a button only knows its half. Who
@@ -400,7 +500,7 @@ func (r *Rig) point(ctx context.Context, f Frame) {
 		st, status, err := r.call(ctx, http.MethodPost, "/ingest/button", body)
 		if err != nil {
 			r.note("api", err.Error(), true)
-			return
+			return before, false
 		}
 		label := "POST /ingest/button"
 		if attempt > 0 {
@@ -414,17 +514,19 @@ func (r *Rig) point(ctx context.Context, f Frame) {
 		}
 		before = st
 	}
+	return before, true
 }
 
-func (r *Rig) undo(ctx context.Context, f Frame) {
+// undo takes the last point back, returning the score after it as point does.
+func (r *Rig) undo(ctx context.Context, f Frame) (scorer.State, bool) {
 	cur, status, err := r.call(ctx, http.MethodGet, "/matches/current", nil)
 	if err != nil {
 		r.note("api", err.Error(), true)
-		return
+		return cur, false
 	}
 	if status != http.StatusOK {
 		r.note("api", "no match running, nothing to take back", true)
-		return
+		return cur, false
 	}
 
 	before := cur
@@ -435,7 +537,7 @@ func (r *Rig) undo(ctx context.Context, f Frame) {
 		st, status, err := r.call(ctx, http.MethodPost, "/matches/"+cur.MatchID+"/undo", nil)
 		if err != nil {
 			r.note("api", err.Error(), true)
-			return
+			return before, false
 		}
 		label := "POST /matches/" + cur.MatchID + "/undo"
 		if attempt > 0 {
@@ -450,6 +552,7 @@ func (r *Rig) undo(ctx context.Context, f Frame) {
 		}
 		before = st
 	}
+	return before, true
 }
 
 func (r *Rig) bothLong(ctx context.Context) {

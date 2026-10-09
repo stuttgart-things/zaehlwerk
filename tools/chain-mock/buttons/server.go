@@ -25,6 +25,8 @@ var page = template.Must(template.New("").Funcs(template.FuncMap{
 	"clock": func(t time.Time) string { return t.Format("15:04:05.000") },
 	"name":  func(st scorer.State, half string) string { return st.Players[index(playerOn(half, st.SetNumber))] },
 	"pct":   func(share float64) int { return int(share*100 + 0.5) },
+	"ago":   func(t time.Time) string { return time.Since(t).Round(time.Second).String() },
+	"sides": func() []string { return []string{"A", "B"} },
 }).ParseFS(pageFS, "page.html"))
 
 // maxHold caps a press posted by the page. Longer than anybody holds a button,
@@ -52,6 +54,8 @@ func NewServer(rig *Rig, zaehlwerkUI, piezoURL string, log *slog.Logger) *Server
 	s.mux.HandleFunc("GET /live", s.live)
 	s.mux.HandleFunc("POST /press", s.press)
 	s.mux.HandleFunc("POST /press-both", s.pressBoth)
+	s.mux.HandleFunc("POST /tap", s.tap)
+	s.mux.HandleFunc("GET /screens", s.screens)
 	s.mux.HandleFunc("POST /settings", s.settings)
 	s.mux.HandleFunc("POST /clear", s.clear)
 	s.mux.HandleFunc("POST /piezo", s.setPiezo)
@@ -64,7 +68,9 @@ func NewServer(rig *Rig, zaehlwerkUI, piezoURL string, log *slog.Logger) *Server
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.ServeHTTP(w, r) }
 
 type view struct {
-	Settings    Settings
+	Settings Settings
+	// Acks is what each half's display was last told, keyed "A" and "B".
+	Acks        map[string]Ack
 	Running     bool
 	State       scorer.State
 	APIError    string
@@ -82,6 +88,7 @@ type view struct {
 func (s *Server) view(ctx context.Context) view {
 	v := view{
 		Settings:    s.rig.Settings(),
+		Acks:        s.rig.Acks(),
 		Entries:     s.rig.Entries(),
 		ZaehlwerkUI: s.zaehlwerkUI,
 		Sources:     [2]string{s.rig.buttons["A"].source, s.rig.buttons["B"].source},
@@ -140,6 +147,16 @@ func (s *Server) pressBoth(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, "live")
 }
 
+func (s *Server) tap(w http.ResponseWriter, r *http.Request) {
+	if err := s.rig.Tap(r.Context(), r.PostFormValue("side"), Gesture(r.PostFormValue("action"))); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.render(w, r, "screens")
+}
+
+func (s *Server) screens(w http.ResponseWriter, r *http.Request) { s.render(w, r, "screens") }
+
 func heldFrom(r *http.Request) (time.Duration, error) {
 	ms, err := strconv.Atoi(r.PostFormValue("held_ms"))
 	if err != nil || ms < 0 {
@@ -165,6 +182,18 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 	}
 	next.LongPress = time.Duration(long) * time.Millisecond
 	next.BothWindow = time.Duration(window) * time.Millisecond
+
+	device := r.PostFormValue("device")
+	if device != DevicePushButton && device != DeviceDisplay {
+		http.Error(w, "device: want button or display", http.StatusBadRequest)
+		return
+	}
+	if device != next.Device {
+		// The table itself changes shape, which is more than #live: the
+		// whole page is drawn again.
+		w.Header().Set("HX-Refresh", "true")
+	}
+	next.Device = device
 
 	on := func(k string) bool { return r.PostFormValue(k) == "on" }
 	next.Debounce = on("debounce")
@@ -247,6 +276,9 @@ func RunFromEnv(ctx context.Context, log *slog.Logger) error {
 	if settings.BothWindow, err = time.ParseDuration(env("BUTTONS_BOTH_WINDOW", "400ms")); err != nil {
 		return fmt.Errorf("BUTTONS_BOTH_WINDOW: %w", err)
 	}
+	if settings.Device = env("BUTTONS_DEVICE", DevicePushButton); settings.Device != DevicePushButton && settings.Device != DeviceDisplay {
+		return fmt.Errorf("BUTTONS_DEVICE: want %s or %s", DevicePushButton, DeviceDisplay)
+	}
 
 	rig := New(api, env("BUTTONS_SOURCE", "button-mock"), settings, log)
 	srv := &http.Server{
@@ -257,7 +289,7 @@ func RunFromEnv(ctx context.Context, log *slog.Logger) error {
 
 	errs := make(chan error, 1)
 	go func() { errs <- srv.ListenAndServe() }()
-	log.Info("buttons up", "addr", addr, "api", api, "long_press", settings.LongPress,
+	log.Info("buttons up", "addr", addr, "api", api, "device", settings.Device, "long_press", settings.LongPress,
 		"both_window", settings.BothWindow, "piezo_control", os.Getenv("PIEZO_CONTROL_URL"))
 
 	select {

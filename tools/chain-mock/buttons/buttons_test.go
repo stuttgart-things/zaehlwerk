@@ -199,7 +199,7 @@ func TestThePageTakesTheSettingsAsAWholeForm(t *testing.T) {
 	t.Cleanup(page.Close)
 
 	resp, err := http.PostForm(page.URL+"/settings", url.Values{
-		"long_ms": {"700"}, "window_ms": {"250"}, "radio_ack_lost": {"on"},
+		"device": {"button"}, "long_ms": {"700"}, "window_ms": {"250"}, "radio_ack_lost": {"on"},
 	})
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
@@ -283,4 +283,108 @@ func post(t *testing.T, u string, form map[string]string) {
 	body, _ := io.ReadAll(resp.Body)
 	require.NoError(t, resp.Body.Close())
 	require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
+}
+
+func tap(t *testing.T, r *Rig, side string, action Gesture) {
+	t.Helper()
+	require.NoError(t, r.Tap(context.Background(), side, action))
+}
+
+func TestADisplayScoresAndTakesBackAtOnce(t *testing.T) {
+	// A window long enough that waiting for it would fail the test.
+	r := rig(t, zaehlwerk(t), func(s *Settings) { s.Device, s.BothWindow = DeviceDisplay, 5*time.Second })
+
+	tap(t, r, "A", Point)
+	tap(t, r, "B", Point)
+	require.Equal(t, [2]int{1, 1}, points(t, r))
+
+	tap(t, r, "B", Undo)
+	require.Equal(t, [2]int{1, 0}, points(t, r), "no long press, so no window to wait out")
+}
+
+func TestADisplayShowsTheScoreFromItsOwnLastAck(t *testing.T) {
+	r := rig(t, zaehlwerk(t), func(s *Settings) { s.Device = DeviceDisplay })
+
+	tap(t, r, "A", Point)
+	tap(t, r, "B", Point)
+	tap(t, r, "B", Point)
+
+	acks := r.Acks()
+	require.Equal(t, [2]int{1, 0}, acks["A"].Points, "A has heard nothing since its own tap")
+	require.Equal(t, [2]int{1, 2}, acks["B"].Points)
+	require.Equal(t, [2]string{"Anna", "Bernd"}, acks["B"].Players)
+}
+
+func TestADisplayAckSaysWhenNoMatchIsRunning(t *testing.T) {
+	zw := httptest.NewServer(api.New(match.NewRegistry(), api.WithLogger(quiet)))
+	t.Cleanup(zw.Close)
+	r := rig(t, zw, func(s *Settings) { s.Device = DeviceDisplay })
+
+	tap(t, r, "A", Point)
+
+	a := r.Acks()["A"]
+	require.False(t, a.OK)
+	require.False(t, a.At.IsZero())
+}
+
+func TestADisplaySendsOnlyPointOrUndo(t *testing.T) {
+	r := rig(t, zaehlwerk(t), nil)
+	require.Error(t, r.Tap(context.Background(), "A", Long))
+	require.Error(t, r.Tap(context.Background(), "C", Point))
+}
+
+func TestALostRadioAckOnADisplayUndoIsCaughtByTheHub(t *testing.T) {
+	r := rig(t, zaehlwerk(t), func(s *Settings) { s.Device, s.RadioAckLost = DeviceDisplay, true })
+
+	tap(t, r, "A", Point)
+	tap(t, r, "A", Point)
+	tap(t, r, "A", Undo)
+
+	require.Equal(t, [2]int{1, 0}, points(t, r))
+}
+
+// Still #68: an undo the hub retries against the API takes back two.
+func TestARetriedUndoFromADisplayTakesBackTwoPoints(t *testing.T) {
+	r := rig(t, zaehlwerk(t), func(s *Settings) { s.Device, s.APIResponseLost = DeviceDisplay, true })
+
+	tap(t, r, "A", Point)
+	tap(t, r, "A", Point)
+	tap(t, r, "A", Undo)
+
+	require.Equal(t, [2]int{0, 0}, points(t, r))
+}
+
+func TestThePageDrawsScreensForADisplayAndReloadsWhenTheDeviceChanges(t *testing.T) {
+	zw := zaehlwerk(t)
+	r := rig(t, zw, nil)
+	page := httptest.NewServer(NewServer(r, zw.URL+"/ui", "", quiet))
+	t.Cleanup(page.Close)
+
+	require.Contains(t, get(t, page.URL+"/"), `class="press"`)
+
+	resp, err := http.PostForm(page.URL+"/settings", url.Values{
+		"device": {"display"}, "long_ms": {"1000"}, "window_ms": {"400"}, "debounce": {"on"}, "hub_dedup": {"on"},
+	})
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	require.Equal(t, "true", resp.Header.Get("HX-Refresh"), "the table changes shape, so the page is drawn again")
+
+	body := get(t, page.URL+"/")
+	require.NotContains(t, body, `class="press"`)
+	require.Contains(t, body, `class="zone plus"`)
+
+	post(t, page.URL+"/tap", map[string]string{"side": "B", "action": "point"})
+	require.Equal(t, [2]int{0, 1}, points(t, r))
+	require.Contains(t, get(t, page.URL+"/screens"), "0:1")
+}
+
+func TestThePageRefusesAnUnknownDevice(t *testing.T) {
+	zw := zaehlwerk(t)
+	page := httptest.NewServer(NewServer(rig(t, zw, nil), zw.URL+"/ui", "", quiet))
+	t.Cleanup(page.Close)
+
+	resp, err := http.PostForm(page.URL+"/settings", url.Values{"device": {"toaster"}, "long_ms": {"1000"}, "window_ms": {"400"}})
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
