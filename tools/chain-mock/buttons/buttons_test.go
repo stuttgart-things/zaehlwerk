@@ -16,6 +16,7 @@ import (
 	"github.com/stuttgart-things/zaehlwerk/internal/api"
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
+	"github.com/stuttgart-things/zaehlwerk/tools/chain-mock/piezo"
 )
 
 var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -172,7 +173,7 @@ func TestTheHalvesChangePlayersEverySet(t *testing.T) {
 func TestThePageScoresAHeldPress(t *testing.T) {
 	zw := zaehlwerk(t)
 	r := rig(t, zw, nil)
-	page := httptest.NewServer(NewServer(r, zw.URL+"/ui", quiet))
+	page := httptest.NewServer(NewServer(r, zw.URL+"/ui", "", quiet))
 	t.Cleanup(page.Close)
 
 	resp, err := http.Get(page.URL + "/")
@@ -194,7 +195,7 @@ func TestThePageScoresAHeldPress(t *testing.T) {
 func TestThePageTakesTheSettingsAsAWholeForm(t *testing.T) {
 	zw := zaehlwerk(t)
 	r := rig(t, zw, nil)
-	page := httptest.NewServer(NewServer(r, zw.URL+"/ui", quiet))
+	page := httptest.NewServer(NewServer(r, zw.URL+"/ui", "", quiet))
 	t.Cleanup(page.Close)
 
 	resp, err := http.PostForm(page.URL+"/settings", url.Values{
@@ -209,4 +210,77 @@ func TestThePageTakesTheSettingsAsAWholeForm(t *testing.T) {
 	require.Equal(t, 250*time.Millisecond, got.BothWindow)
 	require.True(t, got.RadioAckLost)
 	require.False(t, got.Debounce, "a box not ticked is not posted, and that means off")
+}
+
+// piezoBoard is a board that is not playing, behind its control endpoint:
+// enough for the page to read and turn its knobs.
+func piezoBoard(t *testing.T) (*piezo.Board, string) {
+	t.Helper()
+	b := piezo.New(piezo.Config{Pace: time.Second, Ambiguous: 0.1}, quiet)
+	srv := httptest.NewServer(b.ControlHandler())
+	t.Cleanup(srv.Close)
+	return b, srv.URL
+}
+
+func TestThePagePausesAndTunesThePiezoBoard(t *testing.T) {
+	zw := zaehlwerk(t)
+	board, url := piezoBoard(t)
+	page := httptest.NewServer(NewServer(rig(t, zw, nil), zw.URL+"/ui", url, quiet))
+	t.Cleanup(page.Close)
+
+	body := get(t, page.URL+"/")
+	require.Contains(t, body, "Piezo board")
+	require.Contains(t, body, `value="10"`, "ambiguous shown as a percentage")
+
+	post(t, page.URL+"/piezo", map[string]string{"action": "pause"})
+	require.True(t, board.Control().Paused)
+
+	post(t, page.URL+"/piezo", map[string]string{"pace_ms": "2000", "ambiguous": "0", "resend": "50", "undo": "5"})
+	got := board.Control()
+	require.True(t, got.Paused, "changing a knob does not resume it")
+	require.Equal(t, int64(2000), got.PaceMs)
+	require.InDelta(t, 0.5, got.Resend, 1e-9)
+	require.InDelta(t, 0.05, got.Undo, 1e-9)
+
+	post(t, page.URL+"/piezo", map[string]string{"action": "resume"})
+	require.False(t, board.Control().Paused)
+}
+
+func TestThePageSaysSoWhenThePiezoBoardIsNotThere(t *testing.T) {
+	zw := zaehlwerk(t)
+	page := httptest.NewServer(NewServer(rig(t, zw, nil), zw.URL+"/ui", "http://127.0.0.1:1", quiet))
+	t.Cleanup(page.Close)
+
+	require.Contains(t, get(t, page.URL+"/"), "not answering")
+}
+
+func TestThePageHasNoPiezoSectionWithoutABoard(t *testing.T) {
+	zw := zaehlwerk(t)
+	page := httptest.NewServer(NewServer(rig(t, zw, nil), zw.URL+"/ui", "", quiet))
+	t.Cleanup(page.Close)
+
+	require.NotContains(t, get(t, page.URL+"/"), "Piezo board")
+}
+
+func get(t *testing.T, u string) string {
+	t.Helper()
+	resp, err := http.Get(u)
+	require.NoError(t, err)
+	body, _ := io.ReadAll(resp.Body)
+	require.NoError(t, resp.Body.Close())
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	return string(body)
+}
+
+func post(t *testing.T, u string, form map[string]string) {
+	t.Helper()
+	values := url.Values{}
+	for k, v := range form {
+		values.Set(k, v)
+	}
+	resp, err := http.PostForm(u, values)
+	require.NoError(t, err)
+	body, _ := io.ReadAll(resp.Body)
+	require.NoError(t, resp.Body.Close())
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
 }

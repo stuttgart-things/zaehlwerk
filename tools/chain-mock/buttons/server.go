@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
+	"github.com/stuttgart-things/zaehlwerk/tools/chain-mock/piezo"
 )
 
 //go:embed page.html
@@ -23,6 +24,7 @@ var page = template.Must(template.New("").Funcs(template.FuncMap{
 	"ms":    func(d time.Duration) int64 { return d.Milliseconds() },
 	"clock": func(t time.Time) string { return t.Format("15:04:05.000") },
 	"name":  func(st scorer.State, half string) string { return st.Players[index(playerOn(half, st.SetNumber))] },
+	"pct":   func(share float64) int { return int(share*100 + 0.5) },
 }).ParseFS(pageFS, "page.html"))
 
 // maxHold caps a press posted by the page. Longer than anybody holds a button,
@@ -36,18 +38,23 @@ type Server struct {
 	// the rig calls: in a pod that one is a cluster address a browser cannot
 	// reach.
 	zaehlwerkUI string
-	log         *slog.Logger
-	mux         *http.ServeMux
+	// piezo is nil when PIEZO_CONTROL_URL is unset.
+	piezo *piezoClient
+	log   *slog.Logger
+	mux   *http.ServeMux
 }
 
-func NewServer(rig *Rig, zaehlwerkUI string, log *slog.Logger) *Server {
-	s := &Server{rig: rig, zaehlwerkUI: zaehlwerkUI, log: log, mux: http.NewServeMux()}
+// NewServer serves the page. piezoURL is a piezo board's control endpoint;
+// empty leaves the piezo section off the page.
+func NewServer(rig *Rig, zaehlwerkUI, piezoURL string, log *slog.Logger) *Server {
+	s := &Server{rig: rig, zaehlwerkUI: zaehlwerkUI, piezo: newPiezoClient(piezoURL), log: log, mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /{$}", s.index)
 	s.mux.HandleFunc("GET /live", s.live)
 	s.mux.HandleFunc("POST /press", s.press)
 	s.mux.HandleFunc("POST /press-both", s.pressBoth)
 	s.mux.HandleFunc("POST /settings", s.settings)
 	s.mux.HandleFunc("POST /clear", s.clear)
+	s.mux.HandleFunc("POST /piezo", s.setPiezo)
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	})
@@ -64,6 +71,12 @@ type view struct {
 	Entries     []Entry
 	ZaehlwerkUI string
 	Sources     [2]string
+
+	// PiezoOn is whether the page has a piezo section at all. Piezo is nil
+	// when the board did not answer, and PiezoError says why.
+	PiezoOn    bool
+	Piezo      *piezo.Status
+	PiezoError string
 }
 
 func (s *Server) view(ctx context.Context) view {
@@ -78,6 +91,15 @@ func (s *Server) view(ctx context.Context) view {
 		v.APIError = err.Error()
 	}
 	v.Running, v.State = ok, st
+
+	if s.piezo != nil {
+		v.PiezoOn = true
+		if ps, err := s.piezo.status(ctx); err != nil {
+			v.PiezoError = err.Error()
+		} else {
+			v.Piezo = &ps
+		}
+	}
 	return v
 }
 
@@ -155,6 +177,56 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, "live")
 }
 
+// setPiezo changes the board's knobs, or pauses and resumes it. The board
+// takes a whole Control, so the current one is read first and only what the
+// form says is changed.
+func (s *Server) setPiezo(w http.ResponseWriter, r *http.Request) {
+	if s.piezo == nil {
+		http.Error(w, "no piezo board: PIEZO_CONTROL_URL is unset", http.StatusNotFound)
+		return
+	}
+	cur, err := s.piezo.status(r.Context())
+	if err != nil {
+		s.render(w, r, "piezo")
+		return
+	}
+	next := cur.Control
+
+	switch r.PostFormValue("action") {
+	case "pause":
+		next.Paused = true
+	case "resume":
+		next.Paused = false
+	default:
+		pace, err1 := strconv.ParseInt(r.PostFormValue("pace_ms"), 10, 64)
+		amb, err2 := percent(r.PostFormValue("ambiguous"))
+		res, err3 := percent(r.PostFormValue("resend"))
+		und, err4 := percent(r.PostFormValue("undo"))
+		if err := errors.Join(err1, err2, err3, err4); err != nil {
+			http.Error(w, "the piezo form: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		next.PaceMs, next.Ambiguous, next.Resend, next.Undo = pace, amb, res, und
+	}
+
+	if _, err := s.piezo.set(r.Context(), next); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.rig.note("page", fmt.Sprintf("piezo: paused %t, pace %d ms, ambiguous %.0f%%, resend %.0f%%, undo %.0f%%",
+		next.Paused, next.PaceMs, next.Ambiguous*100, next.Resend*100, next.Undo*100), false)
+	s.render(w, r, "piezo")
+}
+
+// percent reads a share the page shows as a percentage.
+func percent(v string) (float64, error) {
+	n, err := strconv.ParseFloat(v, 64)
+	if err != nil || n < 0 || n > 100 {
+		return 0, fmt.Errorf("%q: want 0 to 100", v)
+	}
+	return n / 100, nil
+}
+
 func (s *Server) clear(w http.ResponseWriter, r *http.Request) {
 	s.rig.ClearLog()
 	s.render(w, r, "live")
@@ -179,14 +251,14 @@ func RunFromEnv(ctx context.Context, log *slog.Logger) error {
 	rig := New(api, env("BUTTONS_SOURCE", "button-mock"), settings, log)
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           NewServer(rig, public+"/ui", log),
+		Handler:           NewServer(rig, public+"/ui", strings.TrimRight(os.Getenv("PIEZO_CONTROL_URL"), "/"), log),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	errs := make(chan error, 1)
 	go func() { errs <- srv.ListenAndServe() }()
 	log.Info("buttons up", "addr", addr, "api", api, "long_press", settings.LongPress,
-		"both_window", settings.BothWindow)
+		"both_window", settings.BothWindow, "piezo_control", os.Getenv("PIEZO_CONTROL_URL"))
 
 	select {
 	case err := <-errs:

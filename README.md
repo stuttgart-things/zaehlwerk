@@ -629,6 +629,7 @@ the first rally and says so.
 | `PIEZO_MATCHES` | `1` | `0` keeps playing |
 | `PIEZO_JOIN` | `false` | `true` waits for the page instead of starting a match |
 | `PIEZO_BEST_OF` | `3` | when it starts the match |
+| `PIEZO_CONTROL_ADDR` | — | a listener for `GET`/`POST /control`: pause, pace and the three shares, changed while it plays. Unset, no listener. The table mock's page drives it |
 
 `task chain:e2e` plays all of this once without anybody at the keyboard. It
 checks that the result arrives, that a resent event is a duplicate, and that a
@@ -645,10 +646,11 @@ The board pushes, because the ingest contract is a push (ADR-0002). A board
 could instead follow `/matches/{id}/stream` to see a correction without asking
 for it, but that is the firmware's choice and the mock does not make it.
 
-### The buttons
+### The buttons, and the table mock
 
 `tools/chain-mock/buttons` is the two wireless buttons under the table and the
-hub they report to, with a page to press them on. It is there to decide what
+hub they report to, with a page to press them on. With `PIEZO_CONTROL_URL`
+set, the same page also runs the piezo board, so the whole table is one page. It is there to decide what
 the buttons have to do before anybody builds one: the gestures of
 zaehlwerk-firmware#56, the button of #2, the hub of #3 and #58.
 
@@ -657,6 +659,20 @@ task run             # zaehlwerk
 task ui              # start a match on the page — a button never starts one
 task chain:buttons   # then http://localhost:8084
 ```
+
+With the board next to it:
+
+```bash
+task chain:piezo JOIN=1      # the board, with its control endpoint on :8085
+task chain:buttons PIEZO=1   # the page, with a piezo section
+```
+
+The piezo section pauses and resumes the board, and sets its pace and the
+shares of ambiguous, resent and taken-back rallies while it plays. Pausing
+happens between rallies, never inside one. Pause it to try the buttons without
+a second scorer in the same match. In a cluster, `EDGE_ESP_MOCK_REPLICAS` stays
+the hard switch for the day real boards are at the table. It lives in Git,
+where Flux would undo anything a page did to it.
 
 Hold a big button and let go. A short press is a point for that half. A press
 held past the ring is a long press and takes the last point back. Both held is
@@ -696,6 +712,7 @@ accident cannot be resumed.
 | `BUTTONS_SOURCE` | `button-mock` | the two sources are this with `-a` and `-b` |
 | `BUTTONS_LONG_PRESS` | `1s` | where the page starts |
 | `BUTTONS_BOTH_WINDOW` | `400ms` | where the page starts |
+| `PIEZO_CONTROL_URL` | — | a piezo board's control endpoint (its `PIEZO_CONTROL_ADDR`). Unset, the page has no piezo section |
 
 It also ships as `ghcr.io/stuttgart-things/zaehlwerk-buttons`, built from
 `tools/chain-mock/cmd/buttons` with the same tags as the board. It serves

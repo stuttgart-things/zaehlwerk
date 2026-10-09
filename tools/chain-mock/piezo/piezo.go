@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/stuttgart-things/zaehlwerk/internal/schmetterpause"
@@ -88,6 +89,13 @@ type Board struct {
 	// NVS and writes no file, so it starts from the clock, which a restart
 	// also cannot send backwards.
 	eventID uint64
+
+	// mu guards what the control endpoint reads and writes while the board
+	// plays: the knobs, and what the board is doing right now.
+	mu      sync.Mutex
+	ctl     Control
+	doing   string
+	matchID string
 }
 
 func New(cfg Config, log *slog.Logger) *Board {
@@ -97,6 +105,13 @@ func New(cfg Config, log *slog.Logger) *Board {
 		log:     log,
 		rnd:     rand.New(rand.NewSource(cfg.Seed)),
 		eventID: uint64(time.Now().UnixMilli()),
+		ctl: Control{
+			PaceMs:    cfg.Pace.Milliseconds(),
+			Ambiguous: cfg.Ambiguous,
+			Resend:    cfg.Resend,
+			Undo:      cfg.Undo,
+		},
+		doing: "starting",
 	}
 }
 
@@ -232,6 +247,7 @@ func (b *Board) join(ctx context.Context) (scorer.State, error) {
 		case err != nil:
 			return st, err
 		case status == http.StatusOK:
+			b.setDoing("playing", st.MatchID)
 			b.log.Info("joined", "match_id", st.MatchID,
 				"players", st.Players, "serving", st.Players[index(st.Serving)])
 			return st, nil
@@ -240,6 +256,7 @@ func (b *Board) join(ctx context.Context) (scorer.State, error) {
 		}
 
 		if !waiting {
+			b.setDoing("waiting for a match", "")
 			b.log.Info("no match running, waiting for one to be started on the page")
 			waiting = true
 		}
@@ -272,6 +289,12 @@ func (b *Board) play(ctx context.Context, st scorer.State) error {
 			return nil
 		}
 
+		// Paused between rallies, never inside one: a rally half sent would
+		// leave a resend or an undo hanging over the next.
+		if err := b.waitWhilePaused(ctx); err != nil {
+			return err
+		}
+
 		if err := b.rally(ctx, cur); errors.Is(err, errMatchOver) {
 			continue
 		} else if err != nil {
@@ -281,7 +304,7 @@ func (b *Board) play(ctx context.Context, st scorer.State) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(b.cfg.Pace):
+		case <-time.After(b.Control().pace()):
 		}
 	}
 }
@@ -303,9 +326,10 @@ func (b *Board) rally(ctx context.Context, st scorer.State) error {
 		half = "B"
 	}
 	player := playerOn(half, st.SetNumber)
+	ctl := b.Control()
 
 	delta := 1
-	if b.rnd.Float64() < b.cfg.Ambiguous {
+	if b.rnd.Float64() < ctl.Ambiguous {
 		delta = 0
 	}
 
@@ -321,7 +345,7 @@ func (b *Board) rally(ctx context.Context, st scorer.State) error {
 		"event_id", ev.EventID, "points", after.Points, "sets", after.Sets,
 		"serving", after.Players[index(after.Serving)])
 
-	if b.rnd.Float64() < b.cfg.Resend {
+	if b.rnd.Float64() < ctl.Resend {
 		again, err := b.ingest(ctx, ev)
 		if err != nil {
 			return err
@@ -335,7 +359,7 @@ func (b *Board) rally(ctx context.Context, st scorer.State) error {
 		b.log.Info("resent", "event_id", ev.EventID, "points", again.Points)
 	}
 
-	if delta == 1 && !after.Complete && b.rnd.Float64() < b.cfg.Undo {
+	if delta == 1 && !after.Complete && b.rnd.Float64() < ctl.Undo {
 		back, status, err := b.call(ctx, http.MethodPost, "/matches/"+st.MatchID+"/undo", nil)
 		if err != nil {
 			return err
@@ -487,7 +511,19 @@ func RunFromEnv(ctx context.Context, log *slog.Logger) error {
 
 	log.Info("board up", "api", cfg.API, "source", cfg.Source, "pace", cfg.Pace,
 		"joins", cfg.Join, "roster", cfg.Roster != nil)
-	return New(cfg, log).Run(ctx)
+	b := New(cfg, log)
+
+	// Unset, the board has no listener at all, which is how CI and task
+	// chain:piezo run it. Set, the table mock's page can pause it and turn
+	// its knobs while it plays.
+	if addr := os.Getenv("PIEZO_CONTROL_ADDR"); addr != "" {
+		stop, err := b.ServeControl(ctx, addr)
+		if err != nil {
+			return err
+		}
+		defer stop()
+	}
+	return b.Run(ctx)
 }
 
 func share(key, fallback string) (float64, error) {
