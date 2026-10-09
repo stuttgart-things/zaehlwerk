@@ -700,6 +700,16 @@ red:
 - **Both window.** A long press is held back for this long, in case the other
   side follows. Every undo is late by the same amount.
 
+**A display instead of a button.** *Device: display* replaces the two buttons
+with a small screen per half, as zaehlwerk-firmware#61 (prototype B)
+proposes. Each screen has two zones: **+1** scores, and **undo** takes one back
+at once. There is no long press, so there is no both-long window to wait for.
+The frame carries the intent (`point` or `undo`) instead of a gesture. The
+screen shows the score the hub sent back in the ACK of that screen's own last
+tap, and how old it is. A device that sleeps between taps knows nothing newer,
+and that is the question the variant is there to answer: is a score that is
+only as fresh as your own last tap worth a screen?
+
 `both_long` calls nothing unless *both_long ends the match* is ticked. Ending
 is the only API call that comes close to "new game", and a match ended by
 accident cannot be resumed.
@@ -712,6 +722,7 @@ accident cannot be resumed.
 | `BUTTONS_SOURCE` | `button-mock` | the two sources are this with `-a` and `-b` |
 | `BUTTONS_LONG_PRESS` | `1s` | where the page starts |
 | `BUTTONS_BOTH_WINDOW` | `400ms` | where the page starts |
+| `BUTTONS_DEVICE` | `button` | `display` starts with a screen per half instead; the page can switch either way |
 | `PIEZO_CONTROL_URL` | — | a piezo board's control endpoint (its `PIEZO_CONTROL_ADDR`). Unset, the page has no piezo section |
 
 It also ships as `ghcr.io/stuttgart-things/zaehlwerk-buttons`, built from
