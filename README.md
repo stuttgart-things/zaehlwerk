@@ -645,6 +645,63 @@ The board pushes, because the ingest contract is a push (ADR-0002). A board
 could instead follow `/matches/{id}/stream` to see a correction without asking
 for it, but that is the firmware's choice and the mock does not make it.
 
+### The buttons
+
+`tools/chain-mock/buttons` is the two wireless buttons under the table and the
+hub they report to, with a page to press them on. It is there to decide what
+the buttons have to do before anybody builds one: the gestures of
+zaehlwerk-firmware#56, the button of #2, the hub of #3 and #58.
+
+```bash
+task run             # zaehlwerk
+task ui              # start a match on the page — a button never starts one
+task chain:buttons   # then http://localhost:8084
+```
+
+Hold a big button and let go. A short press is a point for that half. A press
+held past the ring is a long press and takes the last point back. Both held is
+`both_long`, and on a phone both can be held at once. The log underneath shows
+every step under the layer that took it:
+
+| Layer | What it does |
+| --- | --- |
+| `button` | decides the gesture from how long it was held, and numbers the frame |
+| `radio` | the ESP-NOW frame as #58 lists it |
+| `hub` | drops repeated frames, pairs two long presses, maps the half to a player, calls zaehlwerk |
+| `api` | what zaehlwerk answered |
+
+The page also switches faults on, one at a time. Lines the chain got wrong are
+red:
+
+- **Debounce off.** A bounce wakes the button twice, with two ids. Nothing
+  downstream can tell it from two presses.
+- **Radio ACK lost.** Every frame arrives twice with the same id. A point is
+  still safe without the hub, because ingest discards the repeat. An undo is
+  only safe if the hub drops it.
+- **API response lost.** The hub sends every call twice. A point is safe. An
+  undo takes back two points, because `POST /matches/{id}/undo` carries no
+  event id.
+- **Both window.** A long press is held back for this long, in case the other
+  side follows. Every undo is late by the same amount.
+
+`both_long` calls nothing unless *both_long ends the match* is ticked. Ending
+is the only API call that comes close to "new game", and a match ended by
+accident cannot be resumed.
+
+| Variable | Default | |
+| -------- | ------- | - |
+| `ZAEHLWERK_URL` | `http://localhost:8080` | what the hub calls |
+| `ZAEHLWERK_PUBLIC_URL` | `ZAEHLWERK_URL` | what the page links to, for when the hub reaches zaehlwerk on a cluster address |
+| `BUTTONS_ADDR` | `:8084` | where the page listens (`ZW_BUTTONS_PORT` in `.env`) |
+| `BUTTONS_SOURCE` | `button-mock` | the two sources are this with `-a` and `-b` |
+| `BUTTONS_LONG_PRESS` | `1s` | where the page starts |
+| `BUTTONS_BOTH_WINDOW` | `400ms` | where the page starts |
+
+It also ships as `ghcr.io/stuttgart-things/zaehlwerk-buttons`, built from
+`tools/chain-mock/cmd/buttons` with the same tags as the board. It serves
+`/healthz` for a probe. The settings live in memory and are shared by everyone
+who opens the page, which is right for one table and one hub.
+
 ## CI
 
 Two workflows, on every pull request and on main.

@@ -46,3 +46,13 @@ builds:
     ldflags:
       - -s
       - -w
+
+  # The chain mock's buttons and hub, with the page they are pressed on,
+  # published as zaehlwerk-buttons. Unstamped for the same reason as the board.
+  - id: zaehlwerk-buttons
+    main: ./tools/chain-mock/cmd/buttons
+    flags:
+      - -trimpath
+    ldflags:
+      - -s
+      - -w
