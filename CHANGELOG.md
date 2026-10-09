@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.10.0...v0.11.0) (2026-10-09)
+
+
+### Features
+
+* run the piezo board from the buttons page, one table mock ([#70](https://github.com/stuttgart-things/zaehlwerk/issues/70)) ([6aae010](https://github.com/stuttgart-things/zaehlwerk/commit/6aae010d9d088f9e5ecb7faf6b0cf798289e1d0c))
+
 ## [0.10.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.9.0...v0.10.0) (2026-10-09)
 
 
