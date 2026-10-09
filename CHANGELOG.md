@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.10.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.9.0...v0.10.0) (2026-10-09)
+
+
+### Features
+
+* a mock of the table's buttons and their hub, pressed on a page ([#67](https://github.com/stuttgart-things/zaehlwerk/issues/67)) ([b02553f](https://github.com/stuttgart-things/zaehlwerk/commit/b02553fb6ec819d33d85a0db097a32eeece42d25))
+
+
+### Bug Fixes
+
+* **deps:** update module github.com/redis/go-redis/v9 to v9.23.0 ([#65](https://github.com/stuttgart-things/zaehlwerk/issues/65)) ([32b974f](https://github.com/stuttgart-things/zaehlwerk/commit/32b974fce5893f1e649150c4484a0227d0fa75b8))
+
 ## [0.9.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.8.0...v0.9.0) (2026-10-02)
 
 
