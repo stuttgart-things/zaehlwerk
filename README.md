@@ -342,6 +342,7 @@ needs to draw the whole match instead of the title alone:
 | `sets` | sets won, `1:2` |
 | `serve` | `a` or `b`, who serves the next point — absent once the match is won |
 | `winner` | `a` or `b`, only once the match is won |
+| `banner` | `SATZ <name>` on a won set, `SIEG <name>` on the won match — the name cut at six characters, as the board shows it; absent on every other transition |
 | `player_a`, `player_b` | the names; a comma or semicolon in a name becomes a space |
 | `played` | finished sets, space-separated: `11-8 9-11` — absent before the first |
 

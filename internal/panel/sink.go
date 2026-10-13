@@ -286,7 +286,43 @@ func Tags(t scorer.Transition) string {
 		}
 		tags += ",played=" + strings.Join(played, " ")
 	}
+	if b := banner(t); b != "" {
+		tags += ",banner=" + b
+	}
 	return tags
+}
+
+// bannerName is as much of a name as the catcher's scoreboard shows: six
+// characters, the same cut it makes for the names under the score.
+const bannerName = 6
+
+// banner is the status line the scoreboard draws under the names: who took
+// the set, or the match. Only on the transition itself — the next point
+// replaces it — so the board says what just happened without keeping it up.
+// German, like the "SATZ 3" the catcher already draws above the score: this is
+// what the table reads, not what a developer does.
+func banner(t scorer.Transition) string {
+	var prefix string
+	switch t.Kind {
+	case scorer.TransitionSetWon:
+		prefix = "SATZ"
+	case scorer.TransitionMatchWon:
+		prefix = "SIEG"
+	default:
+		return ""
+	}
+
+	var name string
+	switch t.Side {
+	case scorer.PlayerA:
+		name = t.State.Players[0]
+	case scorer.PlayerB:
+		name = t.State.Players[1]
+	default:
+		return prefix
+	}
+	runes := []rune(tagValue(name))
+	return prefix + " " + string(runes[:min(len(runes), bannerName)])
 }
 
 // tagValue keeps a player's name from splitting the tags: a comma would start

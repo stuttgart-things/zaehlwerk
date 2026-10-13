@@ -354,6 +354,7 @@ func TestNobodyServesOnceTheMatchIsWon(t *testing.T) {
 
 	require.NotContains(t, tags, "serve=")
 	require.Contains(t, tags, "points=11:9,sets=3:1,winner=a")
+	require.Contains(t, tags, ",banner=SIEG Anna")
 }
 
 // A name is free text from whoever started the match. A comma in it would end
@@ -393,4 +394,49 @@ func TestTheServeTagFollowsTheScorer(t *testing.T) {
 
 	// After 1, 2, 3 and 4 points: a serves the first two, b the next two.
 	require.Equal(t, []string{"a", "b", "b", "a"}, serves)
+}
+
+func TestAWonSetAndAWonMatchCarryABannerNamingTheWinner(t *testing.T) {
+	tests := []struct {
+		name string
+		tr   scorer.Transition
+		want string
+	}{
+		{
+			name: "a set",
+			tr:   scorer.Transition{Kind: scorer.TransitionSetWon, Side: scorer.PlayerB, State: state([2]int{0, 0}, [2]int{0, 1})},
+			want: "banner=SATZ Bernd",
+		},
+		{
+			name: "the match",
+			tr:   scorer.Transition{Kind: scorer.TransitionMatchWon, Side: scorer.PlayerA, State: state([2]int{11, 9}, [2]int{3, 1})},
+			want: "banner=SIEG Anna",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Contains(t, strings.Split(Tags(tt.tr), ","), tt.want)
+		})
+	}
+}
+
+// The banner is what just happened. A plain point, or an undo, has nothing to
+// announce, and the next point after a won set clears the one before.
+func TestOnlyASetOrMatchWinHasABanner(t *testing.T) {
+	for _, kind := range []scorer.TransitionKind{scorer.TransitionPoint, scorer.TransitionUndo} {
+		tags := Tags(scorer.Transition{Kind: kind, Side: scorer.PlayerA, State: state([2]int{3, 2}, [2]int{0, 0})})
+		require.NotContains(t, tags, "banner=", "kind=%s", kind)
+	}
+}
+
+// The scoreboard shows six characters of a name; the banner cuts at the same
+// place, by rune, so a name with an umlaut is not split mid-character.
+func TestTheBannerCutsALongNameWhereTheBoardDoes(t *testing.T) {
+	st := state([2]int{0, 0}, [2]int{1, 0})
+	st.Players = [2]string{"Müllermeister", "Bernd"}
+
+	tags := strings.Split(Tags(scorer.Transition{Kind: scorer.TransitionSetWon, Side: scorer.PlayerA, State: st}), ",")
+
+	require.Contains(t, tags, "banner=SATZ Müller")
 }
