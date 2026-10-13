@@ -119,8 +119,8 @@ different image.
   faults add presses of their own.
 - One reporter per game is a token handed to the page that started it, in
   the URL fragment from the lobby. A second tab watches. A browser game nobody
-  presses in for ten minutes ends its match, so a closed tab does not hold
-  the table.
+  presses in for ten minutes (`PONG_BROWSER_IDLE`) ends its match, so a closed
+  tab does not hold the table.
 - The canvas is one embedded file of hand-written JavaScript, a little over
   400 lines rather than the 300 #78 hoped for: bots, touch, sound and the
   phases cost more than the ball. Everything around it is htmx and SSE.
@@ -128,4 +128,17 @@ different image.
   discarded or ignored press by the state staying the same. That is enough for
   every fault here, and an outcome on the wire would be an API change.
 - zaehlwerk-pong adds an image to release, scan and clean up, built the same way
-  as the piezo board and the buttons.
+  as the piezo board and the buttons. Since attract mode it runs unattended, so
+  its image is scanned like zaehlwerk's, and the KCL module can deploy it next
+  to zaehlwerk as an optional part.
+- An attract match never ends a match that is not its own, and always gives
+  way. A match current at the table — real, on the page, or left running by
+  somebody — blocks the demo and is never ended by it, because a match nobody
+  scores any more looks exactly like one paused between two points. A match
+  started at the table displaces a running demo, and a game asked for in the
+  lobby or through `POST /games` ends it first, under the lock every start
+  takes. The wait starts at `no_match` only, so demo and free table take turns.
+- A demo is a match like any other to zaehlwerk: on the panel, on the page,
+  on Schmetterpause's start page, named `Pong A` and `Pong B`. A pod killed
+  mid-demo leaves its match current, and the restarted service treats it as
+  somebody's — it waits rather than ending a match it cannot prove is its own.
