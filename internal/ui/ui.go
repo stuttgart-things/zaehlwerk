@@ -168,6 +168,8 @@ func New(registry *match.Registry, lifecycle Lifecycle, opts ...Option) *Server 
 	s.mux.HandleFunc("GET /ui", s.index)
 	s.mux.HandleFunc("GET /ui/{$}", s.index)
 
+	s.mux.Handle("GET /ui/static/", staticHandler())
+
 	s.mux.HandleFunc("GET /ui/watch", s.watch)
 	s.mux.HandleFunc("GET /ui/watch/{$}", s.watch)
 	s.mux.HandleFunc("GET /ui/watch/next", s.watchNext)

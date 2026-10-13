@@ -94,6 +94,10 @@
 {{- end}}
 {{- else}}
 <div class="empty">
+  {{- /* Through <img>, so the blade keeps the drawing's own red: there is no
+         player here whose colour it could take, which is what inlining it
+         for --paddle buys schmetterpause. */}}
+  <img class="mascot" src="/ui/static/mascot.svg" width="420" height="420" alt="">
   <p>No match is running.</p>
   <p class="hint">Start one below. A match that has finished is still there —
      open it again with <code>/ui?match=&lt;id&gt;</code>.</p>
