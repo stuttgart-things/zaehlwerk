@@ -356,7 +356,7 @@ tasks:
     # Two processes, one Ctrl-C: Task runs deps in parallel and stops both.
     # zaehlwerk runs bare, as task run:bare does; with task panel:up and
     # task run instead, start only the game with task chain:pong:game.
-    desc: 'zaehlwerk and zaehlwerk-pong side by side (Ctrl-C stops both). Then: task chain:pong:play'
+    desc: 'zaehlwerk and zaehlwerk-pong side by side (Ctrl-C stops both). Then: http://localhost:{{.ZW_PONG_PORT}}/ or task chain:pong:play'
     deps: [chain:pong:zaehlwerk, chain:pong:game]
 
   chain:pong:zaehlwerk:
