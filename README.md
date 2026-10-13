@@ -808,8 +808,8 @@ which is what the mocks above cannot know.
 It is its own binary, `cmd/zaehlwerk-pong`, and its own image,
 `ghcr.io/stuttgart-things/zaehlwerk-pong`, built and tagged like the others
 and released with zaehlwerk. So far it plays headless: two bots, each rally
-drawn by skill rather than played with a ball. The browser game, faults on
-purpose, attract mode and the button check come next.
+drawn by skill rather than played with a ball, with faults injected on purpose
+if asked. The browser game, attract mode and the button check come next.
 
 ```bash
 task chain:pong        # zaehlwerk and zaehlwerk-pong side by side
@@ -828,15 +828,17 @@ current, it does not start, because that match belongs to somebody — and one
 carrying `home_id`/`away_id` is a real match between real players. Every press
 goes to `POST /ingest/web` with the `match_id`, the `half` the bot stands at,
 and `delta: 1`, under the source `pong-<game id>` and the game's own counter as
-`event_id`, so a rally's number is its event id. A report whose answer is lost
-is sent again with the same id, and zaehlwerk discards the repeat.
+`event_id`, so a rally's number is its event id — until a `counter_reset` fault
+starts the counter again. A report whose answer is lost is sent again with the
+same id, and zaehlwerk discards the repeat.
 
 **What it checks.** It reads phase, `ends`, `waiting` and `serving` from
 zaehlwerk's answers and derives none of them. The bots walk only when zaehlwerk
 calls a change of ends. After every rally the game compares the rallies each
 bot really won with the points zaehlwerk has awarded over the whole match, the
 winner of the serve rally with who serves, and where the bots stand with
-`ends`. A rally where they part is a divergence, logged with its number.
+`ends`. A rally where they part, or where how far apart they are changes, is a
+divergence, logged with its number.
 
 ```bash
 curl -s -X POST localhost:8087/games -d '{"pace": "0s"}'   # 201, Location: /games/{id}
@@ -847,7 +849,8 @@ curl -s localhost:8087/games/{id}
 {
   "id": "e8f92912", "source": "pong-e8f92912", "match_id": "6cede9fe",
   "status": "won", "seed": 1, "players": ["Pong A", "Pong B"],
-  "rallies": 59, "truth": [33, 26], "zaehlwerk": [33, 26], "divergences": [],
+  "rallies": 59, "truth": [33, 26], "zaehlwerk": [33, 26], "explained": [0, 0],
+  "divergences": [], "unexplained": 0, "fault_shares": {"…": "all 0"}, "faults": [],
   "ends_changes": [{"set": 2, "points": [0, 0]}, {"set": 3, "points": [0, 0]}, {"set": 3, "points": [5, 3]}],
   "state": {"…": "zaehlwerk's last answer"}
 }
@@ -861,10 +864,46 @@ started one ends its own match and stops. On shutdown the running game ends its
 match, so it does not stay current with nobody scoring it. Games are in memory,
 the last twenty of them.
 
+**Faults.** Between the truth and the ingest, a game can send what a real table
+sends when something goes wrong. The truth is never touched; every fault is
+logged with its rally number and listed under `faults`, with the `effect` it
+should have on zaehlwerk's points. Each is a share from 0 to 1, drawn from the
+seed, so the same seed injects the same faults:
+
+| Fault | What is sent | What zaehlwerk must do | A chance on |
+| ----- | ------------ | ---------------------- | ----------- |
+| `wrong_half` | the press for the other half; with `correct=true` an undo follows, then the right half | count it; take it back on the undo, in whatever phase it left the match | every rally, the serve rally too |
+| `resend` | the same press again, same `event_id` | discard it | every press |
+| `bounce` | the same half again, new `event_id` | count it | every point |
+| `lost` | nothing | nothing — one point short | every point |
+| `ghost` | a press for a random half, before the rally | count it | every point |
+| `wrong_phase` | the same half confirming again in `warmup` or `change_ends` | ignore it | every confirmation still waited on |
+| `counter_reset` | after a quiet gap, the counter starting again at 1 | accept it (ADR-0002) | every press |
+
+The game keeps what the faults should have done to the score next to the
+truth, as `explained`. A divergence the faults explain is `expected`; any other
+is a finding and counts in `unexplained`. A run is good when that is 0, with
+faults or without. zaehlwerk's answers carry no outcome, so "discarded" and
+"ignored" are checked as the state staying the same. `counter_reset` waits
+62 seconds first: zaehlwerk takes a counter that falls back as a restart only
+after a minute of silence from that source and only for an id up to 8
+(`scorer.DefaultRestartQuietPeriod`, `DefaultRestartMaxEventID`), and anything
+shorter is a reset it rightly discards — which shows as a finding.
+
+`PONG_FAULTS` sets them for every game; `POST /games` replaces them for one,
+as a whole:
+
+```bash
+curl -s -X POST localhost:8087/games \
+  -d '{"pace": "0s", "faults": {"wrong_half": 0.1, "correct": true, "lost": 0.05}}'
+```
+
 `task chain:e2e` plays seeded best of threes until one reaches a deciding set,
 and fails on the first rally where truth and zaehlwerk part, on a deciding set
 without its change of ends at five, and on a Pong result arriving at the fake
-Schmetterpause.
+Schmetterpause. Then it plays one game with every fault above zero and fails on
+any unexplained divergence, or if the seed no longer injects every fault. That
+game waits out one counter reset, so the e2e takes a minute longer.
 
 | Variable | Default | |
 | -------- | ------- | - |
@@ -873,6 +912,7 @@ Schmetterpause.
 | `ZAEHLWERK_URL` | `http://localhost:8080` | The zaehlwerk it plays against. Only the service calls it, never a browser |
 | `PONG_BEST_OF` | `3` | Any odd number |
 | `PONG_BOT_SKILL` | `mittel` | `leicht`, `mittel` or `schwer` for both bots, or `leicht,schwer` for Pong A and Pong B. A shot misses 30, 15 or 6 times in a hundred |
+| `PONG_FAULTS` | none | Faults for every game, e.g. `wrong_half=0.05,resend=0.1,correct=true`: names from the table above with a share from 0 to 1, and `correct`. An unknown name or a share out of range stops the service at startup |
 | `PONG_SEED` | the clock | The n-th game of a service started with the same seed draws the same rallies. A clock seed is logged at startup, so a run can be repeated |
 
 It answers `/healthz` the way zaehlwerk does, with its version, and does not
