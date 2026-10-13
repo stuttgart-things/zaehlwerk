@@ -29,6 +29,10 @@ const (
 	defaultZaehlwerk = "http://localhost:8080"
 	defaultBestOf    = 3
 	shutdownTimeout  = 10 * time.Second
+	// One report a second can be followed on the panel: each point stays up
+	// until the next replaces it.
+	defaultAttractPace = time.Second
+	defaultBrowserIdle = 10 * time.Minute
 )
 
 // Set by the linker at build time; see .ko.yaml. Left empty here so /healthz
@@ -58,9 +62,15 @@ func run() error {
 	// is the one thing needed to play a run again.
 	log.Info("zaehlwerk-pong up", "zaehlwerk", cfg.ZaehlwerkURL, "best_of", cfg.BestOf,
 		"skills", []string{cfg.Skills[0].Name, cfg.Skills[1].Name}, "faults", cfg.Faults, "seed", cfg.Seed,
-		"version", cfg.Build.Version)
+		"attract_after", cfg.AttractAfter.String(), "attract_pace", cfg.AttractPace.String(),
+		"browser_idle", cfg.BrowserIdle.String(), "version", cfg.Build.Version)
+
+	if cfg.AttractAfter == 0 {
+		log.Info("attract mode disabled, PONG_ATTRACT_AFTER not configured")
+	}
 
 	game := pong.New(cfg, log)
+	game.Start()
 	srv := &http.Server{
 		Addr:              env("HTTP_ADDR", defaultAddr),
 		Handler:           game,
@@ -134,6 +144,16 @@ func config() (pong.Config, error) {
 	}
 	cfg.Faults = faults
 
+	if cfg.AttractAfter, err = duration("PONG_ATTRACT_AFTER", 0); err != nil {
+		return cfg, err
+	}
+	if cfg.AttractPace, err = duration("PONG_ATTRACT_PACE", defaultAttractPace); err != nil {
+		return cfg, err
+	}
+	if cfg.BrowserIdle, err = duration("PONG_BROWSER_IDLE", defaultBrowserIdle); err != nil {
+		return cfg, err
+	}
+
 	cfg.Seed = time.Now().UnixNano()
 	if raw := os.Getenv("PONG_SEED"); raw != "" {
 		if cfg.Seed, err = strconv.ParseInt(raw, 10, 64); err != nil {
@@ -141,6 +161,22 @@ func config() (pong.Config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+// duration reads a positive duration, or the fallback when the variable is
+// unset. Zero is refused rather than taken: for the wait it would start a demo
+// the moment the table is free, and for the pace or the idle time it means
+// nothing anybody wants. Unset is how a duration is switched off.
+func duration(key string, fallback time.Duration) (time.Duration, error) {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return fallback, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("%s %q: want a duration such as 10m or 1s", key, raw)
+	}
+	return d, nil
 }
 
 func buildInfo() pong.BuildInfo {

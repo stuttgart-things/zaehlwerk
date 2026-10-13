@@ -26,10 +26,12 @@
     <section class="card">
         <h2>Gerade am Tisch</h2>
         <p>{{index .Players 0}} gegen {{index .Players 1}}
-           {{if eq .Driver "browser"}}im Browser{{else}}ohne Bildschirm (Bots){{end}}.
+           {{if .Attract}}als Demo, bis jemand spielen will{{else if eq .Driver "browser"}}im Browser{{else}}ohne Bildschirm (Bots){{end}}.
            <a class="button quiet" href="/play/{{.ID}}">Zuschauen</a></p>
     </section>
     {{end}}
+
+    {{with .Attract}}{{template "attract" .}}{{end}}
 
     <form class="card" hx-post="/ui/games" hx-target="#start-error" hx-swap="innerHTML"
           action="/ui/games" method="post">
@@ -94,6 +96,22 @@
 <label>Zielfehler <output>{{.Aim}}</output>
     <input type="range" name="bot_{{.Side}}_aim" min="0" max="{{.AimMax}}" step="0.01" value="{{.Aim}}"
            oninput="this.previousElementSibling.value = this.value"></label>
+{{end}}
+
+{{/* Fetched again every 15 seconds: the countdown is rendered here, and a
+     lobby left open on a screen would otherwise count from when it loaded.
+     A 204 (attract mode off) leaves it as it is, which htmx does by itself. */}}
+{{define "attract"}}
+<section class="card" id="attract" hx-get="/ui/attract" hx-trigger="every 15s" hx-swap="outerHTML">
+    <h2>Demo</h2>
+    <p>
+    {{if .Demo}}Die Demo läuft. Ein neues Spiel beendet sie sofort.
+    {{else if .In}}Ist der Tisch frei, startet die nächste Demo in <span class="mono">{{.In}}</span>.
+    {{else if .Blind}}Zählwerk ist gerade nicht zu sehen, deshalb wartet die Demo.
+    {{else}}Am Tisch läuft ein Match. Die Demo startet {{.After}} nach seinem Ende, und beendet wird es von ihr nie.
+    {{end}}
+    </p>
+</section>
 {{end}}
 
 {{define "lobby-error"}}

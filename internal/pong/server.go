@@ -36,7 +36,15 @@ type Config struct {
 	Seed int64
 	// Faults is what a game injects unless POST /games names its own.
 	Faults Faults
-	Build  BuildInfo
+	// AttractAfter is how long the table must be free before a demo starts
+	// by itself; zero is no attract mode. AttractPace is the demo's pause
+	// between two reports.
+	AttractAfter time.Duration
+	AttractPace  time.Duration
+	// BrowserIdle ends a browser game nobody presses in; zero is ten
+	// minutes.
+	BrowserIdle time.Duration
+	Build       BuildInfo
 }
 
 // BuildInfo is what the binary says about itself on /healthz.
@@ -57,16 +65,23 @@ type Server struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	// starting is held for the whole of a start, from looking at what runs
+	// to the new game running. It is what keeps a demo and a game somebody
+	// asked for from starting in the same moment: the demo starts under it,
+	// and a requested game ends the demo under it.
+	starting sync.Mutex
+
 	mu      sync.Mutex
 	games   map[string]*Game
 	order   []string
 	running *Game
 	played  int64
 	wg      sync.WaitGroup
+	attract attractState
 
-	// resetQuiet is the gap before a counter reset, and idle how long a
-	// browser game waits for a press; zero for the real ones. Only the tests
-	// set them.
+	// resetQuiet is the gap before a counter reset, zero for the real one,
+	// and only the tests set it. idle is how long a browser game waits for a
+	// press, BrowserIdle unless a test sets it.
 	resetQuiet time.Duration
 	idle       time.Duration
 	// heartbeat is how often an idle stream to a page writes a keepalive.
@@ -84,6 +99,7 @@ func New(cfg Config, log *slog.Logger) *Server {
 		cancel:    cancel,
 		games:     make(map[string]*Game),
 		heartbeat: DefaultHeartbeat,
+		idle:      cfg.BrowserIdle,
 	}
 	s.mux.HandleFunc("GET /healthz", s.healthz)
 	s.mux.HandleFunc("POST /games", s.startGame)
@@ -280,6 +296,12 @@ func browserGame(mode string, players [2]string, bots [2]*BotParams) (GameConfig
 }
 
 func (s *Server) start(cfg GameConfig) (*Game, error) {
+	s.starting.Lock()
+	defer s.starting.Unlock()
+	if !cfg.Attract {
+		s.yield()
+	}
+
 	// One game at a time. Exactly one instance reports for a game (ADR-0006),
 	// and a second game would be a second match taking the table from the
 	// first.
