@@ -1,0 +1,101 @@
+{{define "lobby"}}<!DOCTYPE html>
+<html lang="de">
+<head>
+    {{template "head"}}
+    <title>Zählwerk Pong</title>
+    <style>
+        .modes { display: grid; gap: 0.5rem; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
+        .mode { display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.7rem; border: 1px solid var(--line);
+                border-radius: var(--radius-sm); background: var(--panel); cursor: pointer; color: var(--fg); font-size: 0.95rem; }
+        .mode small { display: block; color: var(--muted); }
+        .grid2 { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); }
+        .bot { display: grid; gap: 0.6rem; }
+        .faults { display: grid; gap: 0.6rem; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); }
+        output { font-family: var(--font-mono); color: var(--fg); }
+        .start { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+        #start-error:empty { display: none; }
+    </style>
+</head>
+<body>
+<header>
+    <h1>Zählwerk Pong</h1>
+    <span class="muted">Tischtennis, gezählt von Zählwerk</span>
+</header>
+<main>
+    {{with .Running}}
+    <section class="card">
+        <h2>Gerade am Tisch</h2>
+        <p>{{index .Players 0}} gegen {{index .Players 1}}
+           {{if eq .Driver "browser"}}im Browser{{else}}ohne Bildschirm (Bots){{end}}.
+           <a class="button quiet" href="/play/{{.ID}}">Zuschauen</a></p>
+    </section>
+    {{end}}
+
+    <form class="card" hx-post="/ui/games" hx-target="#start-error" hx-swap="innerHTML"
+          action="/ui/games" method="post">
+        <h2>Neues Spiel</h2>
+        <div class="modes">
+            <label class="mode"><input type="radio" name="mode" value="pvp" checked>
+                <span>Zwei Spieler<small>an einem Gerät: W/S und ↑/↓, oder zwei Touch-Zonen</small></span></label>
+            <label class="mode"><input type="radio" name="mode" value="pvc">
+                <span>Gegen den Computer<small>du spielst A, der Computer B</small></span></label>
+            <label class="mode"><input type="radio" name="mode" value="cvc">
+                <span>Computer gegen Computer<small>zum Zuschauen</small></span></label>
+        </div>
+
+        <div class="grid2" style="margin-top: 1rem">
+            <label>Name A <input type="text" name="name_a" maxlength="20" placeholder="Links · Spieler · Pong A"></label>
+            <label>Name B <input type="text" name="name_b" maxlength="20" placeholder="Rechts · Computer · Pong B"></label>
+        </div>
+
+        <h2 style="margin-top: 1.2rem">Computer</h2>
+        <p class="muted" style="margin-top: 0">B spielt gegen dich, A und B spielen gegeneinander. Die Stufe füllt die Regler, danach sind sie frei.</p>
+        <div class="grid2">
+            {{range .Bots}}<div class="bot" id="bot-{{.Side}}">{{template "bot" .}}</div>{{end}}
+        </div>
+
+        <h2 style="margin-top: 1.2rem">Fehler</h2>
+        <p class="muted" style="margin-top: 0">Anteil von 0 bis 1. Die Fehler sitzen zwischen dem Spiel und Zählwerk; das Spiel weiß, was sie anrichten müssen.</p>
+        <div class="faults">
+            {{range .Faults}}
+            <label>{{.Label}} <input type="number" name="fault_{{.Kind}}" min="0" max="1" step="0.01" value="{{.Share}}"></label>
+            {{end}}
+            <label style="align-self: end"><span><input type="checkbox" name="correct" {{if .Correct}}checked{{end}}>
+                falsche Hälfte korrigieren (Undo)</span></label>
+        </div>
+
+        <div class="start" style="margin-top: 1.2rem">
+            <button type="submit">Spiel starten</button>
+            <span class="muted">Gespielt wird Best of {{.BestOf}}, mit Einspielen und Seitenwechsel. Gemeldet wird nichts an Schmetterpause.</span>
+        </div>
+        <div id="start-error"></div>
+    </form>
+</main>
+</body>
+</html>
+{{end}}
+
+{{define "bot"}}
+<label>Computer {{if eq .Side "a"}}A{{else}}B{{end}} · Stufe
+    <select name="bot_{{.Side}}_preset" hx-get="/ui/bot?side={{.Side}}" hx-target="#bot-{{.Side}}" hx-swap="innerHTML">
+        {{$p := .Preset}}
+        {{range .Presets}}<option value="{{.}}" {{if eq . $p}}selected{{end}}>{{.}}</option>{{end}}
+    </select>
+</label>
+{{/* The value next to a slider is the one place the lobby uses an inline
+     handler: htmx has nothing to say about a number following a slider, and
+     a request per pixel dragged would be the wrong tool. */}}
+<label>Reaktion <output>{{.ReactionMS}} ms</output>
+    <input type="range" name="bot_{{.Side}}_reaction" min="0" max="{{.ReactionMax}}" step="10" value="{{.ReactionMS}}"
+           oninput="this.previousElementSibling.value = this.value + ' ms'"></label>
+<label>Schlägertempo <output>{{.Speed}}</output>
+    <input type="range" name="bot_{{.Side}}_speed" min="{{.SpeedMin}}" max="{{.SpeedMax}}" step="0.05" value="{{.Speed}}"
+           oninput="this.previousElementSibling.value = this.value"></label>
+<label>Zielfehler <output>{{.Aim}}</output>
+    <input type="range" name="bot_{{.Side}}_aim" min="0" max="{{.AimMax}}" step="0.01" value="{{.Aim}}"
+           oninput="this.previousElementSibling.value = this.value"></label>
+{{end}}
+
+{{define "lobby-error"}}
+<p class="card error" style="margin-top: 1rem">{{.Message}} <span class="mono muted">{{.Detail}}</span></p>
+{{end}}

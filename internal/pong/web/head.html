@@ -1,0 +1,65 @@
+{{define "head"}}
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0a0a12">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400..700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    {{/* htmx and its SSE extension exactly as zaehlwerk's scoring page loads
+         them (internal/ui/templates/page.html): same versions, same CDN. */}}
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"></script>
+    <style>
+        /* zaehlwerk's palette (internal/ui/templates/page.html), which is
+           schmetterpause's: the same product family on the same screen. */
+        :root {
+            color-scheme: dark;
+            --bg: #0a0a12;
+            --card: #15152a;
+            --panel: #1e1e3d;
+            --line: #2e2e55;
+            --fg: #ececff;
+            --fg-soft: #c6c6e4;
+            --muted: #8f8fb8;
+            --accent: #7452ff;
+            --accent-text: #8c70ff;
+            --ok: #3ddc97;
+            --warn: #ffb547;
+            --bad: #ff5d73;
+            --font-ui: "Space Grotesk", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+            --radius: 0.875rem;
+            --radius-sm: 0.5rem;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; min-height: 100vh; background: var(--bg); color: var(--fg);
+            font-family: var(--font-ui); font-size: 15px; line-height: 1.45;
+            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+        }
+        header { display: flex; align-items: baseline; gap: 1rem; padding: 0.9rem 1rem; border-bottom: 1px solid var(--line); }
+        header h1 { margin: 0; font-size: 1.15rem; letter-spacing: 0.02em; }
+        header a { color: var(--accent-text); text-decoration: none; }
+        main { max-width: 1100px; margin: 0 auto; padding: 1rem; display: grid; gap: 1rem; }
+        .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem; }
+        h2 { margin: 0 0 0.6rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+        .muted { color: var(--muted); }
+        .mono { font-family: var(--font-mono); }
+        button, .button {
+            font: inherit; font-weight: 600; border: 0; border-radius: var(--radius-sm);
+            background: var(--accent); color: #fff; padding: 0.6rem 1.1rem; cursor: pointer; text-decoration: none;
+        }
+        button.quiet { background: var(--panel); color: var(--fg-soft); border: 1px solid var(--line); }
+        input[type=text], input[type=number], select {
+            font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--line);
+            border-radius: var(--radius-sm); padding: 0.45rem 0.6rem; width: 100%;
+        }
+        input[type=range] { width: 100%; accent-color: var(--accent); }
+        label { display: grid; gap: 0.25rem; font-size: 0.85rem; color: var(--fg-soft); }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th, td { text-align: left; padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--line); }
+        th { color: var(--muted); font-weight: 500; }
+        td.num, th.num { text-align: right; font-family: var(--font-mono); }
+        .error { border-color: var(--bad); color: var(--bad); }
+    </style>
+{{end}}

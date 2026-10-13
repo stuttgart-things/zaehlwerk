@@ -9,8 +9,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // maxRetainedGames bounds what the service remembers. Games are in memory and
@@ -61,25 +64,34 @@ type Server struct {
 	played  int64
 	wg      sync.WaitGroup
 
-	// resetQuiet is the gap before a counter reset, zero for the real one.
-	// Only the tests set it.
+	// resetQuiet is the gap before a counter reset, and idle how long a
+	// browser game waits for a press; zero for the real ones. Only the tests
+	// set them.
 	resetQuiet time.Duration
+	idle       time.Duration
+	// heartbeat is how often an idle stream to a page writes a keepalive.
+	heartbeat time.Duration
 }
 
 func New(cfg Config, log *slog.Logger) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Server{
-		cfg:    cfg,
-		client: NewClient(cfg.ZaehlwerkURL, log),
-		log:    log,
-		mux:    http.NewServeMux(),
-		ctx:    ctx,
-		cancel: cancel,
-		games:  make(map[string]*Game),
+		cfg:       cfg,
+		client:    NewClient(cfg.ZaehlwerkURL, log),
+		log:       log,
+		mux:       http.NewServeMux(),
+		ctx:       ctx,
+		cancel:    cancel,
+		games:     make(map[string]*Game),
+		heartbeat: DefaultHeartbeat,
 	}
 	s.mux.HandleFunc("GET /healthz", s.healthz)
 	s.mux.HandleFunc("POST /games", s.startGame)
 	s.mux.HandleFunc("GET /games/{id}", s.getGame)
+	s.mux.HandleFunc("GET /games/{id}/events", s.events)
+	s.mux.HandleFunc("POST /games/{id}/presses", s.press)
+	s.mux.HandleFunc("POST /games/{id}/end", s.endGame)
+	s.routeUI()
 	return s
 }
 
@@ -112,12 +124,28 @@ func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 // startBody is POST /games. Everything else about a game is the service's
 // configuration.
 type startBody struct {
-	// Pace is a Go duration, "0s" for as fast as zaehlwerk answers.
+	// Pace is a Go duration, "0s" for as fast as zaehlwerk answers. Only
+	// headless games have one; a browser game goes at the speed it is
+	// played.
 	Pace string `json:"pace"`
 	// Faults replaces PONG_FAULTS for this game, as a whole: a share left
 	// out is zero, not the configured one. Absent keeps the configured
 	// faults.
 	Faults *Faults `json:"faults"`
+	// Driver is "bots" (the default) or "browser".
+	Driver string `json:"driver"`
+	// Players, Mode and Bots are a browser game's; see browserGame.
+	Players [2]string     `json:"players"`
+	Mode    string        `json:"mode"`
+	Bots    [2]*BotParams `json:"bots"`
+}
+
+// started is the answer to a start: the game, and for a browser game the
+// token its presses must carry. The token is in this answer and nowhere
+// else, so the page that started the game is the one that reports for it.
+type started struct {
+	View
+	Token string `json:"token,omitempty"`
 }
 
 // errBusy is a game or a match already holding the table.
@@ -129,33 +157,53 @@ var errBusy = errors.New("busy")
 func (s *Server) startGame(w http.ResponseWriter, r *http.Request) {
 	var body startBody
 	if r.ContentLength != 0 {
-		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10))
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&body); err != nil {
 			fail(w, http.StatusBadRequest, fmt.Errorf("decoding the body: %w", err))
 			return
 		}
 	}
-	pace := DefaultPace
+	cfg := GameConfig{Pace: DefaultPace}
+	switch body.Driver {
+	case "", DriverBots:
+		if body.Players != ([2]string{}) || body.Mode != "" || body.Bots != ([2]*BotParams{}) {
+			fail(w, http.StatusBadRequest, errors.New("players, mode and bots are for a browser game"))
+			return
+		}
+	case DriverBrowser:
+		if body.Pace != "" {
+			fail(w, http.StatusBadRequest, errors.New("pace is for a headless game"))
+			return
+		}
+		var err error
+		if cfg, err = browserGame(body.Mode, body.Players, body.Bots); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+	default:
+		fail(w, http.StatusBadRequest, fmt.Errorf("driver %q: want bots or browser", body.Driver))
+		return
+	}
 	if body.Pace != "" {
 		p, err := time.ParseDuration(body.Pace)
 		if err != nil || p < 0 {
 			fail(w, http.StatusBadRequest, fmt.Errorf("pace %q: want a duration such as 500ms or 0s", body.Pace))
 			return
 		}
-		pace = p
+		cfg.Pace = p
 	}
-	faults := s.cfg.Faults
+	cfg.Faults = s.cfg.Faults
 	if body.Faults != nil {
 		// Unknown names are already refused by the decoder.
 		if err := body.Faults.Validate(); err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		faults = *body.Faults
+		cfg.Faults = *body.Faults
 	}
 
-	g, err := s.start(pace, faults)
+	g, err := s.start(cfg)
 	switch {
 	case errors.Is(err, errBusy):
 		fail(w, http.StatusConflict, err)
@@ -165,10 +213,73 @@ func (s *Server) startGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Location", "/games/"+g.ID)
-	writeJSON(w, http.StatusCreated, g.View())
+	writeJSON(w, http.StatusCreated, started{View: g.View(), Token: g.token})
 }
 
-func (s *Server) start(pace time.Duration, faults Faults) (*Game, error) {
+// The modes of a browser game.
+const (
+	ModePvP = "pvp" // two people at one device
+	ModePvC = "pvc" // a person as player a, the computer as b
+	ModeCvC = "cvc" // two bots, in the browser, to watch
+)
+
+// maxNameRunes keeps a name to what fits on the page. The panel shows less: it
+// cuts a name at six characters in its banner.
+const maxNameRunes = 20
+
+// browserGame checks what a browser game is started with and fills in what is
+// left out: the names by mode, and a bot from the default preset.
+func browserGame(mode string, players [2]string, bots [2]*BotParams) (GameConfig, error) {
+	cfg := GameConfig{Driver: DriverBrowser, Mode: mode}
+	defaults := map[string][2]string{
+		ModePvP: {"Links", "Rechts"},
+		ModePvC: {"Spieler", "Computer"},
+		ModeCvC: BotNames,
+	}
+	if cfg.Mode == "" {
+		cfg.Mode = ModePvP
+	}
+	names, ok := defaults[cfg.Mode]
+	if !ok {
+		return cfg, fmt.Errorf("mode %q: want pvp, pvc or cvc", mode)
+	}
+
+	// Who is a bot follows from the mode, so a request cannot make a person
+	// of the computer or the other way round: in pvc it is player b.
+	wantBot := map[string][2]bool{ModePvP: {false, false}, ModePvC: {false, true}, ModeCvC: {true, true}}[cfg.Mode]
+	preset, _ := Preset(DefaultSkill)
+	for i := range players {
+		name := strings.TrimSpace(players[i])
+		if name == "" {
+			name = names[i]
+		}
+		if utf8.RuneCountInString(name) > maxNameRunes || strings.ContainsFunc(name, unicode.IsControl) {
+			return cfg, fmt.Errorf("player %q: want a name of at most %d characters", name, maxNameRunes)
+		}
+		cfg.Players[i] = name
+
+		switch {
+		case !wantBot[i] && bots[i] != nil:
+			return cfg, fmt.Errorf("player %s is a person in mode %s, not a bot", playerAt(i), cfg.Mode)
+		case !wantBot[i]:
+		case bots[i] == nil:
+			b := preset.Bot()
+			cfg.Bots[i] = &b
+		default:
+			if err := bots[i].Validate(); err != nil {
+				return cfg, fmt.Errorf("player %s: %w", playerAt(i), err)
+			}
+			b := *bots[i]
+			cfg.Bots[i] = &b
+		}
+	}
+	if cfg.Players[0] == cfg.Players[1] {
+		return cfg, fmt.Errorf("players: two different names, not %q twice", cfg.Players[0])
+	}
+	return cfg, nil
+}
+
+func (s *Server) start(cfg GameConfig) (*Game, error) {
 	// One game at a time. Exactly one instance reports for a game (ADR-0006),
 	// and a second game would be a second match taking the table from the
 	// first.
@@ -186,14 +297,18 @@ func (s *Server) start(pace time.Duration, faults Faults) (*Game, error) {
 		s.mu.Unlock()
 		return nil, err
 	}
-	g := newGame(id, GameConfig{
-		BestOf:     s.cfg.BestOf,
-		Skills:     s.cfg.Skills,
-		Pace:       pace,
-		Seed:       s.cfg.Seed + n,
-		Faults:     faults,
-		ResetQuiet: s.resetQuiet,
-	}, s.client, s.log)
+	cfg.BestOf, cfg.Skills, cfg.Seed = s.cfg.BestOf, s.cfg.Skills, s.cfg.Seed+n
+	cfg.ResetQuiet, cfg.Idle = s.resetQuiet, s.idle
+	if cfg.Driver == DriverBrowser {
+		cfg.Pace = 0
+	}
+	g := newGame(id, cfg, s.client, s.log)
+	if cfg.Driver == DriverBrowser {
+		if g.token, err = newToken(); err != nil {
+			s.mu.Unlock()
+			return nil, err
+		}
+	}
 	s.running = g
 	s.mu.Unlock()
 
@@ -210,13 +325,14 @@ func (s *Server) start(pace time.Duration, faults Faults) (*Game, error) {
 // launch looks at the table, starts the match if it is free, and sets the game
 // playing.
 func (s *Server) launch(g *Game) (*Game, error) {
-	ctx, cancel := context.WithCancel(s.ctx)
+	ctx, cancel := context.WithCancelCause(s.ctx)
+	g.stop = cancel
 
 	// Connected before the match is created, so the game's own snapshot and
 	// everything after it is on the stream rather than missed in between.
 	table, err := s.client.Follow(ctx)
 	if err != nil {
-		cancel()
+		cancel(nil)
 		return nil, fmt.Errorf("reading the table from zaehlwerk: %w", err)
 	}
 
@@ -228,16 +344,16 @@ func (s *Server) launch(g *Game) (*Game, error) {
 	select {
 	case ev, ok := <-table:
 		if !ok {
-			cancel()
+			cancel(nil)
 			return nil, errors.New("reading the table from zaehlwerk: the stream closed at once")
 		}
 		first = ev
 	case <-time.After(5 * time.Second):
-		cancel()
+		cancel(nil)
 		return nil, errors.New("reading the table from zaehlwerk: no answer on /live/stream")
 	}
 	if first.Kind != kindNoMatch {
-		cancel()
+		cancel(nil)
 		if first.State == nil {
 			return nil, fmt.Errorf("%w: the table says %q", errBusy, first.Kind)
 		}
@@ -249,7 +365,7 @@ func (s *Server) launch(g *Game) (*Game, error) {
 	}
 
 	if err := g.start(ctx); err != nil {
-		cancel()
+		cancel(nil)
 		return nil, err
 	}
 
@@ -263,7 +379,7 @@ func (s *Server) launch(g *Game) (*Game, error) {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		defer cancel()
+		defer cancel(nil)
 		g.run(ctx, table)
 		s.mu.Lock()
 		if s.running == g {
@@ -296,6 +412,16 @@ func (s *Server) getGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, g.View())
+}
+
+// newToken draws a browser game's token: enough that nobody guesses it, and
+// nothing that needs to be stored beyond the game.
+func newToken() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("drawing a token: %w", err)
+	}
+	return hex.EncodeToString(b[:]), nil
 }
 
 func newID() (string, error) {
