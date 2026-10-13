@@ -45,6 +45,8 @@ type view struct {
 	// Operators is who may keep score: the players plus the observers, who
 	// never play and so are never in Roster. Observers come first.
 	Operators []RosterPlayer
+	// ReportsTo is the Schmetterpause base URL, empty when the coupling is off.
+	ReportsTo string
 }
 
 // RosterPlayer is one option in the name pickers.

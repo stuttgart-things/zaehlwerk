@@ -93,6 +93,11 @@
 
         .brand-mark { color: var(--accent-text); }
 
+        /* The wordmark is the way back to the start: /ui without ?match,
+           which shows whatever the table is scoring right now. */
+        a.brand { color: inherit; text-decoration: none; }
+        a.brand:hover .brand-mark, a.brand:focus-visible .brand-mark { text-decoration: underline; }
+
         .tagline {
             font-family: var(--font-mono);
             font-size: 0.7rem;
@@ -519,6 +524,19 @@
 
         .picks { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 
+        /* One sentence per choice, under the pills: the labels are short so
+           they fit on a phone, and that leaves them ambiguous on their own. */
+        .hints {
+            margin: 0.4rem 0 0;
+            padding: 0;
+            list-style: none;
+            font-size: 0.82rem;
+            line-height: 1.4;
+            color: var(--muted);
+        }
+        .hints li + li { margin-top: 0.15rem; }
+        .hints b { color: var(--fg-soft); font-weight: 600; }
+
         /* A name to tap rather than a select to open: schmetterpause's .pick.
            The radio is still there, hidden the accessible way, so it keeps
            the click through the label, the tab order and its meaning. */
@@ -570,7 +588,7 @@
 </head>
 <body>
     <header class="topbar">
-        <span class="brand">Zähl<span class="brand-mark">werk</span></span>
+        <a class="brand" href="/ui" title="Start page: the match the table is scoring now">Zähl<span class="brand-mark">werk</span></a>
         <span class="tagline">Table tennis · live score</span>
         <span class="source" title="This page's source. Each page counts for itself, so two phones on one match never share a counter.">
             <span id="source-badge">&hellip;</span>
@@ -635,6 +653,9 @@
                         <label class="pick"><input type="radio" name="best_of" value="5" checked><span>5</span></label>
                         <label class="pick"><input type="radio" name="best_of" value="7"><span>7</span></label>
                     </div>
+                    <ul class="hints">
+                        <li>How many sets the match can last; whoever wins more than half of them wins. Best of 5 means three sets won.</li>
+                    </ul>
                 </fieldset>
                 <fieldset>
                     <legend>First serve</legend>
@@ -645,14 +666,22 @@
                              presses, and that press scores nothing (ADR-0005). */}}
                         <label class="pick"><input type="radio" name="first_server" value="rally"><span>Play for it</span></label>
                     </div>
+                    <ul class="hints">
+                        <li><b>Left / Right</b>: that player serves first.</li>
+                        <li><b>Play for it</b>: one rally decides; the winner presses their button and serves first. That press scores no point.</li>
+                    </ul>
                 </fieldset>
                 <fieldset>
                     <legend>Before the first point</legend>
                     <div class="picks">
-                        <label class="pick"><input type="radio" name="start" value="" checked><span>Straight in</span></label>
                         {{/* Both sides press once when they are ready. */}}
                         <label class="pick"><input type="radio" name="start" value="warmup"><span>Warm-up</span></label>
+                        <label class="pick"><input type="radio" name="start" value="" checked><span>Straight in</span></label>
                     </div>
+                    <ul class="hints">
+                        <li><b>Warm-up</b>: knock up first; nothing counts until both players have pressed their button once.</li>
+                        <li><b>Straight in</b>: the first press is already a point.</li>
+                    </ul>
                 </fieldset>
                 <fieldset>
                     <legend>Ends</legend>
@@ -662,6 +691,10 @@
                              waits until each player has pressed at the new half. */}}
                         <label class="pick"><input type="radio" name="change_ends" value="on"><span>Change</span></label>
                     </div>
+                    <ul class="hints">
+                        <li><b>Stay</b>: each player keeps their side of the table for the whole match.</li>
+                        <li><b>Change</b>: players swap sides after every set, and at 5 points in the deciding set, as the rules say. Play pauses until both have pressed the button on their new side.</li>
+                    </ul>
                 </fieldset>
                 <button type="submit" class="start">Start</button>
             </form>
@@ -671,6 +704,7 @@
     <footer class="footer">
         <span>Points go to /ingest, same as the buttons.</span>
         <span class="keys">a / b score, u takes one back.</span>
+        {{if .ReportsTo}}<span class="reports" title="SCHMETTERPAUSE_URL">Results go to {{.ReportsTo}}</span>{{else}}<span class="reports">Results are not reported to Schmetterpause.</span>{{end}}
         <a href="https://github.com/stuttgart-things/zaehlwerk">stuttgart-things/zaehlwerk</a>
     </footer>
 

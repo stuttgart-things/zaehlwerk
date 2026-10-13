@@ -81,9 +81,12 @@ type Server struct {
 	// (invariant 4) rather than a degraded one.
 	roster   Roster
 	handover Handover
-	log      *slog.Logger
-	now      func() time.Time
-	mux      *http.ServeMux
+	// reportsTo is the Schmetterpause base URL, shown in the footer so that
+	// whoever is scoring can tell which instance the result will land in.
+	reportsTo string
+	log       *slog.Logger
+	now       func() time.Time
+	mux       *http.ServeMux
 
 	// hub is nil when live streaming is not configured. The page then renders
 	// and scores exactly as it does otherwise, minus the SSE connection: every
@@ -129,6 +132,22 @@ func WithSchmetterpause(roster Roster, handover Handover) Option {
 		s.roster = roster
 		s.handover = handover
 	}
+}
+
+// WithReportsTo names the Schmetterpause instance the page reports to. Only
+// shown, never called: the calls go through the Roster and Handover.
+func WithReportsTo(baseURL string) Option {
+	return func(s *Server) { s.reportsTo = redact(baseURL) }
+}
+
+// redact drops a password from the URL, should anyone put one there: the
+// footer is on an open page.
+func redact(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Redacted()
 }
 
 func New(registry *match.Registry, lifecycle Lifecycle, opts ...Option) *Server {
@@ -186,6 +205,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 
 	v.Stream = v.Match != nil && s.hub != nil
 	s.fillRoster(r.Context(), &v)
+	v.ReportsTo = s.reportsTo
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// The page carries its own script and the SSE wiring, so a tab left open

@@ -128,7 +128,9 @@ func run() error {
 	}))
 
 	if spClient != nil {
-		uiOpts = append(uiOpts, ui.WithSchmetterpause(spClient, reporter))
+		uiOpts = append(uiOpts,
+			ui.WithSchmetterpause(spClient, reporter),
+			ui.WithReportsTo(spClient.BaseURL()))
 	}
 
 	apiSrv := api.New(registry, apiOpts...)
