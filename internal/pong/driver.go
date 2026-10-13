@@ -57,6 +57,17 @@ func (b *bots) Rally(_ context.Context, st scorer.State, _ [2]scorer.Player) (sc
 
 func (b *bots) Over(scorer.State) {}
 
+// noDriver is a button check's: nobody in the game decides anything.
+type noDriver struct{}
+
+var errNoDriver = errors.New("a button check decides no rally")
+
+func (noDriver) Ready(context.Context, scorer.State) (scorer.Half, error) { return "", errNoDriver }
+func (noDriver) Rally(context.Context, scorer.State, [2]scorer.Player) (scorer.Player, error) {
+	return "", errNoDriver
+}
+func (noDriver) Over(scorer.State) {}
+
 // PressKind is what a browser reports.
 type PressKind string
 

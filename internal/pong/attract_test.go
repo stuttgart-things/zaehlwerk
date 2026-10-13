@@ -126,6 +126,20 @@ func TestAFreeTableStartsADemoAfterTheWait(t *testing.T) {
 	require.False(t, m.Handover.Wanted(), "a demo is never reported")
 }
 
+func TestADemoGoesAtTheAttractPace(t *testing.T) {
+	tbl := newTable(t)
+	p, _ := newAttract(t, tbl.url, nil)
+
+	v := p.demo()
+	began := time.Now()
+	v = p.finished(v.ID)
+	require.Equal(t, StatusWon, v.Status, v.Reason)
+	// A pause before every report, and a rally is one. Half of them leaves
+	// room for the ones played before the poll above saw the demo.
+	require.GreaterOrEqual(t, time.Since(began), time.Duration(v.Rallies)*testAttractPace/2,
+		"a demo is followed on the panel, not over before anybody sees it")
+}
+
 func TestAWonDemoIsFollowedByAFreeTableForTheWholeWait(t *testing.T) {
 	tbl := newTable(t)
 	p, _ := newAttract(t, tbl.url, func(c *Config) {

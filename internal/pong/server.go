@@ -44,7 +44,10 @@ type Config struct {
 	// BrowserIdle ends a browser game nobody presses in; zero is ten
 	// minutes.
 	BrowserIdle time.Duration
-	Build       BuildInfo
+	// CheckTimeout is how long a button check's prompt waits for its
+	// press; zero is DefaultCheckTimeout.
+	CheckTimeout time.Duration
+	Build        BuildInfo
 }
 
 // BuildInfo is what the binary says about itself on /healthz.
@@ -84,6 +87,9 @@ type Server struct {
 	// press, BrowserIdle unless a test sets it.
 	resetQuiet time.Duration
 	idle       time.Duration
+	// checkGap is the pause between a button check's prompts, zero for
+	// the real one; only the tests set it.
+	checkGap time.Duration
 	// heartbeat is how often an idle stream to a page writes a keepalive.
 	heartbeat time.Duration
 }
@@ -148,7 +154,8 @@ type startBody struct {
 	// out is zero, not the configured one. Absent keeps the configured
 	// faults.
 	Faults *Faults `json:"faults"`
-	// Driver is "bots" (the default) or "browser".
+	// Driver is "bots" (the default), "browser", or "check" for a button
+	// check, which takes nothing else.
 	Driver string `json:"driver"`
 	// Players, Mode and Bots are a browser game's; see browserGame.
 	Players [2]string     `json:"players"`
@@ -197,8 +204,15 @@ func (s *Server) startGame(w http.ResponseWriter, r *http.Request) {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
+	case DriverCheck:
+		if body.Pace != "" || body.Faults != nil || body.Players != ([2]string{}) || body.Mode != "" ||
+			body.Bots != ([2]*BotParams{}) {
+			fail(w, http.StatusBadRequest, errors.New("a button check takes no pace, faults, players, mode or bots"))
+			return
+		}
+		cfg = checkGame()
 	default:
-		fail(w, http.StatusBadRequest, fmt.Errorf("driver %q: want bots or browser", body.Driver))
+		fail(w, http.StatusBadRequest, fmt.Errorf("driver %q: want bots, browser or check", body.Driver))
 		return
 	}
 	if body.Pace != "" {
@@ -209,7 +223,9 @@ func (s *Server) startGame(w http.ResponseWriter, r *http.Request) {
 		}
 		cfg.Pace = p
 	}
-	cfg.Faults = s.cfg.Faults
+	if cfg.Driver != DriverCheck {
+		cfg.Faults = s.cfg.Faults
+	}
 	if body.Faults != nil {
 		// Unknown names are already refused by the decoder.
 		if err := body.Faults.Validate(); err != nil {
@@ -232,12 +248,19 @@ func (s *Server) startGame(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, started{View: g.View(), Token: g.token})
 }
 
-// The modes of a browser game.
+// The modes of a browser game, and the lobby's mode for a button check.
 const (
-	ModePvP = "pvp" // two people at one device
-	ModePvC = "pvc" // a person as player a, the computer as b
-	ModeCvC = "cvc" // two bots, in the browser, to watch
+	ModePvP   = "pvp"   // two people at one device
+	ModePvC   = "pvc"   // a person as player a, the computer as b
+	ModeCvC   = "cvc"   // two bots, in the browser, to watch
+	ModeCheck = "check" // the buttons at the table
 )
+
+// checkGame is a button check: no faults, because the hardware brings its own,
+// and the check's names.
+func checkGame() GameConfig {
+	return GameConfig{Driver: DriverCheck, Mode: ModeCheck, Players: CheckNames}
+}
 
 // maxNameRunes keeps a name to what fits on the page. The panel shows less: it
 // cuts a name at six characters in its banner.
@@ -321,11 +344,14 @@ func (s *Server) start(cfg GameConfig) (*Game, error) {
 	}
 	cfg.BestOf, cfg.Skills, cfg.Seed = s.cfg.BestOf, s.cfg.Skills, s.cfg.Seed+n
 	cfg.ResetQuiet, cfg.Idle = s.resetQuiet, s.idle
-	if cfg.Driver == DriverBrowser {
+	cfg.CheckTimeout, cfg.CheckGap = s.cfg.CheckTimeout, s.checkGap
+	// A demo leaves the driver empty, which is bots, and keeps its pace.
+	if cfg.Driver == DriverBrowser || cfg.Driver == DriverCheck {
 		cfg.Pace = 0
 	}
 	g := newGame(id, cfg, s.client, s.log)
-	if cfg.Driver == DriverBrowser {
+	// A check's token only ends it: it presses nothing.
+	if cfg.Driver == DriverBrowser || cfg.Driver == DriverCheck {
 		if g.token, err = newToken(); err != nil {
 			s.mu.Unlock()
 			return nil, err

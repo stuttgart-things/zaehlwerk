@@ -61,21 +61,24 @@ func TestAttractModeIsOffUnlessItIsSet(t *testing.T) {
 	require.Zero(t, cfg.AttractAfter)
 	require.Equal(t, time.Second, cfg.AttractPace)
 	require.Equal(t, 10*time.Minute, cfg.BrowserIdle)
+	require.Equal(t, 10*time.Second, cfg.CheckTimeout)
 }
 
-func TestAttractModeAndTheBrowserIdleAreTakenFromTheEnvironment(t *testing.T) {
+func TestTheWaitsAreTakenFromTheEnvironment(t *testing.T) {
 	t.Setenv("PONG_ATTRACT_AFTER", "10m")
 	t.Setenv("PONG_ATTRACT_PACE", "1500ms")
 	t.Setenv("PONG_BROWSER_IDLE", "30m")
+	t.Setenv("PONG_CHECK_TIMEOUT", "20s")
 	cfg, err := config()
 	require.NoError(t, err)
 	require.Equal(t, 10*time.Minute, cfg.AttractAfter)
 	require.Equal(t, 1500*time.Millisecond, cfg.AttractPace)
 	require.Equal(t, 30*time.Minute, cfg.BrowserIdle)
+	require.Equal(t, 20*time.Second, cfg.CheckTimeout)
 }
 
 func TestADurationThatIsNoneIsRefusedAtStartup(t *testing.T) {
-	for _, key := range []string{"PONG_ATTRACT_AFTER", "PONG_ATTRACT_PACE", "PONG_BROWSER_IDLE"} {
+	for _, key := range []string{"PONG_ATTRACT_AFTER", "PONG_ATTRACT_PACE", "PONG_BROWSER_IDLE", "PONG_CHECK_TIMEOUT"} {
 		for _, raw := range []string{"10", "0s", "-1m"} {
 			t.Setenv(key, raw)
 			_, err := config()
