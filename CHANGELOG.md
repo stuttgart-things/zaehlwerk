@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.17.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.16.0...v0.17.0) (2026-10-13)
+
+
+### Features
+
+* a read-only spectator view of the running match ([#90](https://github.com/stuttgart-things/zaehlwerk/issues/90)) ([c1b610d](https://github.com/stuttgart-things/zaehlwerk/commit/c1b610d652e7b302d469a9d4aacd92eb8ea87905)), closes [#89](https://github.com/stuttgart-things/zaehlwerk/issues/89)
+* fault injection in zaehlwerk-pong, repeatable by seed ([#86](https://github.com/stuttgart-things/zaehlwerk/issues/86)) ([9ec722b](https://github.com/stuttgart-things/zaehlwerk/commit/9ec722b3e4dd535094791680a7c149c7f9e40d41))
+* play zaehlwerk-pong in the browser ([#91](https://github.com/stuttgart-things/zaehlwerk/issues/91)) ([d948917](https://github.com/stuttgart-things/zaehlwerk/commit/d948917485465ae5a05e2c016dabb4d5046fbbc2))
+* the schmetterpause mascot on the scoring and spectator pages ([#93](https://github.com/stuttgart-things/zaehlwerk/issues/93)) ([2ce2d93](https://github.com/stuttgart-things/zaehlwerk/commit/2ce2d93ed4017587f4a95f79d232ff533b91ec4e))
+
 ## [0.16.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.15.0...v0.16.0) (2026-10-13)
 
 
