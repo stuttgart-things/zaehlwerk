@@ -501,13 +501,15 @@ tasks:
         tail -5 /tmp/zaehlwerk-govulncheck.txt
 
   ci:image:
-    desc: Build the container image with ko and push it to ttl.sh for an hour
+    desc: 'Build the container image with ko and push it to ttl.sh for an hour; MAIN=./cmd/zaehlwerk-pong for the game'
     silent: true
+    vars:
+      MAIN: '{{.MAIN | default "./cmd/zaehlwerk-api"}}'
     cmds:
       - |
-        REPO="ttl.sh/zaehlwerk-$(openssl rand -hex 6)"
+        REPO="ttl.sh/$(basename {{.MAIN}})-$(openssl rand -hex 6)"
         IMAGE=$(dagger call -m ./dagger build-image \
-          --src . --repo "$REPO" --push=true --progress plain)
+          --src . --repo "$REPO" --push=true --build-path {{.MAIN}} --progress plain)
         echo "$IMAGE"
 
   ## ──────────────────────────────────────────────
