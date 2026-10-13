@@ -94,7 +94,7 @@ different image.
 - A Pong match is visible wherever the table is: on the panel, on the scoring
   page and on Schmetterpause's start page, which follows `/live/stream`. Only
   the free-text names say it is a game. Marking a match as a demo would be an
-  API change and is left open (#78).
+  API change and needs an ADR of its own (#98).
 - A button pressed under the table during a Pong match scores into it, because
   it is the current match. The truth then disagrees with zaehlwerk, which is
   correct — something nobody accounted for did score.
@@ -149,8 +149,25 @@ different image.
   `warmup` or `change_ends` diverges from nothing and does not end the demo.
   That is accepted, because a real match started at the table displaces the
   demo anyway. Both remaining cases would be closed for good by zaehlwerk
-  knowing a match as a demo, which is an API change and needs its own ADR.
+  knowing a match as a demo, which is an API change and needs its own ADR
+  (#98).
 - A demo is a match like any other to zaehlwerk: on the panel, on the page,
   on Schmetterpause's start page, named `Pong A` and `Pong B`. A pod killed
   mid-demo leaves its match current, and the restarted service treats it as
   somebody's — it waits rather than ending a match it cannot prove is its own.
+- A button check is a game without a reporter: it says what to press and
+  reads `/live/stream`, and the buttons press through `/ingest/button` like
+  at any match. The stream carries the state after each transition and not
+  who pressed, so the check judges a press by what it did — which half's
+  player scored, which half stopped waiting — and against the prompt it was
+  given. A press zaehlwerk ignores leaves no trace on the stream: a wrong
+  half on a ready that half already gave is seen as the prompt going
+  unanswered, and a bounce on a ready not at all. Telling them apart would
+  need the source on the stream, which is an API change.
+- A check's page has a token, as a browser game's has, and it only ends the
+  check: `POST /games/{id}/presses` refuses a check. The token comes back
+  from the fragment in a few lines of `web/check.js`, which also copies the
+  summary; everything else on that page is htmx and SSE.
+- A check's summary is English, like the issues it is written for; the page
+  around it is German, like everything a player reads. Player vs player on
+  two devices is not part of #78 and is #99.
