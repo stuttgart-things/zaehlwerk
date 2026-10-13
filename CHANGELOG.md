@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.12.0...v0.13.0) (2026-10-13)
+
+
+### Features
+
+* send the whole board to the panel in the message tags ([#75](https://github.com/stuttgart-things/zaehlwerk/issues/75)) ([b602693](https://github.com/stuttgart-things/zaehlwerk/commit/b6026931a91b90898f80ae7e1aae053c63fb7bb1))
+
 ## [0.12.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.11.0...v0.12.0) (2026-10-09)
 
 
