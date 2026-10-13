@@ -1,0 +1,39 @@
+package main
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestTheDefaultsNeedNoEnvironment(t *testing.T) {
+	for _, key := range []string{"ZAEHLWERK_URL", "PONG_BEST_OF", "PONG_BOT_SKILL", "PONG_SEED"} {
+		t.Setenv(key, "")
+	}
+	cfg, err := config()
+	require.NoError(t, err)
+	require.Equal(t, "http://localhost:8080", cfg.ZaehlwerkURL)
+	require.Equal(t, 3, cfg.BestOf)
+	require.Equal(t, "mittel", cfg.Skills[0].Name)
+	require.Equal(t, "mittel", cfg.Skills[1].Name)
+	require.Equal(t, "dev", cfg.Build.Version)
+}
+
+func TestAFixedSeedIsTaken(t *testing.T) {
+	t.Setenv("PONG_SEED", "42")
+	cfg, err := config()
+	require.NoError(t, err)
+	require.EqualValues(t, 42, cfg.Seed)
+}
+
+func TestAnEvenBestOfIsRefusedAtStartup(t *testing.T) {
+	t.Setenv("PONG_BEST_OF", "4")
+	_, err := config()
+	require.ErrorContains(t, err, "PONG_BEST_OF")
+}
+
+func TestAnUnknownSkillIsRefusedAtStartup(t *testing.T) {
+	t.Setenv("PONG_BOT_SKILL", "profi")
+	_, err := config()
+	require.ErrorContains(t, err, "PONG_BOT_SKILL")
+}
