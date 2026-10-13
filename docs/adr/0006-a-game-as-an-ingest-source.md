@@ -138,6 +138,18 @@ different image.
   started at the table displaces a running demo, and a game asked for in the
   lobby or through `POST /games` ends it first, under the lock every start
   takes. The wait starts at `no_match` only, so demo and free table take turns.
+- A demo gives way to anybody counting into it. It has no faults, so any
+  divergence between its truth and zaehlwerk means another source scored into
+  its match — buttons pressed during the demo, or a real match started in the
+  instant between the demo seeing `no_match` and creating its own, which leaves
+  the demo's match the newest and so the one the buttons score into. The demo
+  then ends its match, and the table is the real match's again, or free. A game
+  somebody plays keeps reporting its divergences instead; that is what it is
+  for. The limit is a press that changes no score: a foreign ready press in
+  `warmup` or `change_ends` diverges from nothing and does not end the demo.
+  That is accepted, because a real match started at the table displaces the
+  demo anyway. Both remaining cases would be closed for good by zaehlwerk
+  knowing a match as a demo, which is an API change and needs its own ADR.
 - A demo is a match like any other to zaehlwerk: on the panel, on the page,
   on Schmetterpause's start page, named `Pong A` and `Pong B`. A pod killed
   mid-demo leaves its match current, and the restarted service treats it as
