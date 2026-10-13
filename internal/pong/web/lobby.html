@@ -26,7 +26,7 @@
     <section class="card">
         <h2>Gerade am Tisch</h2>
         <p>{{index .Players 0}} gegen {{index .Players 1}}
-           {{if .Attract}}als Demo, bis jemand spielen will{{else if eq .Driver "browser"}}im Browser{{else}}ohne Bildschirm (Bots){{end}}.
+           {{if .Attract}}als Demo, bis jemand spielen will{{else if eq .Driver "check"}}als Tasterprüfung{{else if eq .Driver "browser"}}im Browser{{else}}ohne Bildschirm (Bots){{end}}.
            <a class="button quiet" href="/play/{{.ID}}">Zuschauen</a></p>
     </section>
     {{end}}
@@ -43,6 +43,8 @@
                 <span>Gegen den Computer<small>du spielst A, der Computer B</small></span></label>
             <label class="mode"><input type="radio" name="mode" value="cvc">
                 <span>Computer gegen Computer<small>zum Zuschauen</small></span></label>
+            <label class="mode"><input type="radio" name="mode" value="check">
+                <span>Taster prüfen<small>die echten Taster am Tisch: die Seite sagt an, was zu drücken ist, und vergleicht, was ankommt. Namen, Computer und Fehler gelten hier nicht.</small></span></label>
         </div>
 
         <div class="grid2" style="margin-top: 1rem">

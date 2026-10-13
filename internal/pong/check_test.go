@@ -3,6 +3,7 @@ package pong
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -315,4 +316,71 @@ func TestAButtonCheckTakesNoFaults(t *testing.T) {
 	status, _, raw := p.startWith(map[string]any{"driver": DriverCheck, "faults": Faults{Lost: 1}})
 	require.Equal(t, http.StatusBadRequest, status)
 	require.Contains(t, raw, "a button check takes no")
+}
+
+func TestTheLobbyStartsAButtonCheckWithoutNamesOrFaults(t *testing.T) {
+	tbl := newTable(t)
+	p := newPong(t, tbl.url, 1)
+	p.pong.cfg.CheckTimeout = time.Minute
+	form := url.Values{"mode": {ModeCheck}, "name_a": {"Anna"}, "fault_lost": {"1"}}
+	req, err := http.NewRequest(http.MethodPost, p.url+"/ui/games", strings.NewReader(form.Encode()))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+
+	target, token, ok := strings.Cut(resp.Header.Get("HX-Redirect"), "#")
+	require.True(t, ok)
+	require.NotEmpty(t, token, "the token that ends it")
+	id := strings.TrimPrefix(target, "/play/")
+	v := p.get(id)
+	require.Equal(t, DriverCheck, v.Driver)
+	require.Equal(t, CheckNames, v.Players)
+	require.Equal(t, Faults{}, v.FaultShares)
+
+	first := p.prompt(id, 0)
+	page := mustGet(t, p.url+target)
+	require.Contains(t, page, "Bereit: "+halfLabels[first.Half])
+	require.Contains(t, page, "zählt für "+first.For)
+	require.Contains(t, page, `src="/static/check.js"`)
+	require.NotContains(t, page, "<canvas", "a check has no game to draw")
+	require.NotContains(t, page, "Wahrheit gegen Zählwerk")
+
+	require.Contains(t, mustGet(t, p.url+"/"), "als Tasterprüfung")
+}
+
+func TestTheCheckPageEndsWithTheSummaryToCopy(t *testing.T) {
+	tbl := newTable(t)
+	p := newPong(t, tbl.url, 1)
+	id := newCheck(t, p)
+	b := newButtons(t, tbl.url)
+	wrong := false
+	p.followPrompts(id, b, func(pr *Prompt) bool {
+		if pr.Phase == scorer.PhasePlaying && !wrong {
+			wrong = true
+			b.press(other(pr.Half))
+			return false
+		}
+		return true
+	})
+	v := p.finished(id)
+	require.Equal(t, StatusChecked, v.Status)
+
+	page := mustGet(t, p.url+"/play/"+id)
+	require.Contains(t, page, "TASTER GEPRÜFT")
+	require.Contains(t, page, "falsche Hälfte")
+	require.Contains(t, page, `id="summary"`)
+	require.Contains(t, page, "zaehlwerk-pong button check "+id)
+	require.NotContains(t, page, "drücken</div>", "no prompt once it is over")
+}
+
+func TestTheCheckScriptIsServedAndNothingElseIs(t *testing.T) {
+	p := newPong(t, newTable(t).url, 1)
+	require.Contains(t, mustGet(t, p.url+"/static/check.js"), "pong-token-")
+	resp, err := http.Get(p.url + "/static/lobby.html")
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 }

@@ -28,6 +28,18 @@
         .mark { font-size: 0.75rem; white-space: nowrap; }
         .ok { color: var(--ok); }
         .bad { color: var(--bad); }
+        .prompt { text-align: center; padding: 1.6rem 1rem; }
+        .prompt .say { font-size: clamp(2.6rem, 11vw, 6rem); font-weight: 700; letter-spacing: 0.04em; line-height: 1.1; }
+        .prompt .say.ready { color: var(--warn); }
+        .prompt .say.wait { color: var(--muted); }
+        .prompt p { margin: 0.6rem 0 0; }
+        .counts { display: grid; gap: 0.5rem; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); }
+        .count { background: var(--panel); border-radius: var(--radius-sm); padding: 0.5rem 0.7rem; }
+        .count b { display: block; font-family: var(--font-mono); font-size: 1.6rem; }
+        pre.summary { white-space: pre-wrap; word-break: break-word; font-family: var(--font-mono); font-size: 0.8rem;
+                      background: var(--panel); border-radius: var(--radius-sm); padding: 0.7rem; margin: 0.6rem 0; }
+        .row { display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; }
+        #check { display: grid; gap: 1rem; }
     </style>
 </head>
 <body>
@@ -51,7 +63,16 @@
     <script src="/static/game.js"></script>
     {{end}}
 
+    {{if .Board.Check}}
+    <section id="check" data-game="{{.Board.ID}}" sse-swap="check" hx-swap="innerHTML">{{template "check" .Board}}</section>
+    <div class="row">
+        <button type="button" class="quiet" id="check-end" hidden>Prüfung beenden</button>
+        <button type="button" class="quiet" id="check-copy" hidden>Zusammenfassung kopieren</button>
+    </div>
+    <script src="/static/check.js"></script>
+    {{else}}
     <section class="truth" id="truth" sse-swap="truth" hx-swap="innerHTML">{{template "truth" .Board}}</section>
+    {{end}}
 </main>
 </body>
 </html>
@@ -118,4 +139,43 @@
     <p class="muted" style="margin: 0">Keine. In der Lobby lassen sich Fehler einstellen.</p>
     {{end}}
 </div>
+{{end}}
+
+{{/* A button check: what to press, big enough to read from the table, and at
+     the end what came of it. Swapped whole on every change, like the board. */}}
+{{define "check"}}
+{{with .Check}}
+{{if not $.Over}}
+<div class="card prompt">
+    {{if .Prompt}}
+    <div class="say{{if .Ready}} ready{{end}}">{{.Prompt}}</div>
+    <p class="muted">zählt für {{.For}} · Ansage {{.CheckView.Prompt.N}} · gilt als fehlend nach {{.Timeout}}</p>
+    {{else}}
+    <div class="say wait">…</div>
+    <p class="muted">Jetzt nichts drücken, gleich kommt die nächste Ansage.</p>
+    {{end}}
+</div>
+{{end}}
+<div class="card">
+    <h2>{{if $.Over}}Ergebnis{{else}}Bisher{{end}} · {{.Prompts}} Ansage{{if ne .Prompts 1}}n{{end}}</h2>
+    <div class="counts">
+        {{range .Counts}}<div class="count"><b class="{{if .Bad}}bad{{end}}">{{.N}}</b>{{.Label}}</div>{{end}}
+    </div>
+    {{if .Rows}}
+    <table style="margin-top: 0.8rem">
+        <tr><th>Zeit</th><th>Ergebnis</th><th>Ansage</th><th>Angekommen</th></tr>
+        {{range .Rows}}
+        <tr><td class="mono">{{.At}}</td><td class="bad">{{.Label}}</td>
+            <td class="mono">{{if .Want}}{{.Want}}{{else}}–{{end}}</td><td class="mono">{{.Got}}</td></tr>
+        {{end}}
+    </table>
+    {{else}}
+    <p class="ok" style="margin-bottom: 0">Kein Befund.</p>
+    {{end}}
+    {{if $.Over}}
+    <h2 style="margin-top: 1rem">Für ein Firmware-Issue</h2>
+    <pre class="summary" id="summary">{{.Summary}}</pre>
+    {{end}}
+</div>
+{{end}}
 {{end}}
