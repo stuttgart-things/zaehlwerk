@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.14.0...v0.15.0) (2026-10-13)
+
+
+### Features
+
+* start options on the scoring page -- play for the serve, warm-up, change ends ([#81](https://github.com/stuttgart-things/zaehlwerk/issues/81)) ([3d87119](https://github.com/stuttgart-things/zaehlwerk/commit/3d87119ccb52a76f253be21ab49ce53cfc297b52)), closes [#77](https://github.com/stuttgart-things/zaehlwerk/issues/77)
+
 ## [0.14.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.13.0...v0.14.0) (2026-10-13)
 
 
