@@ -110,6 +110,20 @@ different image.
   minute per reset, because zaehlwerk reads a fallen counter as a restart
   only after `scorer.DefaultRestartQuietPeriod`. The game copies that number
   rather than asking for it; a test fails if the two drift apart.
+- In the browser the page decides rallies and the service does everything
+  else: the truth, the faults, the reports. A game has one driver — two bots
+  headless, or a browser — and the same code behind it, so a fault behaves
+  the same whoever decided the rally. The page reports each rally to the
+  service with its own number, which makes a retry from the page idempotent;
+  the event id zaehlwerk sees stays the service's counter, because injected
+  faults add presses of their own.
+- One reporter per game is a token handed to the page that started it, in
+  the URL fragment from the lobby. A second tab watches. A browser game nobody
+  presses in for ten minutes ends its match, so a closed tab does not hold
+  the table.
+- The canvas is one embedded file of hand-written JavaScript, a little over
+  400 lines rather than the 300 #78 hoped for: bots, touch, sound and the
+  phases cost more than the ball. Everything around it is htmx and SSE.
 - zaehlwerk's ingest answer is the state and no outcome, so the game tells a
   discarded or ignored press by the state staying the same. That is enough for
   every fault here, and an outcome on the wire would be an API change.
