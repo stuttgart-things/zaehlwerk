@@ -71,12 +71,91 @@ func playerAt(i int) Player {
 	return PlayerA
 }
 
+// Half is one half of the table, as the hardware under it knows it. A button
+// is screwed to a half, not to a player, and the players change ends — so which
+// player a half stands for is a rule of the match, and the scorer answers it
+// (ADR-0005).
+type Half string
+
+const (
+	HalfLeft  Half = "left"
+	HalfRight Half = "right"
+)
+
+func (h Half) valid() bool { return h == HalfLeft || h == HalfRight }
+
+// index returns 0 for left and 1 for right, and is only meaningful for a valid
+// Half.
+func (h Half) index() int {
+	if h == HalfRight {
+		return 1
+	}
+	return 0
+}
+
+func halfAt(i int) Half {
+	if i&1 == 1 {
+		return HalfRight
+	}
+	return HalfLeft
+}
+
+// Phase is where a match stands. Only playing scores points; in the others a
+// press means something else — ready, the serve rally won, the new end reached.
+type Phase string
+
+const (
+	// PhaseWarmup waits for both halves to press once: both players are ready.
+	PhaseWarmup Phase = "warmup"
+	// PhaseServeRally plays one rally for the first serve. Its winner's press
+	// decides who serves and scores nothing.
+	PhaseServeRally Phase = "serve_rally"
+	PhasePlaying    Phase = "playing"
+	// PhaseChangeEnds waits for both players to press at their new half after
+	// a change of ends.
+	PhaseChangeEnds Phase = "change_ends"
+	PhaseComplete   Phase = "complete"
+)
+
+// Start says how a match begins.
+type Start string
+
+const (
+	// StartPlaying is the default: the first point is a point.
+	StartPlaying Start = ""
+	// StartServeRally plays for the first serve before the first point.
+	StartServeRally Start = "serve_rally"
+	// StartWarmup waits for both players to be ready, then plays for the serve
+	// unless a first server was named.
+	StartWarmup Start = "warmup"
+)
+
+func (s Start) valid() bool {
+	return s == StartPlaying || s == StartServeRally || s == StartWarmup
+}
+
+// SetOpener says who serves first in every set after the first.
+type SetOpener string
+
+const (
+	// OpenerAlternate is ITTF law 2.13.6 and the default: whoever served first
+	// in a set receives first in the next one.
+	OpenerAlternate SetOpener = "alternate"
+	// OpenerLoser is the house rule some tables play: whoever lost the
+	// previous set serves first in the next one.
+	OpenerLoser SetOpener = "loser"
+)
+
 // ScoreEvent is a single point as it reaches the scorer. Every ingest adapter
 // normalises its own wire format into this shape (ADR-0002).
 type ScoreEvent struct {
 	MatchID string `json:"match_id"`
-	Player  Player `json:"player"`
-	Delta   int    `json:"delta"`
+	// Player names who the event is for. Exactly one of Player and Half is
+	// set: a source that knows the player says so, one that only knows where
+	// it is mounted names the half and the scorer resolves it.
+	Player Player `json:"player,omitempty"`
+	Half   Half   `json:"half,omitempty"`
+	Delta  int    `json:"delta"`
 	// EventID is a counter, monotonic per Source. Anything at or below the
 	// highest id already seen from that source is discarded.
 	EventID uint64 `json:"event_id"`
@@ -107,6 +186,16 @@ type State struct {
 	// CompletedSets holds the final score of every set played so far, in order,
 	// for the result handed to Schmetterpause at match end.
 	CompletedSets [][2]int `json:"completed_sets"`
+	// Phase is where the match stands. Serving is empty while the serve rally
+	// has not decided it.
+	Phase Phase `json:"phase"`
+	// Ends is who stands at which half: Ends[0] at the left, Ends[1] at the
+	// right. Without ChangeEnds a stays left throughout. During change_ends it
+	// already shows the new ends — the ones the players are walking to.
+	Ends [2]Player `json:"ends"`
+	// Waiting lists the halves whose press the warm-up or the change of ends
+	// still waits for, and is empty in every other phase.
+	Waiting []Half `json:"waiting,omitempty"`
 }
 
 // Outcome reports what [Scorer.Apply] did with an event.
@@ -159,6 +248,19 @@ const (
 	// for the same reason they need the others: a panel that misses it keeps
 	// showing a point that no longer exists.
 	TransitionUndo TransitionKind = "undo"
+
+	// TransitionConfirmed is one half pressing during the warm-up or a change
+	// of ends while the other half is still awaited. Side is the player at
+	// that half.
+	TransitionConfirmed TransitionKind = "confirmed"
+	// TransitionWarmupOver is the second half pressing during the warm-up.
+	TransitionWarmupOver TransitionKind = "warmup_over"
+	// TransitionServeDecided is the serve rally won. Side is the player who
+	// serves first.
+	TransitionServeDecided TransitionKind = "serve_decided"
+	// TransitionEndsChanged is the second half pressing after a change of
+	// ends: both players have arrived and play goes on.
+	TransitionEndsChanged TransitionKind = "ends_changed"
 )
 
 // Transition is one observable change of the match state.
@@ -183,6 +285,8 @@ var (
 	ErrMissingSource = errors.New("event has no source")
 	ErrMatchComplete = errors.New("match is complete")
 	ErrNothingToUndo = errors.New("nothing to undo")
+	ErrUnknownHalf   = errors.New("unknown half")
+	ErrPlayerAndHalf = errors.New("event names both a player and a half")
 )
 
 // Config describes a match. The zero value of each field takes the documented
@@ -199,8 +303,20 @@ type Config struct {
 	// Service rotation stays on the modern two-point rule regardless of this
 	// value, and the deuce threshold moves with it.
 	PointsPerSet int
-	// FirstServer serves the first point of the first set. Defaults to PlayerA.
+	// FirstServer serves the first point of the first set. Defaults to PlayerA,
+	// except when the match starts with a warm-up or a serve rally: then an
+	// empty FirstServer means the serve rally decides it.
 	FirstServer Player
+	// Start says how the match begins; see [Start].
+	Start Start
+	// ChangeEnds makes the players change ends after every set and once more
+	// in the deciding set, and waits for both of them to press at their new
+	// half before play goes on (ITTF law 2.14). Without it there are no ends:
+	// a half always stands for the same player.
+	ChangeEnds bool
+	// SetOpener says who serves first in the sets after the first. Defaults to
+	// OpenerAlternate.
+	SetOpener SetOpener
 
 	// RestartQuietPeriod and RestartMaxEventID govern when a counter that jumps
 	// backwards is read as a restarted source rather than a duplicate.
@@ -221,6 +337,17 @@ type match struct {
 	completed [][2]int
 	complete  bool
 	winner    Player
+
+	// The phases are stored rather than derived, because nothing in the score
+	// says whether the players are still warming up or who has already
+	// arrived at the new end. The ends themselves are derived — see swapped.
+	warmup bool
+	// firstServer is empty until the serve rally has decided it.
+	firstServer Player
+	endsPending bool
+	// pressed is by half: who has pressed so far in the warm-up or the
+	// change of ends.
+	pressed [2]bool
 }
 
 func (m match) clone() match {
@@ -256,11 +383,24 @@ func New(cfg Config) (*Scorer, error) {
 	if cfg.MatchID == "" {
 		return nil, errors.New("scorer: match id is required")
 	}
-	if cfg.FirstServer == "" {
+	if !cfg.Start.valid() {
+		return nil, fmt.Errorf("scorer: start %q: must be %q, %q or empty", cfg.Start, StartServeRally, StartWarmup)
+	}
+	if cfg.Start == StartServeRally && cfg.FirstServer != "" {
+		return nil, fmt.Errorf("scorer: a serve rally decides the first server, so it cannot also be named (%q)", cfg.FirstServer)
+	}
+	if cfg.FirstServer == "" && cfg.Start == StartPlaying {
 		cfg.FirstServer = PlayerA
 	}
-	if !cfg.FirstServer.valid() {
+	if cfg.FirstServer != "" && !cfg.FirstServer.valid() {
 		return nil, fmt.Errorf("scorer: first server: %w: %q", ErrUnknownPlayer, cfg.FirstServer)
+	}
+	switch cfg.SetOpener {
+	case "":
+		cfg.SetOpener = OpenerAlternate
+	case OpenerAlternate, OpenerLoser:
+	default:
+		return nil, fmt.Errorf("scorer: set opener %q: must be %q or %q", cfg.SetOpener, OpenerAlternate, OpenerLoser)
 	}
 	if cfg.BestOf == 0 {
 		cfg.BestOf = DefaultBestOf
@@ -293,6 +433,10 @@ func New(cfg Config) (*Scorer, error) {
 		cfg:       cfg,
 		setsToWin: cfg.BestOf/2 + 1,
 		seen:      make(map[string]source),
+		m: match{
+			warmup:      cfg.Start == StartWarmup,
+			firstServer: cfg.FirstServer,
+		},
 	}, nil
 }
 
@@ -338,7 +482,11 @@ func (s *Scorer) Apply(ev ScoreEvent) (Result, error) {
 	switch {
 	case ev.MatchID != s.cfg.MatchID:
 		return Result{State: s.state()}, fmt.Errorf("%w: %q", ErrWrongMatch, ev.MatchID)
-	case !ev.Player.valid():
+	case ev.Player != "" && ev.Half != "":
+		return Result{State: s.state()}, ErrPlayerAndHalf
+	case ev.Half != "" && !ev.Half.valid():
+		return Result{State: s.state()}, fmt.Errorf("%w: %q", ErrUnknownHalf, ev.Half)
+	case ev.Half == "" && !ev.Player.valid():
 		return Result{State: s.state()}, fmt.Errorf("%w: %q", ErrUnknownPlayer, ev.Player)
 	case ev.Source == "":
 		return Result{State: s.state()}, ErrMissingSource
@@ -350,8 +498,24 @@ func (s *Scorer) Apply(ev ScoreEvent) (Result, error) {
 		return Result{Outcome: Duplicate, State: s.state()}, nil
 	}
 
+	// Resolved against the ends as they are now: during a change of ends that
+	// is already the new end, which is where the press has to come from.
+	player, half := ev.Player, ev.Half
+	if half != "" {
+		player = s.playerAt(s.m, half)
+	} else {
+		half = s.halfOf(s.m, player)
+	}
+
+	switch s.phase() {
+	case PhaseWarmup, PhaseChangeEnds:
+		return s.confirm(half, player, ev.Delta), nil
+	case PhaseServeRally:
+		return s.decideServe(player, ev.Delta), nil
+	}
+
 	next := s.m.clone()
-	i := ev.Player.index()
+	i := player.index()
 	next.points[i] = max(0, next.points[i]+ev.Delta)
 	if next.points == s.m.points {
 		// Recorded but without effect — a piezo hit that could not be
@@ -363,7 +527,7 @@ func (s *Scorer) Apply(ev ScoreEvent) (Result, error) {
 	kind := TransitionPoint
 	var side Player
 	if next.points[i] > s.m.points[i] {
-		side = ev.Player
+		side = player
 	}
 	// Who took the set is decided by the score, not by who sent the event. A
 	// correction that lowers one side can complete a set for the other.
@@ -379,7 +543,10 @@ func (s *Scorer) Apply(ev ScoreEvent) (Result, error) {
 			next.setIndex++
 			next.points = [2]int{}
 			kind = TransitionSetWon
+			s.changeEnds(&next)
 		}
+	} else if !s.midSetChange(s.m) && s.midSetChange(next) {
+		s.changeEnds(&next)
 	}
 
 	s.push()
@@ -388,6 +555,127 @@ func (s *Scorer) Apply(ev ScoreEvent) (Result, error) {
 	st := s.state()
 	s.emit(Transition{Kind: kind, State: st, Side: side})
 	return Result{Outcome: Applied, State: st}, nil
+}
+
+// changeEnds starts a change of ends in next, if the match changes ends at all.
+// The new ends follow from the score on their own (see swapped); what is
+// stored is only that both players still have to arrive.
+func (s *Scorer) changeEnds(next *match) {
+	if !s.cfg.ChangeEnds {
+		return
+	}
+	next.endsPending = true
+	next.pressed = [2]bool{}
+}
+
+// confirm records a press during the warm-up or a change of ends. It scores
+// nothing, and a correction or a second press from the same half changes
+// nothing either.
+//
+// It is deliberately not undoable on its own: undo is for the score, and the
+// mis-press it exists for is a point awarded wrongly. An undo during a change
+// of ends takes back the point that ended the set, which also takes the
+// change of ends with it — that is the mistake actually made at the table.
+func (s *Scorer) confirm(half Half, player Player, delta int) Result {
+	if delta <= 0 || s.m.pressed[half.index()] {
+		return Result{Outcome: Ignored, State: s.state()}
+	}
+
+	next := s.m.clone()
+	next.pressed[half.index()] = true
+
+	kind, side := TransitionConfirmed, player
+	if next.pressed == [2]bool{true, true} {
+		next.pressed = [2]bool{}
+		side = ""
+		if next.warmup {
+			next.warmup = false
+			kind = TransitionWarmupOver
+		} else {
+			next.endsPending = false
+			kind = TransitionEndsChanged
+		}
+	}
+	s.m = next
+
+	st := s.state()
+	s.emit(Transition{Kind: kind, State: st, Side: side})
+	return Result{Outcome: Applied, State: st}
+}
+
+// decideServe ends the serve rally: whoever won it serves first. Undoable,
+// unlike a confirmation — awarding the rally to the wrong side is the same
+// mis-press as awarding a point to the wrong side.
+func (s *Scorer) decideServe(player Player, delta int) Result {
+	if delta <= 0 {
+		return Result{Outcome: Ignored, State: s.state()}
+	}
+
+	s.push()
+	next := s.m.clone()
+	next.firstServer = player
+	s.m = next
+
+	st := s.state()
+	s.emit(Transition{Kind: TransitionServeDecided, State: st, Side: player})
+	return Result{Outcome: Applied, State: st}
+}
+
+// phase derives where the match stands from what is stored.
+func (s *Scorer) phase() Phase {
+	switch {
+	case s.m.complete:
+		return PhaseComplete
+	case s.m.warmup:
+		return PhaseWarmup
+	case s.m.firstServer == "":
+		return PhaseServeRally
+	case s.m.endsPending:
+		return PhaseChangeEnds
+	default:
+		return PhasePlaying
+	}
+}
+
+// swapped reports whether the players stand at the other ends than they started
+// at: after every set, and once more in the deciding set as soon as one of them
+// reaches half the points of a set — five in an eleven-point set (ITTF law
+// 2.14). Derived from the score, so undo puts the ends back with the point it
+// takes back.
+func (s *Scorer) swapped(m match) bool {
+	if !s.cfg.ChangeEnds {
+		return false
+	}
+	sw := m.setIndex%2 == 1
+	if s.midSetChange(m) {
+		sw = !sw
+	}
+	return sw
+}
+
+// midSetChange reports whether m is past the change of ends in the middle of
+// the deciding set.
+func (s *Scorer) midSetChange(m match) bool {
+	return m.setIndex == s.cfg.BestOf-1 && max(m.points[0], m.points[1]) >= s.cfg.PointsPerSet/2
+}
+
+// playerAt resolves a half to the player standing at it. Player a starts at
+// the left, as on the page, where home is the left-hand side.
+func (s *Scorer) playerAt(m match, h Half) Player {
+	i := h.index()
+	if s.swapped(m) {
+		i ^= 1
+	}
+	return playerAt(i)
+}
+
+// halfOf is the inverse of playerAt.
+func (s *Scorer) halfOf(m match, p Player) Half {
+	i := p.index()
+	if s.swapped(m) {
+		i ^= 1
+	}
+	return halfAt(i)
 }
 
 // Undo takes back the last event that changed the score.
@@ -469,7 +757,7 @@ func (s *Scorer) setWinner(points [2]int) (int, bool) {
 }
 
 func (s *Scorer) state() State {
-	return State{
+	st := State{
 		MatchID:       s.cfg.MatchID,
 		Players:       s.cfg.Players,
 		Points:        s.m.points,
@@ -479,17 +767,28 @@ func (s *Scorer) state() State {
 		Complete:      s.m.complete,
 		Winner:        s.m.winner,
 		CompletedSets: slices.Clone(s.m.completed),
+		Phase:         s.phase(),
+		Ends:          [2]Player{s.playerAt(s.m, HalfLeft), s.playerAt(s.m, HalfRight)},
 	}
+	if st.Phase == PhaseWarmup || st.Phase == PhaseChangeEnds {
+		for i, pressed := range s.m.pressed {
+			if !pressed {
+				st.Waiting = append(st.Waiting, halfAt(i))
+			}
+		}
+	}
+	return st
 }
 
 // serving derives who serves the next point from the first server, the set
 // number and the score of the set in progress. Nothing about service is stored,
 // which is what makes undo and set boundaries correct without either of them
-// knowing about service at all.
+// knowing about service at all. Before the serve rally is decided nobody serves.
 func (s *Scorer) serving() Player {
-	// Whoever served first in a set receives first in the next one
-	// (ITTF law 2.13.6).
-	first := s.cfg.FirstServer.index() ^ (s.m.setIndex % 2)
+	if s.m.firstServer == "" {
+		return ""
+	}
+	first := s.opener()
 
 	a, b := s.m.points[0], s.m.points[1]
 	deuce := s.cfg.PointsPerSet - 1
@@ -508,6 +807,26 @@ func (s *Scorer) serving() Player {
 	}
 
 	return playerAt(first ^ (changes % 2))
+}
+
+// opener is the index of the player who serves first in the set in progress.
+func (s *Scorer) opener() int {
+	first := s.m.firstServer.index()
+	if s.m.setIndex == 0 {
+		return first
+	}
+	if s.cfg.SetOpener == OpenerLoser {
+		// Whoever lost the previous set serves first. completed holds one
+		// entry per finished set, so the previous one is always there.
+		prev := s.m.completed[s.m.setIndex-1]
+		if prev[0] < prev[1] {
+			return 0
+		}
+		return 1
+	}
+	// Whoever served first in a set receives first in the next one
+	// (ITTF law 2.13.6).
+	return first ^ (s.m.setIndex % 2)
 }
 
 func (s *Scorer) emit(t Transition) {

@@ -47,6 +47,7 @@ go run ./cmd/zaehlwerk-api
 | `OMNI_PITCHER_URL` | — | homerun2-omni-pitcher base URL. Takes precedence over `REDIS_ADDR` |
 | `OMNI_PITCHER_TOKEN` | — | Bearer token for it; `/pitch` answers 401 without one |
 | `OMNI_PITCHER_PATH` | `/pitch` | |
+| `SET_OPENER` | `alternate` | Who serves first in the sets after the first: `alternate` (ITTF law 2.13.6) or `loser` (whoever lost the previous set). A match may still choose its own |
 | `REDIS_ADDR` | — | Redis holding the panel stream. Unset, and with no omni-pitcher, disables the panel |
 | `REDIS_PORT` | `6379` | |
 | `REDIS_PASSWORD` | — | |
@@ -95,6 +96,31 @@ curl -s -X POST localhost:8080/matches/{id}/end          # idempotent
 `POST /matches` takes `players`, `best_of`, `points_per_set` and `first_server`,
 all optional — the defaults are a best of five to eleven with `a` serving. `best_of` is any odd number; the scoring page offers 1 (a single game, one set decides), 3, 5 and 7.
 
+### Phases and ends
+
+A match can also start the way it starts at the table
+([ADR-0005](docs/adr/0005-match-phases-and-table-halves.md)). All optional, and a
+match that asks for none of it behaves exactly as before:
+
+| Field | Value | What happens |
+| --- | --- | --- |
+| `start` | `warmup` | both sides press once when ready; then the serve rally, unless `first_server` names one |
+| `start` | `serve_rally` | one rally for the first serve: the winner's side presses, nothing is scored |
+| `first_server` | `rally` | the same as `start: serve_rally` |
+| `change_ends` | `true` | the players change ends after every set, and in the deciding set at five; play waits until each has pressed at the new half |
+| `set_opener` | `alternate`, `loser` | overrides `SET_OPENER` for this match |
+
+```bash
+curl -s -X POST localhost:8080/matches -H 'content-type: application/json' \
+  -d '{"players": ["Anna", "Bernd"], "best_of": 3, "start": "warmup", "change_ends": true, "set_opener": "loser"}'
+```
+
+The state says where the match stands: `phase` (`warmup`, `serve_rally`,
+`playing`, `change_ends`, `complete`), `ends` (who stands at the left and the
+right half) and `waiting` (the halves still to press). Outside `playing` a press
+is not a point; a correction or a second press from the same half changes
+nothing.
+
 `GET /matches/current` is the match hardware ingest would land in: the most
 recently created one still running. A board asks it before its first point, to
 label its halves and know who serves (zaehlwerk-firmware ADR-0006); a won or
@@ -111,6 +137,11 @@ All three carry the four fields the ESP-NOW payload already has — `source`,
 one vocabulary across firmware, adapter and scorer is worth more than three
 spellings of the same thing.
 
+A source that only knows where it is mounted sends **`half`** (`left` or
+`right`) instead of `player`, never both. The scorer resolves the half against
+the current ends, so a button under the left half scores for whoever stands
+there after a change of ends (ADR-0005).
+
 `event_id` is a counter, monotonic **per source**, and a repeat of one already
 seen is discarded with a 200 and the current state. That is what makes retrying
 safe, and it is the whole point of
@@ -123,6 +154,11 @@ must live in RTC memory or every wake restarts it at zero.
 curl -s -X POST localhost:8080/ingest/button \
   -H 'content-type: application/json' \
   -d '{"events": [{"source": "button-a", "player": "a", "event_id": 7}]}'
+
+# a button that knows its half, not its player
+curl -s -X POST localhost:8080/ingest/button \
+  -H 'content-type: application/json' \
+  -d '{"events": [{"source": "button-left", "half": "left", "event_id": 8}]}'
 
 # piezo — delta is required: the sensor knows which side of the table it sits
 # under, not whether the hit was a point. 0 is recorded and changes nothing.
@@ -340,14 +376,16 @@ needs to draw the whole match instead of the title alone:
 | --- | ----- |
 | `points` | points of the set in progress, `5:10`; after a set win `0:0`, after the match the final set |
 | `sets` | sets won, `1:2` |
-| `serve` | `a` or `b`, who serves the next point — absent once the match is won |
+| `serve` | `a` or `b`, who serves the next point — absent once the match is won, and before the serve rally has decided it |
 | `winner` | `a` or `b`, only once the match is won |
-| `banner` | `SATZ <name>` on a won set, `SIEG <name>` on the won match — the name cut at six characters, as the board shows it; absent on every other transition |
+| `banner` | `SATZ <name>` on a won set, `SIEG <name>` on the won match, `ANGABE <name>` on the won serve rally — the name cut at six characters, as the board shows it. Outside play the instruction instead: `EINSPIELEN`, `UM DIE ANGABE`, `SEITENWECHSEL`. Absent on every other transition |
 | `player_a`, `player_b` | the names; a comma or semicolon in a name becomes a space |
 | `played` | finished sets, space-separated: `11-8 9-11` — absent before the first |
+| `phase` | `warmup`, `serve_rally`, `playing`, `change_ends`, `complete` (ADR-0005) |
+| `ends` | who stands at the left and the right half, `b:a` after a change of ends |
 
 ```
-match=36c17b30,set=3,transition=point,side=b,points=5:10,sets=1:1,serve=b,player_a=Anna,player_b=Bernd,played=11-8 9-11
+match=36c17b30,set=3,transition=point,side=b,points=5:10,sets=1:1,serve=b,player_a=Anna,player_b=Bernd,played=11-8 9-11,phase=playing,ends=a:b
 ```
 
 Who serves is said here because the rules are here: the catcher draws the
@@ -884,6 +922,7 @@ base whose removal can prune somebody else's panel.
 | [0002](docs/adr/0002-idempotent-ingest-contract.md) | The `ScoreEvent` shape and why ingest is idempotent |
 | [0003](docs/adr/0003-led-catcher-stream-ownership.md) | Who may switch the LED catcher's stream, and when it switches back |
 | [0004](docs/adr/0004-reporting-results-to-schmetterpause.md) | Handing the finished match to Schmetterpause |
+| [0005](docs/adr/0005-match-phases-and-table-halves.md) | Warm-up, the serve rally and the change of ends; halves instead of players |
 
 ## Related
 

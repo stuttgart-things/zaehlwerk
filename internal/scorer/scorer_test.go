@@ -16,6 +16,8 @@ func TestNewDefaults(t *testing.T) {
 	require.Equal(t, 3, s.setsToWin)
 	require.Equal(t, DefaultPointsPerSet, s.cfg.PointsPerSet)
 	require.Equal(t, PlayerA, s.cfg.FirstServer)
+	require.Equal(t, OpenerAlternate, s.cfg.SetOpener)
+	require.False(t, s.cfg.ChangeEnds)
 	require.Equal(t, DefaultRestartQuietPeriod, s.cfg.RestartQuietPeriod)
 	require.Equal(t, uint64(DefaultRestartMaxEventID), s.cfg.RestartMaxEventID)
 	require.NotNil(t, s.cfg.Now)
@@ -25,6 +27,8 @@ func TestNewDefaults(t *testing.T) {
 		Players:   [2]string{"a", "b"},
 		SetNumber: 1,
 		Serving:   PlayerA,
+		Phase:     PhasePlaying,
+		Ends:      [2]Player{PlayerA, PlayerB},
 	}, s.State())
 }
 

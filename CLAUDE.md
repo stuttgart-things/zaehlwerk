@@ -49,6 +49,7 @@ supersedes it, not a quiet rewrite.
 | 0002 | Idempotent ingest contract — `source` + `event_id` |
 | 0003 | Stream ownership when switching the LED catcher |
 | 0004 | Reporting results to Schmetterpause |
+| 0005 | Match phases and table halves |
 
 ## Terms
 

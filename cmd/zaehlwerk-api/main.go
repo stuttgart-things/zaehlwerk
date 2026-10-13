@@ -119,6 +119,10 @@ func run() error {
 		uiOpts = append(uiOpts, ui.WithHeartbeat(beat))
 	}
 
+	if opener := setOpener(log); opener != "" {
+		apiOpts = append(apiOpts, api.WithSetOpener(opener))
+	}
+
 	apiOpts = append(apiOpts, api.WithBuildInfo(api.BuildInfo{
 		Version: version, Commit: commit, Date: date,
 	}))
@@ -196,6 +200,24 @@ func schmetterpauseClient(log *slog.Logger) *schmetterpause.Client {
 		// Whether a token is set, never the token.
 		"authenticated", os.Getenv("SCHMETTERPAUSE_TOKEN") != "")
 	return client
+}
+
+// setOpener reads SET_OPENER: who serves first in the sets after the first.
+// Unset keeps the rulebook (ITTF law 2.13.6); "loser" is the house rule of a
+// table where whoever lost the set opens the next one. Anything else is
+// ignored with a warning rather than failing the start, like the other
+// optional settings.
+func setOpener(log *slog.Logger) scorer.SetOpener {
+	switch raw := scorer.SetOpener(os.Getenv("SET_OPENER")); raw {
+	case "":
+		return ""
+	case scorer.OpenerAlternate, scorer.OpenerLoser:
+		log.Info("set opener configured", "set_opener", raw)
+		return raw
+	default:
+		log.Warn("ignoring SET_OPENER, must be alternate or loser", "value", raw)
+		return ""
+	}
 }
 
 func registryOptions(sink *panel.Sink, hub *live.Hub, switcher *panel.Switcher) []match.Option {

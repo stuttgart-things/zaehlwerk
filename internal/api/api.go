@@ -39,6 +39,10 @@ type Server struct {
 	// api package does not depend on the panel package for one call each way.
 	switcher PanelSwitcher
 
+	// setOpener is who opens the sets after the first when a match does not
+	// say. Empty leaves it to the scorer's default.
+	setOpener scorer.SetOpener
+
 	build BuildInfo
 }
 
@@ -111,6 +115,13 @@ func WithBuildInfo(b BuildInfo) Option {
 // WithPanelSwitcher gives the panel to a match for the length of the match.
 func WithPanelSwitcher(p PanelSwitcher) Option {
 	return func(s *Server) { s.switcher = p }
+}
+
+// WithSetOpener sets who serves first in the sets after the first, for every
+// match that does not choose for itself: the table's house rule, set once
+// rather than on every form.
+func WithSetOpener(o scorer.SetOpener) Option {
+	return func(s *Server) { s.setOpener = o }
 }
 
 // WithHeartbeat sets how often an idle stream writes a keepalive comment.

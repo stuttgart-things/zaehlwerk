@@ -11,19 +11,40 @@ import (
 )
 
 // createRequest is the body of POST /matches. Every field is optional; the
-// defaults are a best of five to eleven with a serving first.
+// defaults are a best of five to eleven with a serving first, no warm-up and no
+// change of ends — the match as it was before phases existed (ADR-0005).
 type createRequest struct {
 	Players      []string `json:"players"`
 	BestOf       int      `json:"best_of"`
 	PointsPerSet int      `json:"points_per_set"`
-	FirstServer  string   `json:"first_server"`
+	// FirstServer is "a", "b", or "rally" to play for it.
+	FirstServer string `json:"first_server"`
+	// Start is empty, "serve_rally" or "warmup".
+	Start      string `json:"start"`
+	ChangeEnds bool   `json:"change_ends"`
+	// SetOpener is "alternate" or "loser". Empty takes the server's
+	// SET_OPENER.
+	SetOpener string `json:"set_opener"`
 }
+
+// firstServerRally is the first_server value that asks for a serve rally,
+// so a caller that only knows the one field can still ask for one.
+const firstServerRally = "rally"
 
 func (req createRequest) config() (scorer.Config, error) {
 	cfg := scorer.Config{
 		BestOf:       req.BestOf,
 		PointsPerSet: req.PointsPerSet,
 		FirstServer:  scorer.Player(req.FirstServer),
+		Start:        scorer.Start(req.Start),
+		ChangeEnds:   req.ChangeEnds,
+		SetOpener:    scorer.SetOpener(req.SetOpener),
+	}
+	if req.FirstServer == firstServerRally {
+		cfg.FirstServer = ""
+		if cfg.Start == scorer.StartPlaying {
+			cfg.Start = scorer.StartServeRally
+		}
 	}
 
 	switch len(req.Players) {
@@ -137,6 +158,9 @@ func (s *Server) endMatch(w http.ResponseWriter, r *http.Request) {
 // the panel changes hands is ADR-0003's decision rather than a detail of one
 // handler — one caller of the switcher, not two.
 func (s *Server) StartMatch(cfg scorer.Config, handover match.Handover) (*match.Match, error) {
+	if cfg.SetOpener == "" {
+		cfg.SetOpener = s.setOpener
+	}
 	m, err := s.registry.CreateFor(cfg, handover)
 	if err != nil {
 		return nil, err

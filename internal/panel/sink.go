@@ -264,6 +264,12 @@ func Message(t scorer.Transition, system, author string, now time.Time) homerun.
 // catcher applies no rules, so who serves is said here, where the rules are;
 // it is left out once the match is over, when nobody serves and `winner`
 // says who won instead.
+//
+// Last come the phase and the ends (ADR-0005): `phase=warmup` and its siblings
+// tell the panel to show an instruction instead of a score, and `ends=b:a`
+// says who stands at the left and the right half, which is what a change of
+// ends has to show. Both are left out of a state that has no phase, so a
+// catcher that never heard of them sees the tags it always saw.
 func Tags(t scorer.Transition) string {
 	st := t.State
 	tags := fmt.Sprintf("match=%s,set=%d,transition=%s", st.MatchID, st.SetNumber, t.Kind)
@@ -289,6 +295,12 @@ func Tags(t scorer.Transition) string {
 	if b := banner(t); b != "" {
 		tags += ",banner=" + b
 	}
+	if st.Phase != "" {
+		tags += ",phase=" + string(st.Phase)
+	}
+	if st.Ends[0] != "" && st.Ends[1] != "" {
+		tags += ",ends=" + string(st.Ends[0]) + ":" + string(st.Ends[1])
+	}
 	return tags
 }
 
@@ -301,6 +313,11 @@ const bannerName = 6
 // replaces it — so the board says what just happened without keeping it up.
 // German, like the "SATZ 3" the catcher already draws above the score: this is
 // what the table reads, not what a developer does.
+//
+// Outside play the banner is the instruction instead: what the players are
+// to do next. A won set that starts a change of ends still says who won it;
+// the instruction follows with the first press at the new end, and the
+// `phase` tag carries it from the start for a catcher that draws phases.
 func banner(t scorer.Transition) string {
 	var prefix string
 	switch t.Kind {
@@ -308,8 +325,10 @@ func banner(t scorer.Transition) string {
 		prefix = "SATZ"
 	case scorer.TransitionMatchWon:
 		prefix = "SIEG"
+	case scorer.TransitionServeDecided:
+		prefix = "ANGABE"
 	default:
-		return ""
+		return phaseBanner(t.State.Phase)
 	}
 
 	var name string
@@ -323,6 +342,21 @@ func banner(t scorer.Transition) string {
 	}
 	runes := []rune(tagValue(name))
 	return prefix + " " + string(runes[:min(len(runes), bannerName)])
+}
+
+// phaseBanner is the instruction of a phase in which the players have
+// something to do other than play a point.
+func phaseBanner(p scorer.Phase) string {
+	switch p {
+	case scorer.PhaseWarmup:
+		return "EINSPIELEN"
+	case scorer.PhaseServeRally:
+		return "UM DIE ANGABE"
+	case scorer.PhaseChangeEnds:
+		return "SEITENWECHSEL"
+	default:
+		return ""
+	}
 }
 
 // tagValue keeps a player's name from splitting the tags: a comma would start

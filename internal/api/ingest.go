@@ -16,9 +16,15 @@ import (
 // (zaehlwerk-firmware ADR-0001), and the hub forwards what it received. Keeping
 // one vocabulary across firmware, adapter and scorer is worth more than three
 // differently spelled versions of the same four fields.
+//
+// Half is the alternative to Player for a source that only knows where it is
+// mounted: a button under the left half sends "left", and the scorer resolves
+// which player stands there, ends changed or not (ADR-0005). Exactly one of the
+// two is set.
 type ingestEvent struct {
 	Source  string `json:"source"`
 	Player  string `json:"player"`
+	Half    string `json:"half"`
 	Delta   *int   `json:"delta"`
 	EventID uint64 `json:"event_id"`
 }
@@ -48,6 +54,7 @@ func (e ingestEvent) scoreEvent(matchID string, deltaRequired bool) (scorer.Scor
 	ev := scorer.ScoreEvent{
 		MatchID: matchID,
 		Player:  scorer.Player(e.Player),
+		Half:    scorer.Half(e.Half),
 		EventID: e.EventID,
 		Source:  e.Source,
 	}
@@ -55,7 +62,11 @@ func (e ingestEvent) scoreEvent(matchID string, deltaRequired bool) (scorer.Scor
 	switch {
 	case e.Source == "":
 		return ev, errors.New("source is required")
-	case ev.Player != scorer.PlayerA && ev.Player != scorer.PlayerB:
+	case e.Player != "" && e.Half != "":
+		return ev, errors.New("player and half: name one of them, not both")
+	case e.Half != "" && ev.Half != scorer.HalfLeft && ev.Half != scorer.HalfRight:
+		return ev, fmt.Errorf("half %q: must be %q or %q", e.Half, scorer.HalfLeft, scorer.HalfRight)
+	case e.Half == "" && ev.Player != scorer.PlayerA && ev.Player != scorer.PlayerB:
 		return ev, fmt.Errorf("player %q: must be %q or %q", e.Player, scorer.PlayerA, scorer.PlayerB)
 	case e.Delta == nil && deltaRequired:
 		return ev, errors.New("delta is required: 1 for a point, 0 for a hit that is not one")
@@ -144,7 +155,7 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, m *match.Match, 
 
 		s.log.Info("event ingested", "match_id", m.ID, "source", ev.Source,
 			"event_id", ev.EventID, "outcome", res.Outcome.String(),
-			"points", st.Points, "sets", st.Sets, "serving", st.Serving)
+			"points", st.Points, "sets", st.Sets, "serving", st.Serving, "phase", st.Phase)
 	}
 
 	s.writeState(w, http.StatusOK, st)

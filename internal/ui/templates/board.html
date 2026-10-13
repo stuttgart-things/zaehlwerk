@@ -53,6 +53,7 @@
   {{- /* A won match says so on the winner's side; this is for one that was
          ended without a winner. */}}
   {{- if and (not .Match.Complete) (not .Match.Running)}}<span class="state state-ended">ended</span>{{end}}
+  {{- with .Match.Phase}}<span class="state state-phase">{{.}}</span>{{end}}
   <span class="match-id">{{.Match.ID}}</span>
 </div>
 
