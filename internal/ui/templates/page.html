@@ -641,6 +641,26 @@
                     <div class="picks">
                         <label class="pick"><input type="radio" name="first_server" value="a" checked><span>Left</span></label>
                         <label class="pick"><input type="radio" name="first_server" value="b"><span>Right</span></label>
+                        {{/* One rally decides it at the table; the winner's side
+                             presses, and that press scores nothing (ADR-0005). */}}
+                        <label class="pick"><input type="radio" name="first_server" value="rally"><span>Play for it</span></label>
+                    </div>
+                </fieldset>
+                <fieldset>
+                    <legend>Before the first point</legend>
+                    <div class="picks">
+                        <label class="pick"><input type="radio" name="start" value="" checked><span>Straight in</span></label>
+                        {{/* Both sides press once when they are ready. */}}
+                        <label class="pick"><input type="radio" name="start" value="warmup"><span>Warm-up</span></label>
+                    </div>
+                </fieldset>
+                <fieldset>
+                    <legend>Ends</legend>
+                    <div class="picks">
+                        <label class="pick"><input type="radio" name="change_ends" value="" checked><span>Stay</span></label>
+                        {{/* After every set, and at five in the deciding set; play
+                             waits until each player has pressed at the new half. */}}
+                        <label class="pick"><input type="radio" name="change_ends" value="on"><span>Change</span></label>
                     </div>
                 </fieldset>
                 <button type="submit" class="start">Start</button>

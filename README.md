@@ -276,6 +276,14 @@ much as it is a mock.
 task run     # then http://localhost:8080/ui — or: task ui
 ```
 
+The new-match form also starts a match the way the table does
+([ADR-0005](docs/adr/0005-match-phases-and-table-halves.md)): **First serve →
+Play for it** (one rally decides it), **Before the first point → Warm-up** (both
+sides press once when ready) and **Ends → Change** (after every set, and at five
+in the deciding set). The defaults are the match as it always was. While a phase
+is waiting, a click on a side is that side's press rather than a point, and the
+board says what it is waiting for.
+
 `/` redirects to it, `a` and `b` score, `u` takes a point back. Opening the
 page joins the match a button would score into, the same one `/ingest/button`
 resolves; a match that has finished is still there, at `/ui?match=<id>` with

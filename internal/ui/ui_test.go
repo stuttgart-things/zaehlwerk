@@ -207,7 +207,9 @@ func TestTheFormSendsTheFieldsTheHandlerReads(t *testing.T) {
 	for _, field := range []string{
 		`name="player_a"`, `name="player_b"`,
 		`name="best_of" value="1"`, `name="best_of" value="3"`, `name="best_of" value="5" checked`, `name="best_of" value="7"`,
-		`name="first_server" value="a" checked`, `name="first_server" value="b"`,
+		`name="first_server" value="a" checked`, `name="first_server" value="b"`, `name="first_server" value="rally"`,
+		`name="start" value="" checked`, `name="start" value="warmup"`,
+		`name="change_ends" value="" checked`, `name="change_ends" value="on"`,
 	} {
 		require.Contains(t, body, field)
 	}
@@ -441,4 +443,67 @@ func TestTheScoringButtonsCarryAnObjectLiteral(t *testing.T) {
 		require.True(t, strings.HasPrefix(expr, "{"),
 			"hx-vals %q must be an object literal: htmx braces anything else into a SyntaxError", v[1])
 	}
+}
+
+// TestThePageStartsAMatchTheWayTheTableDoes: warm-up, a rally for the serve
+// and a change of ends, picked on the form (ADR-0005).
+func TestThePageStartsAMatchTheWayTheTableDoes(t *testing.T) {
+	f := newFixture(t)
+
+	rec, body := f.do(http.MethodPost, "/ui/matches", url.Values{
+		"player_a": {"Ada"}, "player_b": {"Grace"}, "best_of": {"3"},
+		"first_server": {"rally"}, "start": {"warmup"}, "change_ends": {"on"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, f.life.started, 1)
+	m, err := f.registry.Get(f.life.started[0])
+	require.NoError(t, err)
+
+	st := m.Scorer.State()
+	require.Equal(t, scorer.PhaseWarmup, st.Phase)
+	require.Contains(t, body, "warm-up: each side presses once when ready")
+
+	// Both ready, then the rally: Grace's side wins it.
+	f.point(m, "a")
+	f.point(m, "b")
+	require.Equal(t, scorer.PhaseServeRally, m.Scorer.State().Phase)
+	f.point(m, "b")
+	st = m.Scorer.State()
+	require.Equal(t, scorer.PhasePlaying, st.Phase)
+	require.Equal(t, scorer.PlayerB, st.Serving)
+	require.Equal(t, [2]int{0, 0}, st.Points)
+
+	for range 11 {
+		f.point(m, "a")
+	}
+	require.Equal(t, scorer.PhaseChangeEnds, m.Scorer.State().Phase)
+}
+
+func TestPlayingForTheServeWithoutAWarmUp(t *testing.T) {
+	f := newFixture(t)
+
+	f.do(http.MethodPost, "/ui/matches", url.Values{"first_server": {"rally"}})
+	m, err := f.registry.Get(f.life.started[0])
+	require.NoError(t, err)
+
+	require.Equal(t, scorer.PhaseServeRally, m.Scorer.State().Phase)
+	require.Empty(t, m.Scorer.State().Serving, "nobody serves before the rally")
+}
+
+func TestTheFormDefaultsAreTheMatchAsBefore(t *testing.T) {
+	f := newFixture(t)
+
+	f.do(http.MethodPost, "/ui/matches", url.Values{
+		"first_server": {"a"}, "start": {""}, "change_ends": {""},
+	})
+	m, err := f.registry.Get(f.life.started[0])
+	require.NoError(t, err)
+
+	st := m.Scorer.State()
+	require.Equal(t, scorer.PhasePlaying, st.Phase)
+	require.Equal(t, scorer.PlayerA, st.Serving)
+	for range 11 {
+		f.point(m, "a")
+	}
+	require.Equal(t, scorer.PhasePlaying, m.Scorer.State().Phase, "no change of ends unless asked for")
 }

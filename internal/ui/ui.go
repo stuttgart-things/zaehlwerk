@@ -442,11 +442,23 @@ func parseForm(w http.ResponseWriter, r *http.Request) error {
 }
 
 // config turns the new-match form into a scorer config. Every field is
-// optional, as it is on POST /matches.
+// optional, as it is on POST /matches, and the phase fields mean what they mean
+// there: first_server "rally" plays for the serve, start "warmup" waits for
+// both sides first, change_ends turns on the change of ends (ADR-0005).
 func config(form url.Values) (scorer.Config, error) {
 	get := func(key string) string { return strings.TrimSpace(form.Get(key)) }
 
-	cfg := scorer.Config{FirstServer: scorer.Player(get("first_server"))}
+	cfg := scorer.Config{
+		FirstServer: scorer.Player(get("first_server")),
+		Start:       scorer.Start(get("start")),
+		ChangeEnds:  get("change_ends") == "on",
+	}
+	if get("first_server") == "rally" {
+		cfg.FirstServer = ""
+		if cfg.Start == scorer.StartPlaying {
+			cfg.Start = scorer.StartServeRally
+		}
+	}
 	if a, b := get("player_a"), get("player_b"); a != "" || b != "" {
 		cfg.Players = [2]string{a, b}
 		if a == "" || b == "" {
