@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.15.0...v0.16.0) (2026-10-13)
+
+
+### Features
+
+* the scoring page explains its choices and says where results go ([#85](https://github.com/stuttgart-things/zaehlwerk/issues/85)) ([f3e95b8](https://github.com/stuttgart-things/zaehlwerk/commit/f3e95b86f416b7d1053e00723a1a624080e923dd))
+* zaehlwerk-pong, headless bot matches through the real ingest path ([#83](https://github.com/stuttgart-things/zaehlwerk/issues/83)) ([fade3ab](https://github.com/stuttgart-things/zaehlwerk/commit/fade3ab8d5a846fd2c10001a2f1f6c5823723f83))
+
 ## [0.15.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.14.0...v0.15.0) (2026-10-13)
 
 
