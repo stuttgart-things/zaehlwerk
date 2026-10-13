@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.13.0...v0.14.0) (2026-10-13)
+
+
+### Features
+
+* match phases -- warm-up, serve rally, change of ends; halves instead of players ([#79](https://github.com/stuttgart-things/zaehlwerk/issues/79)) ([f341399](https://github.com/stuttgart-things/zaehlwerk/commit/f34139956f29878f6008a851b8bdd862b3381148)), closes [#77](https://github.com/stuttgart-things/zaehlwerk/issues/77)
+
 ## [0.13.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.12.0...v0.13.0) (2026-10-13)
 
 
