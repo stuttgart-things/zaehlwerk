@@ -92,6 +92,16 @@
             color: var(--fg-soft);
         }
 
+        .watch-link {
+            flex: none;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--accent-text);
+            text-decoration: none;
+        }
+
+        .watch-link:hover, .watch-link:focus-visible { text-decoration: underline; }
+
         main { flex: 1; padding-top: 1rem; padding-bottom: 1.5rem; }
 
         /* --- Cards and labels ------------------------------------------- */
@@ -556,6 +566,9 @@
     <header class="topbar">
         <a class="brand" href="/ui" title="Start page: the match the table is scoring now">Zähl<span class="brand-mark">werk</span></a>
         <span class="tagline">Table tennis · live score</span>
+        {{/* A new tab, because the screen it is for is usually another
+             device, and this one is still keeping score. */}}
+        <a class="watch-link" href="/ui/watch" target="_blank" rel="noopener" title="The score without the buttons, for a screen everybody can see">Watch</a>
         <span class="source" title="This page's source. Each page counts for itself, so two phones on one match never share a counter.">
             <span id="source-badge">&hellip;</span>
         </span>

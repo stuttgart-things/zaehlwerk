@@ -39,7 +39,16 @@ const (
 //
 // A page that connects gets the current score straight away, so a tab opened
 // mid-match renders without a second request.
+//
+// ?view=watch is the spectator view's feed: the same transitions, rendered
+// without buttons and sent as a "spectator" event, and no timeline, which
+// that view does not show.
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
+	board, withLog := "board", true
+	if r.URL.Query().Get("view") == "watch" {
+		board, withLog = "spectator", false
+	}
+
 	m, err := s.registry.Get(r.PathValue("id"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
@@ -65,7 +74,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	var rows []logRow
-	if err := s.sendBoard(rc, w, s.liveView(m, kindOf(m.Scorer.State()))); err != nil {
+	if err := s.send(rc, w, board, s.liveView(m, kindOf(m.Scorer.State()))); err != nil {
 		s.log.DebugContext(r.Context(), "ui stream ended on the snapshot", "match", m.ID, "error", err)
 		return
 	}
@@ -92,9 +101,12 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 			}
 			v.Log = rows
 
-			if err := s.sendBoard(rc, w, v); err != nil {
+			if err := s.send(rc, w, board, v); err != nil {
 				s.log.DebugContext(r.Context(), "ui stream ended", "match", m.ID, "error", err)
 				return
+			}
+			if !withLog {
+				continue
 			}
 			if err := s.send(rc, w, "log", v); err != nil {
 				s.log.DebugContext(r.Context(), "ui stream ended", "match", m.ID, "error", err)
@@ -108,10 +120,6 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-}
-
-func (s *Server) sendBoard(rc *http.ResponseController, w http.ResponseWriter, v view) error {
-	return s.send(rc, w, "board", v)
 }
 
 // send renders one partial into one named SSE event.

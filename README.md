@@ -314,6 +314,22 @@ else's phone lands on it. That is why `GET /matches/{id}/stream` can stay JSON:
 the clients that render differently keep the format that lets them, and the one
 page whose markup this service owns gets the format htmx wants.
 
+### Watching
+
+    GET /ui/watch
+
+The same match without anything to press: the score as large as the screen
+allows, who serves, the sets and the phase line when play is waiting. It is for
+a TV or a tablet next to the table, where a stray tap must not score — so it is
+its own page with no buttons and no form rather than a mode of the scoring
+page, which links to it.
+
+`/ui/watch` follows the table: it shows the running match and moves on by
+itself when the next one starts, leaving a finished match up until then.
+`/ui/watch?match=<id>` stays on that match. The score comes over the same
+stream as the board, `GET /ui/matches/{id}/stream?view=watch`, rendered without
+buttons and without the timeline.
+
 **It looks like schmetterpause and is laid out for a phone first.** The page
 started as a copy of the led-catcher simulator's look, which was right for a
 mock and wrong for the product family: somebody scores a match here and enters

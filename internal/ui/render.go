@@ -47,6 +47,9 @@ type view struct {
 	Operators []RosterPlayer
 	// ReportsTo is the Schmetterpause base URL, empty when the coupling is off.
 	ReportsTo string
+	// Follow is set on the spectator view opened without ?match: it moves on
+	// to the next match by itself, where a pinned one stays put.
+	Follow bool
 }
 
 // RosterPlayer is one option in the name pickers.

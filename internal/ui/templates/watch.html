@@ -1,0 +1,239 @@
+{{define "watch"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0a0a12">
+    <title>Zählwerk · watch</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400..700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"></script>
+    <style>
+        {{template "tokens"}}
+
+        * { box-sizing: border-box; }
+
+        /* Laid out for a screen across the room rather than a phone in the
+           hand: the score takes the height it is given, and nothing on the
+           page is meant to be touched. */
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5vh;
+            padding: 2vh 2vw;
+            background: var(--bg);
+            color: var(--fg);
+            font: 400 16px/1.4 var(--font-ui);
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .topbar { display: flex; align-items: baseline; gap: 1rem; }
+        .brand { font-weight: 700; font-size: clamp(1.2rem, 2.2vw, 2rem); letter-spacing: -0.02em; }
+        .brand-mark { color: var(--accent-text); }
+        .tagline {
+            font-family: var(--font-mono);
+            font-size: clamp(0.7rem, 1vw, 0.95rem);
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        .watch { flex: 1; display: flex; flex-direction: column; gap: 1.5vh; min-height: 0; }
+
+        .score {
+            flex: 1;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 1.5vw;
+        }
+
+        .side {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-width: 0;
+            padding: 2vh 1vw;
+            background: var(--card);
+            border: 2px solid var(--line);
+            border-radius: var(--radius);
+            text-align: center;
+        }
+
+        /* The server is what a spectator looks for second, after the score,
+           so it is the whole card that says so and not only the badge. */
+        .side.serving {
+            border-color: var(--accent);
+            background: color-mix(in srgb, var(--accent) 14%, var(--card));
+        }
+
+        .side.winner {
+            border-color: var(--ok);
+            background: color-mix(in srgb, var(--ok) 10%, var(--card));
+        }
+
+        .name {
+            max-width: 100%;
+            font-weight: 600;
+            font-size: clamp(1.4rem, 4vw, 4rem);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* Held to one line whether or not there is a badge, so the number does
+           not move when the serve changes sides. */
+        .status { height: clamp(1.6rem, 3.5vw, 3rem); }
+
+        .state {
+            display: inline-block;
+            padding: 0.1em 0.7em;
+            border-radius: 999px;
+            font-family: var(--font-mono);
+            font-size: clamp(0.8rem, 1.6vw, 1.5rem);
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .state-serve { color: var(--accent-ink); background: var(--accent); }
+        .state-won { color: var(--bg); background: var(--ok); }
+
+        /* Bounded by both axes: on a wide TV the height runs out first, on a
+           tablet held upright the width does. Two digits have to fit either. */
+        .points {
+            font-size: clamp(5rem, min(26vw, 48vh), 30rem);
+            font-weight: 700;
+            letter-spacing: -0.04em;
+            line-height: 0.95;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* A tablet or phone held upright: side by side, each card was a
+           narrow strip with the score lost in the middle of it. */
+        @media (orientation: portrait) {
+            .score { grid-template-columns: minmax(0, 1fr); gap: 1.5vh; }
+            .points { font-size: clamp(5rem, min(45vw, 24vh), 30rem); }
+        }
+
+        .sets {
+            font-family: var(--font-mono);
+            font-size: clamp(1rem, 2.4vw, 2.2rem);
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--fg-soft);
+        }
+
+        .sets b { color: var(--fg); }
+
+        .meta {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 0.6rem 1rem;
+            font-family: var(--font-mono);
+            font-size: clamp(0.9rem, 1.8vw, 1.6rem);
+            color: var(--fg-soft);
+        }
+
+        .chip {
+            padding: 0.15em 0.7em;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .phase {
+            text-align: center;
+            font-size: clamp(1rem, 2.4vw, 2.2rem);
+            color: var(--fg);
+        }
+
+        .empty {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            text-align: center;
+            font-size: clamp(1.2rem, 3vw, 2.6rem);
+            color: var(--fg-soft);
+        }
+
+        .empty p { margin: 0; }
+        .empty .hint { font-size: 0.5em; color: var(--muted); }
+        .error { text-align: center; color: var(--bad); }
+    </style>
+</head>
+<body>
+    <header class="topbar">
+        <span class="brand">Zähl<span class="brand-mark">werk</span></span>
+        <span class="tagline">Table tennis · live score</span>
+    </header>
+
+    <main class="watch"{{if .Stream}} hx-ext="sse" sse-connect="/ui/matches/{{.Match.ID}}/stream?view=watch"{{end}}>
+        <div class="watch" id="spectator" sse-swap="spectator" hx-swap="innerHTML">
+            {{- template "spectator" . -}}
+        </div>
+    </main>
+
+    {{/* A screen on the wall is set up once and then left alone, so /ui/watch
+         moves on to the next match by itself. It asks rather than being told
+         because the stream it holds belongs to one match and ends with it.
+         ?match= pins a match and never moves. */}}
+    {{- if .Follow}}
+    <div hx-get="/ui/watch/next?match={{with .Match}}{{.ID}}{{end}}" hx-trigger="every 5s" hx-swap="none"></div>
+    {{- end}}
+</body>
+</html>
+{{end}}
+
+{{define "spectator"}}
+{{- if .Match}}
+<div class="score">
+  <div class="side{{if .Match.A.Serving}} serving{{end}}{{if .Match.A.Winner}} winner{{end}}">
+    <div class="name">{{.Match.A.Name}}</div>
+    <div class="status">
+      {{- if .Match.A.Winner}}<span class="state state-won">won</span>
+      {{- else if .Match.A.Serving}}<span class="state state-serve">serves</span>{{end -}}
+    </div>
+    <div class="points">{{.Match.A.Points}}</div>
+    <div class="sets">sets <b>{{.Match.A.Sets}}</b></div>
+  </div>
+  <div class="side{{if .Match.B.Serving}} serving{{end}}{{if .Match.B.Winner}} winner{{end}}">
+    <div class="name">{{.Match.B.Name}}</div>
+    <div class="status">
+      {{- if .Match.B.Winner}}<span class="state state-won">won</span>
+      {{- else if .Match.B.Serving}}<span class="state state-serve">serves</span>{{end -}}
+    </div>
+    <div class="points">{{.Match.B.Points}}</div>
+    <div class="sets">sets <b>{{.Match.B.Sets}}</b></div>
+  </div>
+</div>
+
+<div class="meta">
+  {{- if .Match.Complete}}<span>final</span>
+  {{- else if not .Match.Running}}<span>ended</span>
+  {{- else}}<span>set {{.Match.SetNumber}}</span>{{end}}
+  {{- range .Match.CompletedSets}}<span class="chip">{{index . 0}}:{{index . 1}}</span>{{end}}
+</div>
+{{- with .Match.Phase}}
+<div class="phase">{{.}}</div>
+{{- end}}
+{{- else}}
+<div class="empty">
+  <p>No match is running.</p>
+  {{- if .Follow}}<p class="hint">This screen picks up the next one by itself.</p>{{end}}
+</div>
+{{- end}}
+{{- if .Error}}
+<div class="error">{{.Error}}</div>
+{{- end}}
+{{end}}
