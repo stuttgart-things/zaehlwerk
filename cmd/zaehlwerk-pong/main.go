@@ -57,7 +57,7 @@ func run() error {
 	// The seed is logged because a time-drawn one is otherwise lost, and it
 	// is the one thing needed to play a run again.
 	log.Info("zaehlwerk-pong up", "zaehlwerk", cfg.ZaehlwerkURL, "best_of", cfg.BestOf,
-		"skills", []string{cfg.Skills[0].Name, cfg.Skills[1].Name}, "seed", cfg.Seed,
+		"skills", []string{cfg.Skills[0].Name, cfg.Skills[1].Name}, "faults", cfg.Faults, "seed", cfg.Seed,
 		"version", cfg.Build.Version)
 
 	game := pong.New(cfg, log)
@@ -124,6 +124,12 @@ func config() (pong.Config, error) {
 		return cfg, fmt.Errorf("PONG_BOT_SKILL: %w", err)
 	}
 	cfg.Skills = skills
+
+	faults, err := pong.ParseFaults(os.Getenv("PONG_FAULTS"))
+	if err != nil {
+		return cfg, fmt.Errorf("PONG_FAULTS: %w", err)
+	}
+	cfg.Faults = faults
 
 	cfg.Seed = time.Now().UnixNano()
 	if raw := os.Getenv("PONG_SEED"); raw != "" {

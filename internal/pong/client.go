@@ -146,6 +146,27 @@ func (c *Client) EndMatch(ctx context.Context, matchID string) (scorer.State, er
 	return st, nil
 }
 
+// ErrNothingToUndo is zaehlwerk refusing an undo because there is no press to
+// take back.
+var ErrNothingToUndo = errors.New("nothing to undo")
+
+// Undo takes back the last press that changed the score, the way the page's
+// undo button does. Not retried: an undo sent twice takes back two presses.
+func (c *Client) Undo(ctx context.Context, matchID string) (scorer.State, error) {
+	st, status, err := c.call(ctx, c.http, http.MethodPost, "/matches/"+matchID+"/undo", nil)
+	switch {
+	case err != nil:
+		return st, err
+	case status == http.StatusOK:
+		return st, nil
+	case status == http.StatusConflict:
+		return st, fmt.Errorf("POST /matches/%s/undo: %w", matchID, ErrNothingToUndo)
+	case status == http.StatusNotFound:
+		return st, fmt.Errorf("POST /matches/%s/undo: %w", matchID, ErrMatchOver)
+	}
+	return st, fmt.Errorf("POST /matches/%s/undo: %d", matchID, status)
+}
+
 // TableEvent is one event on GET /live/stream.
 type TableEvent struct {
 	Kind  string        `json:"kind"`

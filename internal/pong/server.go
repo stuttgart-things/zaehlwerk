@@ -30,8 +30,10 @@ type Config struct {
 	Skills       [2]Skill
 	// Seed makes a run repeatable: the n-th game of a service started with
 	// the same seed draws the same rallies.
-	Seed  int64
-	Build BuildInfo
+	Seed int64
+	// Faults is what a game injects unless POST /games names its own.
+	Faults Faults
+	Build  BuildInfo
 }
 
 // BuildInfo is what the binary says about itself on /healthz.
@@ -58,6 +60,10 @@ type Server struct {
 	running *Game
 	played  int64
 	wg      sync.WaitGroup
+
+	// resetQuiet is the gap before a counter reset, zero for the real one.
+	// Only the tests set it.
+	resetQuiet time.Duration
 }
 
 func New(cfg Config, log *slog.Logger) *Server {
@@ -108,6 +114,10 @@ func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 type startBody struct {
 	// Pace is a Go duration, "0s" for as fast as zaehlwerk answers.
 	Pace string `json:"pace"`
+	// Faults replaces PONG_FAULTS for this game, as a whole: a share left
+	// out is zero, not the configured one. Absent keeps the configured
+	// faults.
+	Faults *Faults `json:"faults"`
 }
 
 // errBusy is a game or a match already holding the table.
@@ -135,8 +145,17 @@ func (s *Server) startGame(w http.ResponseWriter, r *http.Request) {
 		}
 		pace = p
 	}
+	faults := s.cfg.Faults
+	if body.Faults != nil {
+		// Unknown names are already refused by the decoder.
+		if err := body.Faults.Validate(); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		faults = *body.Faults
+	}
 
-	g, err := s.start(pace)
+	g, err := s.start(pace, faults)
 	switch {
 	case errors.Is(err, errBusy):
 		fail(w, http.StatusConflict, err)
@@ -149,7 +168,7 @@ func (s *Server) startGame(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, g.View())
 }
 
-func (s *Server) start(pace time.Duration) (*Game, error) {
+func (s *Server) start(pace time.Duration, faults Faults) (*Game, error) {
 	// One game at a time. Exactly one instance reports for a game (ADR-0006),
 	// and a second game would be a second match taking the table from the
 	// first.
@@ -168,10 +187,12 @@ func (s *Server) start(pace time.Duration) (*Game, error) {
 		return nil, err
 	}
 	g := newGame(id, GameConfig{
-		BestOf: s.cfg.BestOf,
-		Skills: s.cfg.Skills,
-		Pace:   pace,
-		Seed:   s.cfg.Seed + n,
+		BestOf:     s.cfg.BestOf,
+		Skills:     s.cfg.Skills,
+		Pace:       pace,
+		Seed:       s.cfg.Seed + n,
+		Faults:     faults,
+		ResetQuiet: s.resetQuiet,
 	}, s.client, s.log)
 	s.running = g
 	s.mu.Unlock()

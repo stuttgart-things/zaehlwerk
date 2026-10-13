@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
+	"slices"
 	"sync"
 	"time"
 
@@ -54,10 +55,18 @@ type View struct {
 	Players [2]string `json:"players"`
 	Skills  [2]Skill  `json:"skills"`
 	// Rallies is the rallies played for points; the serve rally is not one.
-	Rallies     int          `json:"rallies"`
-	Truth       [2]int       `json:"truth"`
-	Zaehlwerk   [2]int       `json:"zaehlwerk"`
+	Rallies   int    `json:"rallies"`
+	Truth     [2]int `json:"truth"`
+	Zaehlwerk [2]int `json:"zaehlwerk"`
+	// Explained is how far the injected faults should have moved zaehlwerk's
+	// points from the truth.
+	Explained   [2]int       `json:"explained"`
 	Divergences []Divergence `json:"divergences"`
+	// Unexplained counts the divergences no injected fault explains: the
+	// findings. A run is good when it is 0, with faults or without.
+	Unexplained int          `json:"unexplained"`
+	FaultShares Faults       `json:"fault_shares"`
+	Faults      []Fault      `json:"faults"`
 	EndsChanges []EndsChange `json:"ends_changes"`
 	State       scorer.State `json:"state"`
 }
@@ -70,6 +79,12 @@ type GameConfig struct {
 	// for somebody watching the panel.
 	Pace time.Duration
 	Seed int64
+	// Faults is what goes wrong between the truth and zaehlwerk, drawn from
+	// the seed like the rallies.
+	Faults Faults
+	// ResetQuiet is the gap before a counter reset; zero is resetQuiet. A
+	// field so the tests do not sit through the minute.
+	ResetQuiet time.Duration
 }
 
 // Game is one headless bot match: two bots, rallies drawn by skill, every
@@ -82,7 +97,11 @@ type Game struct {
 	client *Client
 	log    *slog.Logger
 	rnd    *rand.Rand
-	done   chan struct{}
+	// faultRnd draws the faults. Separate from rnd, so a game without faults
+	// draws exactly the rallies it drew before faults existed, and the same
+	// seed is the same match in every run.
+	faultRnd *rand.Rand
+	done     chan struct{}
 
 	mu          sync.Mutex
 	matchID     string
@@ -93,12 +112,24 @@ type Game struct {
 	rallies     int
 	divergences []Divergence
 	changes     []EndsChange
+	faults      []Fault
+	// parted is how truth and zaehlwerk stood at the last comparison: the
+	// difference in points, and the part of it the faults explain. A points
+	// divergence is recorded when that changes, so a lost press is one entry
+	// and not one for every rally after it.
+	parted [2][2]int
 
-	// seq is the game's counter: every report takes the next number, so a
-	// rally's number and its event id are the same thing (ADR-0006). Only the
-	// goroutine that plays touches it.
-	seq uint64
+	// rally numbers the game's presses: every press takes the next one, a
+	// lost one included, and it never resets. counter is the event id sent,
+	// the same number until a counter reset starts it again at 1 (ADR-0006).
+	// Only the goroutine that plays touches either.
+	rally   uint64
+	counter uint64
 }
+
+// faultSalt keeps the fault draws of one game from being the rally draws of
+// the next, whose seed is one higher.
+const faultSalt int64 = 0x0fa017
 
 func newGame(id string, cfg GameConfig, client *Client, log *slog.Logger) *Game {
 	source := "pong-" + id
@@ -109,10 +140,12 @@ func newGame(id string, cfg GameConfig, client *Client, log *slog.Logger) *Game 
 		client:      client,
 		log:         log.With("game", id, "source", source),
 		rnd:         rand.New(rand.NewSource(cfg.Seed)),
+		faultRnd:    rand.New(rand.NewSource(cfg.Seed ^ faultSalt)),
 		done:        make(chan struct{}),
 		status:      StatusPlaying,
 		divergences: []Divergence{},
 		changes:     []EndsChange{},
+		faults:      []Fault{},
 	}
 }
 
@@ -228,8 +261,8 @@ func (g *Game) play(ctx context.Context) error {
 	acted := st.Phase
 
 	for st.Phase != scorer.PhaseComplete {
-		if g.seq >= maxReports {
-			return fmt.Errorf("%d reports and the match has not ended, stuck in %s", g.seq, st.Phase)
+		if g.rally >= maxReports {
+			return fmt.Errorf("%d reports and the match has not ended, stuck in %s", g.rally, st.Phase)
 		}
 		if err := g.pause(ctx); err != nil {
 			return err
@@ -257,10 +290,11 @@ func (g *Game) play(ctx context.Context) error {
 		}
 	}
 
+	v := g.View()
 	g.log.Info("match won", "match_id", st.MatchID,
 		"winner", st.Players[index(st.Winner)], "sets", st.Sets,
-		"completed_sets", st.CompletedSets, "rallies", g.View().Rallies,
-		"divergences", len(g.View().Divergences))
+		"completed_sets", st.CompletedSets, "rallies", v.Rallies,
+		"faults", len(v.Faults), "divergences", len(v.Divergences), "unexplained", v.Unexplained)
 	return nil
 }
 
@@ -271,12 +305,29 @@ func (g *Game) ready(ctx context.Context, st scorer.State) (scorer.State, error)
 		return st, fmt.Errorf("zaehlwerk is in %s and waits for nobody", st.Phase)
 	}
 	half := st.Waiting[0]
-	after, id, err := g.report(ctx, half)
+	after, n, err := g.report(ctx, half, true)
 	if err != nil {
 		return after, err
 	}
-	g.log.Info("ready", "event_id", id, "phase", st.Phase, "half", half,
+	g.log.Info("ready", "rally", n, "event_id", g.counter, "phase", st.Phase, "half", half,
 		"next", after.Phase, "waiting", after.Waiting)
+
+	// The same half pressing again while the other is still awaited. It is
+	// recorded and changes nothing: zaehlwerk answers it Ignored. The answer
+	// carries no outcome, so "changes nothing" is the state staying the same.
+	waiting := after.Phase == scorer.PhaseWarmup || after.Phase == scorer.PhaseChangeEnds
+	if waiting && g.roll(g.cfg.Faults.WrongPhase) {
+		again, n, err := g.report(ctx, half, false)
+		if err != nil {
+			return again, err
+		}
+		g.injected(Fault{Rally: n, EventID: g.counter, Kind: FaultWrongPhase, Phase: after.Phase, Half: half})
+		if !same(after, again) {
+			g.diverged(Divergence{Rally: n, What: string(FaultWrongPhase),
+				Truth: "ignored", Zaehlwerk: "applied: " + summary(again)})
+		}
+		after = again
+	}
 	return after, nil
 }
 
@@ -286,27 +337,49 @@ func (g *Game) ready(ctx context.Context, st scorer.State) (scorer.State, error)
 func (g *Game) serveRally(ctx context.Context, standing [2]scorer.Player) (scorer.State, error) {
 	winner := playerAt(Rally(g.rnd, g.cfg.Skills, g.rnd.Intn(2)))
 	g.mu.Lock()
-	g.truth.ServeRally = winner
+	g.truth.ServeRally, g.truth.ExplainedServe = winner, winner
 	g.mu.Unlock()
 
 	half := halfOf(winner, standing)
-	after, id, err := g.report(ctx, half)
+	after, n, err := g.press(ctx, half, winner)
 	if err != nil {
 		return after, err
 	}
-	g.log.Info("serve rally", "event_id", id, "winner", after.Players[index(winner)],
+	g.log.Info("serve rally", "rally", n, "event_id", g.counter, "winner", after.Players[index(winner)],
 		"half", half, "serving", after.Serving)
-	if d, off := g.truthNow().Serve(id, after); off {
+	if d, off := g.truthNow().Serve(n, after); off {
 		g.diverged(d)
 	}
 	return after, nil
 }
 
 // point plays one rally for a point, served by whoever zaehlwerk says serves,
-// and reports it for the half its winner stands at.
+// and reports it for the half its winner stands at. The faults that belong to
+// a rally for a point happen here: a ghost before it, the press lost, or a
+// bounce after it.
 func (g *Game) point(ctx context.Context, st scorer.State, standing [2]scorer.Player) (scorer.State, error) {
-	if d, off := Ends(g.seq+1, standing, st); off {
+	if d, off := Ends(g.rally+1, standing, st); off {
 		g.diverged(d)
+	}
+
+	if g.roll(g.cfg.Faults.Ghost) {
+		half := scorer.HalfLeft
+		if g.faultRnd.Intn(2) == 1 {
+			half = scorer.HalfRight
+		}
+		after, n, err := g.report(ctx, half, true)
+		if err != nil {
+			return after, err
+		}
+		g.injected(Fault{Rally: n, EventID: g.counter, Kind: FaultGhost, Phase: st.Phase,
+			Half: half, Effect: effectAt(half, standing)})
+		g.points(n, after)
+		// A ghost can end a set. The rally is then played after the change
+		// of ends, from the top of the loop, like any other.
+		if after.Phase != scorer.PhasePlaying {
+			return after, nil
+		}
+		st = after
 	}
 
 	winner := playerAt(Rally(g.rnd, g.cfg.Skills, index(st.Serving)))
@@ -314,41 +387,191 @@ func (g *Game) point(ctx context.Context, st scorer.State, standing [2]scorer.Pl
 	g.truth.Rally(winner)
 	g.rallies++
 	g.mu.Unlock()
-
 	half := halfOf(winner, standing)
-	after, id, err := g.report(ctx, half)
+
+	if g.roll(g.cfg.Faults.Lost) {
+		// The press was made and took its number; it never arrived. The
+		// match goes on from where zaehlwerk has it, one point short.
+		g.rally++
+		g.counter++
+		var effect [2]int
+		effect[index(winner)] = -1
+		g.injected(Fault{Rally: g.rally, Kind: FaultLost, Phase: st.Phase, Half: half, Effect: effect})
+		g.points(g.rally, st)
+		return st, nil
+	}
+
+	after, n, err := g.press(ctx, half, winner)
 	if err != nil {
 		return after, err
 	}
 	truth := g.truthNow()
-	g.log.Info("rally", "event_id", id, "server", st.Players[index(st.Serving)],
+	g.log.Info("rally", "rally", n, "event_id", g.counter, "server", st.Players[index(st.Serving)],
 		"winner", st.Players[index(winner)], "half", half,
 		"truth", score(truth.Won), "zaehlwerk", score(Awarded(after)),
 		"points", after.Points, "sets", after.Sets, "phase", after.Phase)
-	if d, off := truth.Points(id, after); off {
-		g.diverged(d)
+	g.points(n, after)
+
+	// Only while points are still played: after a set or the match the same
+	// press would be a confirmation or refused, and no longer a point.
+	if after.Phase == scorer.PhasePlaying && g.roll(g.cfg.Faults.Bounce) {
+		bounced, n, err := g.report(ctx, half, true)
+		if err != nil {
+			return bounced, err
+		}
+		g.injected(Fault{Rally: n, EventID: g.counter, Kind: FaultBounce, Phase: after.Phase,
+			Half: half, Effect: effectAt(half, standing)})
+		g.points(n, bounced)
+		after = bounced
 	}
 	return after, nil
 }
 
-// report sends one press for a half with the game's next event id, and keeps
-// zaehlwerk's answer as the state the game stands on.
-func (g *Game) report(ctx context.Context, half scorer.Half) (scorer.State, uint64, error) {
-	g.seq++
-	st, err := g.client.Ingest(ctx, scorer.ScoreEvent{
+// press reports a rally for the half its winner stands at. As a wrong_half
+// fault it sends the other half first and, with Correct, takes it back with an
+// undo, wherever that left the match: the serve rally decided, a set won, the
+// match won.
+func (g *Game) press(ctx context.Context, half scorer.Half, winner scorer.Player) (scorer.State, uint64, error) {
+	if !g.roll(g.cfg.Faults.WrongHalf) {
+		return g.report(ctx, half, true)
+	}
+
+	before := g.current()
+	wrong := other(half)
+	after, n, err := g.report(ctx, wrong, true)
+	if err != nil {
+		return after, n, err
+	}
+	f := Fault{Rally: n, EventID: g.counter, Kind: FaultWrongHalf, Phase: before.Phase, Half: wrong}
+
+	if !g.cfg.Faults.Correct {
+		loser := playerAt(1 - index(winner))
+		if before.Phase == scorer.PhaseServeRally {
+			g.mu.Lock()
+			g.truth.ExplainedServe = loser
+			g.mu.Unlock()
+		} else {
+			f.Effect[index(winner)]--
+			f.Effect[index(loser)]++
+		}
+		g.injected(f)
+		return after, n, nil
+	}
+
+	f.UndoneIn = after.Phase
+	g.injected(f)
+	undone, err := g.client.Undo(ctx, g.matchIDNow())
+	switch {
+	case errors.Is(err, ErrNothingToUndo):
+		g.diverged(Divergence{Rally: n, What: "undo", Truth: summary(before), Zaehlwerk: "nothing to undo"})
+	case err != nil:
+		return undone, n, err
+	default:
+		g.setState(undone)
+		if !same(before, undone) {
+			g.diverged(Divergence{Rally: n, What: "undo", Truth: summary(before), Zaehlwerk: summary(undone)})
+		}
+		g.log.Info("wrong half taken back", "rally", n, "undone_in", after.Phase, "phase", undone.Phase)
+	}
+	return g.report(ctx, half, true)
+}
+
+// report sends one press for a half and keeps zaehlwerk's answer as the state
+// the game stands on. changes says the press must change that state; it is
+// false only for a press that is itself a fault zaehlwerk must ignore. The
+// faults that can happen to any press happen here: the counter starting again
+// before it, and the same press sent twice.
+func (g *Game) report(ctx context.Context, half scorer.Half, changes bool) (scorer.State, uint64, error) {
+	before := g.current()
+
+	// A press that must change the state, so that a reset zaehlwerk discards
+	// shows. And not before the first, which would be no reset at all.
+	reset := changes && g.counter > 0 && g.roll(g.cfg.Faults.CounterReset)
+	if reset {
+		quiet := g.cfg.ResetQuiet
+		if quiet <= 0 {
+			quiet = resetQuiet
+		}
+		g.log.Info("quiet before a counter reset", "for", quiet.String())
+		if err := sleep(ctx, quiet); err != nil {
+			return before, g.rally, err
+		}
+		g.counter = resetEventID - 1
+	}
+
+	g.rally++
+	g.counter++
+	ev := scorer.ScoreEvent{
 		MatchID: g.matchIDNow(),
 		Source:  g.Source,
 		Half:    half,
 		Delta:   1,
-		EventID: g.seq,
-	})
-	if err != nil {
-		return st, g.seq, err
+		EventID: g.counter,
 	}
+	st, err := g.client.Ingest(ctx, ev)
+	if err != nil {
+		return st, g.rally, err
+	}
+	g.setState(st)
+
+	if reset {
+		g.injected(Fault{Rally: g.rally, EventID: g.counter, Kind: FaultCounterReset, Phase: before.Phase, Half: half})
+		if same(before, st) {
+			g.diverged(Divergence{Rally: g.rally, What: string(FaultCounterReset),
+				Truth: "accepted", Zaehlwerk: "discarded"})
+		}
+	}
+
+	// Not once the match is over: zaehlwerk refuses any press to a finished
+	// match before it looks at the event id, so a resend there would end the
+	// game rather than test the deduplication.
+	if st.Phase != scorer.PhaseComplete && g.roll(g.cfg.Faults.Resend) {
+		again, err := g.client.Ingest(ctx, ev)
+		if err != nil {
+			return again, g.rally, err
+		}
+		g.injected(Fault{Rally: g.rally, EventID: g.counter, Kind: FaultResend, Phase: before.Phase, Half: half})
+		if !same(st, again) {
+			g.diverged(Divergence{Rally: g.rally, What: string(FaultResend),
+				Truth: "discarded", Zaehlwerk: "applied: " + summary(again)})
+		}
+		g.setState(again)
+		st = again
+	}
+	return st, g.rally, nil
+}
+
+// roll draws whether a fault happens now. A share of zero draws nothing, so a
+// fault that is off does not move the draws of the ones that are on.
+func (g *Game) roll(share float64) bool {
+	return share > 0 && g.faultRnd.Float64() < share
+}
+
+// injected records a fault and what it should do to zaehlwerk's points.
+func (g *Game) injected(f Fault) {
 	g.mu.Lock()
-	g.state = st
+	g.faults = append(g.faults, f)
+	g.truth.Explain(f.Effect)
 	g.mu.Unlock()
-	return st, g.seq, nil
+	g.log.Info("fault injected", "rally", f.Rally, "event_id", f.EventID, "fault", f.Kind,
+		"phase", f.Phase, "half", f.Half, "effect", f.Effect, "undone_in", f.UndoneIn)
+}
+
+// points compares the truth with zaehlwerk's points after a press, and records
+// a divergence where they part, or where how far they are apart changes.
+func (g *Game) points(n uint64, st scorer.State) {
+	truth := g.truthNow()
+	awarded := Awarded(st)
+	now := [2][2]int{{awarded[0] - truth.Won[0], awarded[1] - truth.Won[1]}, truth.Explained}
+
+	g.mu.Lock()
+	changed := now != g.parted
+	g.parted = now
+	g.mu.Unlock()
+
+	if d, off := truth.Points(n, st); off && changed {
+		g.diverged(d)
+	}
 }
 
 func (g *Game) walked(st scorer.State) {
@@ -363,20 +586,48 @@ func (g *Game) diverged(d Divergence) {
 	g.mu.Lock()
 	g.divergences = append(g.divergences, d)
 	g.mu.Unlock()
-	g.log.Warn("truth and zaehlwerk disagree", "event_id", d.EventID, "what", d.What,
-		"truth", d.Truth, "zaehlwerk", d.Zaehlwerk)
+	if d.Expected {
+		g.log.Info("truth and zaehlwerk disagree, as the faults explain", "rally", d.Rally,
+			"what", d.What, "truth", d.Truth, "zaehlwerk", d.Zaehlwerk, "explained", d.Explained)
+		return
+	}
+	g.log.Warn("truth and zaehlwerk disagree", "rally", d.Rally, "what", d.What,
+		"truth", d.Truth, "zaehlwerk", d.Zaehlwerk, "explained", d.Explained)
 }
 
-func (g *Game) pause(ctx context.Context) error {
-	if g.cfg.Pace <= 0 {
+func (g *Game) pause(ctx context.Context) error { return sleep(ctx, g.cfg.Pace) }
+
+func sleep(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
 		return ctx.Err()
 	}
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-time.After(g.cfg.Pace):
+	case <-time.After(d):
 		return nil
 	}
+}
+
+func (g *Game) setState(st scorer.State) {
+	g.mu.Lock()
+	g.state = st
+	g.mu.Unlock()
+}
+
+// same says two answers describe the same match. A press zaehlwerk discarded
+// or ignored is answered with the state as it was, and the answer carries no
+// outcome, so this is how the game tells.
+func same(a, b scorer.State) bool {
+	return a.Points == b.Points && a.Sets == b.Sets && a.SetNumber == b.SetNumber &&
+		a.Serving == b.Serving && a.Complete == b.Complete && a.Winner == b.Winner &&
+		a.Phase == b.Phase && a.Ends == b.Ends &&
+		slices.Equal(a.CompletedSets, b.CompletedSets) && slices.Equal(a.Waiting, b.Waiting)
+}
+
+// summary is a state as a divergence shows it.
+func summary(st scorer.State) string {
+	return fmt.Sprintf("%s in set %d, %s", score(st.Points), st.SetNumber, st.Phase)
 }
 
 // end ends the game's match on zaehlwerk with a context of its own, because
@@ -414,6 +665,12 @@ func (g *Game) Done() <-chan struct{} { return g.done }
 func (g *Game) View() View {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	unexplained := 0
+	for _, d := range g.divergences {
+		if !d.Expected {
+			unexplained++
+		}
+	}
 	return View{
 		ID:          g.ID,
 		Source:      g.Source,
@@ -426,7 +683,11 @@ func (g *Game) View() View {
 		Rallies:     g.rallies,
 		Truth:       g.truth.Won,
 		Zaehlwerk:   Awarded(g.state),
+		Explained:   g.truth.Explained,
 		Divergences: append([]Divergence{}, g.divergences...),
+		Unexplained: unexplained,
+		FaultShares: g.cfg.Faults,
+		Faults:      append([]Fault{}, g.faults...),
 		EndsChanges: append([]EndsChange{}, g.changes...),
 		State:       g.state,
 	}

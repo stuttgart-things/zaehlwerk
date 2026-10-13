@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -73,7 +74,12 @@ func newPong(t *testing.T, zaehlwerkURL string, seed int64) *pongFixture {
 // start posts POST /games and returns the status and the decoded body.
 func (f *pongFixture) start(pace string) (int, View, string) {
 	f.t.Helper()
-	body, err := json.Marshal(startBody{Pace: pace})
+	return f.startWith(startBody{Pace: pace})
+}
+
+func (f *pongFixture) startWith(sb any) (int, View, string) {
+	f.t.Helper()
+	body, err := json.Marshal(sb)
 	require.NoError(f.t, err)
 	resp, err := http.Post(f.url+"/games", "application/json", bytes.NewReader(body))
 	require.NoError(f.t, err)
@@ -415,4 +421,145 @@ func TestAGameWithoutAZaehlwerkIsRefusedAtOnce(t *testing.T) {
 	status, _, raw := p.start("0s")
 	require.Equal(t, http.StatusBadGateway, status)
 	require.Contains(t, raw, "reading the table from zaehlwerk")
+}
+
+// faulty starts one game with these faults and waits for it to end.
+func (f *pongFixture) faulty(faults Faults) View {
+	f.t.Helper()
+	status, v, raw := f.startWith(startBody{Pace: "0s", Faults: &faults})
+	require.Equal(f.t, http.StatusCreated, status, raw)
+	return f.finished(v.ID)
+}
+
+func kinds(v View) map[FaultKind]int {
+	n := map[FaultKind]int{}
+	for _, f := range v.Faults {
+		n[f.Kind]++
+	}
+	return n
+}
+
+func TestAGameWithFaultsEndsWithNoUnexplainedDivergence(t *testing.T) {
+	p := newPong(t, newTable(t).url, 1)
+
+	v := p.faulty(Faults{WrongHalf: 0.1, Resend: 0.1, Bounce: 0.1, Lost: 0.1, Ghost: 0.1, WrongPhase: 0.5})
+
+	require.Equal(t, StatusWon, v.Status, v.Reason)
+	require.Zero(t, v.Unexplained, "%+v", v.Divergences)
+	require.NotEmpty(t, v.Divergences, "faults that move the score are seen")
+	for _, kind := range []FaultKind{FaultWrongHalf, FaultResend, FaultBounce, FaultLost, FaultGhost, FaultWrongPhase} {
+		require.Positive(t, kinds(v)[kind], "no %s was injected", kind)
+	}
+	require.Equal(t, [2]int{v.Truth[0] + v.Explained[0], v.Truth[1] + v.Explained[1]}, v.Zaehlwerk,
+		"zaehlwerk is exactly where the faults put it")
+}
+
+func TestTheTruthIsUntouchedByTheFaults(t *testing.T) {
+	p := newPong(t, newTable(t).url, 1)
+
+	v := p.faulty(Faults{Lost: 0.2})
+
+	require.Equal(t, v.Rallies, v.Truth[0]+v.Truth[1], "a lost press is still a rally won")
+	require.Equal(t, kinds(v)[FaultLost], v.Rallies-(v.Zaehlwerk[0]+v.Zaehlwerk[1]),
+		"zaehlwerk is short by exactly the lost presses")
+}
+
+func TestAWrongHalfIsTakenBackWhereverItLeftTheMatch(t *testing.T) {
+	p := newPong(t, newTable(t).url, 1)
+
+	// Every rally goes to the wrong half first, the serve rally, the points
+	// that end a set and the one that ends the match included.
+	v := p.faulty(Faults{WrongHalf: 1, Correct: true})
+
+	require.Equal(t, StatusWon, v.Status, v.Reason)
+	require.Empty(t, v.Divergences, "every wrong half was undone and the right one counted")
+	require.Equal(t, v.Truth, v.Zaehlwerk)
+
+	undoneIn := map[scorer.Phase]bool{}
+	servedRally := false
+	for _, f := range v.Faults {
+		require.Equal(t, FaultWrongHalf, f.Kind)
+		undoneIn[f.UndoneIn] = true
+		servedRally = servedRally || f.Phase == scorer.PhaseServeRally
+	}
+	require.True(t, servedRally, "an undo of the serve rally")
+	require.True(t, undoneIn[scorer.PhaseChangeEnds], "an undo of a point that won a set")
+	require.True(t, undoneIn[scorer.PhaseComplete], "an undo of the point that won the match")
+}
+
+func TestAnUncorrectedWrongHalfIsAnExpectedDivergence(t *testing.T) {
+	p := newPong(t, newTable(t).url, 1)
+
+	v := p.faulty(Faults{WrongHalf: 0.2})
+
+	require.Equal(t, StatusWon, v.Status, v.Reason)
+	require.Zero(t, v.Unexplained, "%+v", v.Divergences)
+	require.NotEmpty(t, v.Divergences)
+	for _, d := range v.Divergences {
+		require.True(t, d.Expected)
+	}
+}
+
+func TestTheSameSeedInjectsTheSameFaults(t *testing.T) {
+	faults := Faults{WrongHalf: 0.1, Resend: 0.1, Lost: 0.1, Ghost: 0.1}
+	a := newPong(t, newTable(t).url, 3).faulty(faults)
+	b := newPong(t, newTable(t).url, 3).faulty(faults)
+
+	require.Equal(t, a.Faults, b.Faults)
+	require.Equal(t, a.State.CompletedSets, b.State.CompletedSets)
+}
+
+func TestACounterResetZaehlwerkDiscardsIsAFinding(t *testing.T) {
+	// Without the quiet minute zaehlwerk rightly reads the reset as a
+	// duplicate. That the game calls it a finding is what shows it would
+	// notice a zaehlwerk that discarded a genuine one.
+	p := newPong(t, newTable(t).url, 1)
+	p.pong.resetQuiet = time.Millisecond
+
+	status, v, raw := p.startWith(startBody{Pace: "0s", Faults: &Faults{CounterReset: 0.05}})
+	require.Equal(t, http.StatusCreated, status, raw)
+
+	require.Eventually(t, func() bool {
+		for _, d := range p.get(v.ID).Divergences {
+			if d.What == string(FaultCounterReset) && !d.Expected {
+				return true
+			}
+		}
+		return false
+	}, 10*time.Second, 5*time.Millisecond)
+}
+
+func TestPOSTGamesReplacesTheConfiguredFaults(t *testing.T) {
+	tbl := newTable(t)
+	p := New(Config{ZaehlwerkURL: tbl.url, BestOf: 3, Skills: [2]Skill{skills["mittel"], skills["mittel"]},
+		Seed: 1, Faults: Faults{Lost: 0.5}}, quiet())
+	srv := httptest.NewServer(p)
+	t.Cleanup(func() {
+		srv.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		require.NoError(t, p.Close(ctx))
+	})
+	f := &pongFixture{t: t, pong: p, url: srv.URL}
+
+	configured := f.finished(func() string { _, v, _ := f.start("0s"); return v.ID }())
+	require.Equal(t, Faults{Lost: 0.5}, configured.FaultShares)
+
+	replaced := f.faulty(Faults{Bounce: 0.1})
+	require.Equal(t, Faults{Bounce: 0.1}, replaced.FaultShares, "replaced as a whole, not merged")
+}
+
+func TestPOSTGamesRefusesFaultsItCannotRun(t *testing.T) {
+	p := newPong(t, newTable(t).url, 1)
+
+	for _, body := range []string{
+		`{"faults": {"wrong-half": 0.1}}`,
+		`{"faults": {"lost": 1.5}}`,
+		`{"faults": {"ghost": -0.2}}`,
+	} {
+		resp, err := http.Post(p.url+"/games", "application/json", strings.NewReader(body))
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, body)
+	}
 }

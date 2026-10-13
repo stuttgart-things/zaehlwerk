@@ -101,5 +101,17 @@ different image.
 - A game that loses `/live/stream` ends its match, as if displaced: it can no
   longer see another match become current, and playing on blind would put a
   match that is not the table's on the panel. Reconnecting is left for later.
+- Faults sit between the truth and the ingest and never touch the truth. The
+  game keeps what each injected fault should do to zaehlwerk's score, and a
+  divergence it explains is expected; any other is a finding. A run with
+  faults is good when it has no findings, not when it has no divergences.
+- A `counter_reset` fault makes `event_id` and the rally number part: the
+  counter starts again at 1, the rally number goes on. It also costs a quiet
+  minute per reset, because zaehlwerk reads a fallen counter as a restart
+  only after `scorer.DefaultRestartQuietPeriod`. The game copies that number
+  rather than asking for it; a test fails if the two drift apart.
+- zaehlwerk's ingest answer is the state and no outcome, so the game tells a
+  discarded or ignored press by the state staying the same. That is enough for
+  every fault here, and an outcome on the wire would be an API change.
 - zaehlwerk-pong adds an image to release, scan and clean up, built the same way
   as the piezo board and the buttons.
