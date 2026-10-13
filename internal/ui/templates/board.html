@@ -57,10 +57,11 @@
   <span class="match-id">{{.Match.ID}}</span>
 </div>
 
-<div class="panel-preview">
+{{/* The explanation is a tooltip rather than a line of its own: on the board
+     it read like a debug label to whoever was only there to keep score. */}}
+<div class="panel-preview" title="What the LED panel shows right now">
   <span class="label">panel</span>
   <strong>{{.Match.Panel}}</strong>
-  <span class="panel-hint">the title this score is pitched to the matrix as</span>
 </div>
 
 {{/* What became of the handover. Only rendered for a match that was meant to
