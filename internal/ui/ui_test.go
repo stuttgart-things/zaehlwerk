@@ -572,7 +572,7 @@ func TestThePageCarriesTheSchmetterpauseMark(t *testing.T) {
 
 	require.Contains(t, body, `<link rel="icon" type="image/png" sizes="32x32" href="/ui/static/mark-32.png">`)
 	require.Contains(t, body, `<img class="brand-logo" src="/ui/static/mark-180.png"`)
-	require.Contains(t, body, `<img class="mascot" src="/ui/static/mascot.svg"`, "nothing is running, so the mascot fills the gap")
+	require.Regexp(t, `<div class="mascot" style="--paddle: #[0-9a-f]{6}"><svg id="mascot"`, body, "nothing is running, so the mascot fills the gap")
 }
 
 func TestTheMascotMakesRoomForARunningMatch(t *testing.T) {
@@ -598,4 +598,19 @@ func TestTheImagesAreServedFromTheBinary(t *testing.T) {
 		require.Equal(t, contentType, rec.Header().Get("Content-Type"), path)
 		require.NotEmpty(t, body, path)
 	}
+}
+
+func TestTheBladeIsOneOfTheMeasuredColours(t *testing.T) {
+	f := newFixture(t)
+	seen := map[string]bool{}
+
+	for range 50 {
+		_, body := f.do(http.MethodGet, "/ui", nil)
+		colour := regexp.MustCompile(`style="--paddle: (#[0-9a-f]{6})"`).FindStringSubmatch(body)
+		require.NotNil(t, colour)
+		require.Contains(t, paddleColours, colour[1])
+		seen[colour[1]] = true
+	}
+
+	require.Greater(t, len(seen), 1, "fifty page loads and the blade never changed")
 }

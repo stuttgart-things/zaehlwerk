@@ -18,7 +18,7 @@ var templates embed.FS
 // Parsed once, at startup rather than per request: a broken template is a build
 // mistake, and template.Must says so on the first run instead of on the first
 // page load.
-var tpl = template.Must(template.ParseFS(templates, "templates/*.html"))
+var tpl = template.Must(template.New("").Funcs(templateFuncs).ParseFS(templates, "templates/*.html"))
 
 // view is what every template here renders. A nil Match is the empty state —
 // nothing is running, or the id in ?match is not one we know.

@@ -173,7 +173,8 @@
         .empty p { margin: 0; }
         /* A screen on the wall with nothing running would otherwise be one
            line of text in a dark room. */
-        .empty .mascot { display: block; width: min(30vh, 40vw); height: auto; margin-bottom: 1rem; }
+        .empty .mascot { width: min(30vh, 40vw); margin-bottom: 1rem; }
+        .mascot svg { display: block; width: 100%; height: auto; }
         .empty .hint { font-size: 0.5em; color: var(--muted); }
         .error { text-align: center; color: var(--bad); }
     </style>
@@ -235,7 +236,7 @@
 {{- end}}
 {{- else}}
 <div class="empty">
-  <img class="mascot" src="/ui/static/mascot.svg" width="420" height="420" alt="">
+  <div class="mascot" style="{{paddle}}">{{mascot}}</div>
   <p>No match is running.</p>
   {{- if .Follow}}<p class="hint">This screen picks up the next one by itself.</p>{{end}}
 </div>

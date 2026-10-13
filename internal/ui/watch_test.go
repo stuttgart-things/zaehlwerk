@@ -105,5 +105,5 @@ func TestTheSpectatorViewShowsTheMascotWhileItWaits(t *testing.T) {
 	_, body := f.do(http.MethodGet, "/ui/watch", nil)
 
 	require.Contains(t, body, `<img class="brand-logo" src="/ui/static/mark-180.png"`)
-	require.Contains(t, body, `<img class="mascot" src="/ui/static/mascot.svg"`)
+	require.Regexp(t, `<div class="mascot" style="--paddle: #[0-9a-f]{6}"><svg id="mascot"`, body)
 }
