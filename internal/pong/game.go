@@ -263,13 +263,14 @@ func (g *Game) run(ctx context.Context, table <-chan TableEvent) {
 		g.finish(StatusEnded, "zaehlwerk says the match is over")
 		return
 	case errors.Is(err, errDisplaced), errors.Is(err, errTableLost), errors.Is(err, errStopped),
-		errors.Is(err, errIdle), errors.Is(err, errYielded), ctx.Err() != nil:
+		errors.Is(err, errIdle), errors.Is(err, errYielded), errors.Is(err, errIntruded), ctx.Err() != nil:
 		// The match is no longer the game's to play, the game can no longer
 		// tell whether it is, nobody is playing it any more, a demo made way
-		// for a game, or the service is stopping. Either way it is ended rather than left running, so it
+		// for a game or for somebody counting into it, or the service is
+		// stopping. Either way it is ended rather than left running, so it
 		// does not sit in the registry as current with nobody scoring it.
 		reason := "the service stopped"
-		for _, known := range []error{errDisplaced, errTableLost, errStopped, errIdle, errYielded} {
+		for _, known := range []error{errDisplaced, errTableLost, errStopped, errIdle, errYielded, errIntruded} {
 			if errors.Is(err, known) {
 				reason = err.Error()
 			}
@@ -678,6 +679,15 @@ func (g *Game) diverged(d Divergence) {
 	g.divergences = append(g.divergences, d)
 	g.changed()
 	g.mu.Unlock()
+	if g.cfg.Attract {
+		// Any divergence, not only an unexplained one: a demo has no faults
+		// to explain it. Only a demo gives way like this; a game somebody
+		// plays reports its divergences, which is what it is for.
+		g.log.Warn("truth and zaehlwerk disagree in a demo, giving way", "rally", d.Rally,
+			"what", d.What, "truth", d.Truth, "zaehlwerk", d.Zaehlwerk)
+		g.stop(errIntruded)
+		return
+	}
 	if d.Expected {
 		g.log.Info("truth and zaehlwerk disagree, as the faults explain", "rally", d.Rally,
 			"what", d.What, "truth", d.Truth, "zaehlwerk", d.Zaehlwerk, "explained", d.Explained)

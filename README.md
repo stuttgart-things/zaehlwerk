@@ -941,6 +941,12 @@ It always gives way, and never takes the table from anybody:
 - A game somebody starts, in the lobby or with `POST /games`, ends a running
   demo and takes the table. Every start holds one lock from looking at the
   table to the new game running, so the demo cannot start again in between.
+- Anybody counting into the demo ends it. A demo has no faults, so any
+  divergence from zaehlwerk means another source scored into its match —
+  buttons pressed during a demo, or a real match started in the instant before
+  the demo's own. The demo ends its match, leaving the table to the real one or
+  free. A ready press in the warm-up or at a change of ends changes no score
+  and does not end it; a real match started at the table displaces it anyway.
 - A match somebody left running is never ended. It blocks the demo, and the
   log names it once, after it has been quiet for the whole wait.
 - A won demo is followed by a whole wait before the next, so demo and free
