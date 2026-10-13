@@ -118,6 +118,42 @@ jobs:
             || 'main' }}
     secrets: inherit # pragma: allowlist secret
 
+  # The game (ADR-0006), its own image and the same tags as zaehlwerk, so it
+  # is released with it: a release tag dispatches this workflow, and the pong
+  # image gets the version the zaehlwerk image gets. That is also why
+  # release-please needs no entry for it — one package, one tag, every image.
+  # Not scanned, like the mocks: the same module and the same base image as
+  # zaehlwerk, whose scan already covers both.
+  build-pong-pr:
+    if: github.event_name == 'pull_request'
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
+    with:
+      runs-on: ubuntu-latest
+      go-version: "1.26.6"
+      build-path: ./cmd/zaehlwerk-pong
+      registry: ghcr.io
+      image-repo: stuttgart-things/zaehlwerk-pong
+      # From the head, for the reason given at build-pr.
+      ref: ${{ github.event.pull_request.head.sha }}
+      tags: pr-${{ github.event.number }}-${{ github.event.pull_request.head.sha }},pr-${{ github.event.number }}
+    secrets: inherit # pragma: allowlist secret
+
+  build-pong-main:
+    if: github.event_name != 'pull_request'
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
+    with:
+      runs-on: ubuntu-latest
+      go-version: "1.26.6"
+      build-path: ./cmd/zaehlwerk-pong
+      registry: ghcr.io
+      image-repo: stuttgart-things/zaehlwerk-pong
+      # The same two namespaces as build-main.
+      tags: >-
+        ${{ github.ref_type == 'tag'
+            && format('{0},latest', github.ref_name)
+            || 'main' }}
+    secrets: inherit # pragma: allowlist secret
+
   # Scans what ko just pushed. Report-only for now — an image scan takes an
   # inventory of a whole artefact, and the first findings are usually
   # transitive; gate on it once the list has been read.

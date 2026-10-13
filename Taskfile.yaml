@@ -25,6 +25,10 @@ vars:
   FAKE_SCHMETTERPAUSE: http://localhost:{{.ZW_SCHMETTERPAUSE_PORT | default "8082"}}
   ZW_BUTTONS_PORT: '{{.ZW_BUTTONS_PORT | default "8084"}}'
   ZW_PIEZO_CONTROL_PORT: '{{.ZW_PIEZO_CONTROL_PORT | default "8085"}}'
+  # zaehlwerk-pong listens on :8081 when nothing says otherwise, which is the
+  # led-catcher simulator's port in this Taskfile, so the tasks move it.
+  ZW_PONG_PORT: '{{.ZW_PONG_PORT | default "8087"}}'
+  PONG: http://localhost:{{.ZW_PONG_PORT | default "8087"}}
   # Shared by both ends of the chain, so the fake and zaehlwerk agree on it
   # without anybody typing it twice. Not a secret: nothing real is behind it.
   CHAIN_TOKEN: chain-mock
@@ -348,6 +352,49 @@ tasks:
     cmds:
       - tools/chain-mock/e2e.sh
 
+  chain:pong:
+    # Two processes, one Ctrl-C: Task runs deps in parallel and stops both.
+    # zaehlwerk runs bare, as task run:bare does; with task panel:up and
+    # task run instead, start only the game with task chain:pong:game.
+    desc: 'zaehlwerk and zaehlwerk-pong side by side (Ctrl-C stops both). Then: task chain:pong:play'
+    deps: [chain:pong:zaehlwerk, chain:pong:game]
+
+  chain:pong:zaehlwerk:
+    internal: true
+    deps: [port-free]
+    env:
+      HTTP_ADDR: ':{{.ZW_PORT}}'
+      LOG_LEVEL: '{{.LOG_LEVEL | default "INFO"}}'
+    cmds:
+      - go run ./cmd/zaehlwerk-api
+
+  chain:pong:game:
+    desc: 'zaehlwerk-pong alone, against the zaehlwerk on ZW_PORT. SKILL=leicht,schwer, SEED=1, BEST_OF=5'
+    env:
+      HTTP_ADDR: ':{{.ZW_PONG_PORT}}'
+      ZAEHLWERK_URL: '{{.API}}'
+      LOG_LEVEL: '{{.LOG_LEVEL | default "INFO"}}'
+      PONG_BEST_OF: '{{.BEST_OF | default "3"}}'
+      PONG_BOT_SKILL: '{{.SKILL | default "mittel"}}'
+      PONG_SEED: '{{.SEED}}'
+    cmds:
+      - go run ./cmd/zaehlwerk-pong
+
+  chain:pong:play:
+    desc: 'Start a headless bot match on the running zaehlwerk-pong. PACE=0s plays it as fast as it goes'
+    silent: true
+    cmds:
+      - |
+        game=$(curl -sS -X POST {{.PONG}}/games -H 'content-type: application/json' \
+          -d '{"pace": "{{.PACE | default "1s"}}"}')
+        id=$(printf '%s' "$game" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("id",""))')
+        if [ -z "$id" ]; then
+          printf '%s\n' "$game" >&2
+          exit 1
+        fi
+        echo "game $id is playing — watch it on {{.API}}/ui"
+        echo "truth against zaehlwerk:  curl -s {{.PONG}}/games/$id | python3 -m json.tool"
+
   chain:results:
     desc: What reached the fake Schmetterpause
     silent: true
@@ -501,13 +548,15 @@ tasks:
         tail -5 /tmp/zaehlwerk-govulncheck.txt
 
   ci:image:
-    desc: Build the container image with ko and push it to ttl.sh for an hour
+    desc: 'Build the container image with ko and push it to ttl.sh for an hour; MAIN=./cmd/zaehlwerk-pong for the game'
     silent: true
+    vars:
+      MAIN: '{{.MAIN | default "./cmd/zaehlwerk-api"}}'
     cmds:
       - |
-        REPO="ttl.sh/zaehlwerk-$(openssl rand -hex 6)"
+        REPO="ttl.sh/$(basename {{.MAIN}})-$(openssl rand -hex 6)"
         IMAGE=$(dagger call -m ./dagger build-image \
-          --src . --repo "$REPO" --push=true --progress plain)
+          --src . --repo "$REPO" --push=true --build-path {{.MAIN}} --progress plain)
         echo "$IMAGE"
 
   ## ──────────────────────────────────────────────

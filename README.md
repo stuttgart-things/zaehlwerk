@@ -796,6 +796,89 @@ It also ships as `ghcr.io/stuttgart-things/zaehlwerk-buttons`, built from
 `/healthz` for a probe. The settings live in memory and are shared by everyone
 who opens the page, which is right for one table and one hub.
 
+## zaehlwerk-pong
+
+A table tennis game that plays whole matches against a running zaehlwerk —
+warm-up, the rally for the serve, points, the change of ends, the deciding set —
+and scores them through the same ingest contract the buttons use
+([ADR-0006](docs/adr/0006-a-game-as-an-ingest-source.md), #78). It needs no
+hardware and nobody pressing a button, and it knows who really won every rally,
+which is what the mocks above cannot know.
+
+It is its own binary, `cmd/zaehlwerk-pong`, and its own image,
+`ghcr.io/stuttgart-things/zaehlwerk-pong`, built and tagged like the others
+and released with zaehlwerk. So far it plays headless: two bots, each rally
+drawn by skill rather than played with a ball. The browser game, faults on
+purpose, attract mode and the button check come next.
+
+```bash
+task chain:pong        # zaehlwerk and zaehlwerk-pong side by side
+task chain:pong:play   # in a second terminal: a bot match, a report a second
+```
+
+`task chain:pong:play PACE=0s` plays it as fast as zaehlwerk answers. With
+`task panel:up` and `task run` instead, `task chain:pong:game` starts only the
+game, and the match plays on the simulated panel.
+
+**How it scores.** A game starts its own match with `POST /matches`: free-text
+names (`Pong A`, `Pong B`), `start: "warmup"`, `change_ends: true`. It never
+sends a player id or an operator, so a Pong match is never reported to
+Schmetterpause, and it never joins a match: while `/live/stream` shows one as
+current, it does not start, because that match belongs to somebody — and one
+carrying `home_id`/`away_id` is a real match between real players. Every press
+goes to `POST /ingest/web` with the `match_id`, the `half` the bot stands at,
+and `delta: 1`, under the source `pong-<game id>` and the game's own counter as
+`event_id`, so a rally's number is its event id. A report whose answer is lost
+is sent again with the same id, and zaehlwerk discards the repeat.
+
+**What it checks.** It reads phase, `ends`, `waiting` and `serving` from
+zaehlwerk's answers and derives none of them. The bots walk only when zaehlwerk
+calls a change of ends. After every rally the game compares the rallies each
+bot really won with the points zaehlwerk has awarded over the whole match, the
+winner of the serve rally with who serves, and where the bots stand with
+`ends`. A rally where they part is a divergence, logged with its number.
+
+```bash
+curl -s -X POST localhost:8087/games -d '{"pace": "0s"}'   # 201, Location: /games/{id}
+curl -s localhost:8087/games/{id}
+```
+
+```json
+{
+  "id": "e8f92912", "source": "pong-e8f92912", "match_id": "6cede9fe",
+  "status": "won", "seed": 1, "players": ["Pong A", "Pong B"],
+  "rallies": 59, "truth": [33, 26], "zaehlwerk": [33, 26], "divergences": [],
+  "ends_changes": [{"set": 2, "points": [0, 0]}, {"set": 3, "points": [0, 0]}, {"set": 3, "points": [5, 3]}],
+  "state": {"…": "zaehlwerk's last answer"}
+}
+```
+
+`status` is `playing`, `won`, `ended` (ended on the page, another match became
+current, or the service stopped) or `failed`. One game plays at a time; a
+second `POST /games` answers 409, as does one while a match is current, and 502
+when zaehlwerk cannot be reached. A game whose match is taken over by a newly
+started one ends its own match and stops. On shutdown the running game ends its
+match, so it does not stay current with nobody scoring it. Games are in memory,
+the last twenty of them.
+
+`task chain:e2e` plays seeded best of threes until one reaches a deciding set,
+and fails on the first rally where truth and zaehlwerk part, on a deciding set
+without its change of ends at five, and on a Pong result arriving at the fake
+Schmetterpause.
+
+| Variable | Default | |
+| -------- | ------- | - |
+| `HTTP_ADDR` | `:8081` | Listen address. Not `:8080`, so it runs next to a local zaehlwerk. `task chain:pong` uses `ZW_PONG_PORT` (`8087`), because `:8081` is the simulator's there |
+| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARN`, `ERROR` |
+| `ZAEHLWERK_URL` | `http://localhost:8080` | The zaehlwerk it plays against. Only the service calls it, never a browser |
+| `PONG_BEST_OF` | `3` | Any odd number |
+| `PONG_BOT_SKILL` | `mittel` | `leicht`, `mittel` or `schwer` for both bots, or `leicht,schwer` for Pong A and Pong B. A shot misses 30, 15 or 6 times in a hundred |
+| `PONG_SEED` | the clock | The n-th game of a service started with the same seed draws the same rallies. A clock seed is logged at startup, so a run can be repeated |
+
+It answers `/healthz` the way zaehlwerk does, with its version, and does not
+ask zaehlwerk: a zaehlwerk that is down is a game that cannot start, not a pod
+to restart.
+
 ## CI
 
 Two workflows, on every pull request and on main.
@@ -931,6 +1014,7 @@ base whose removal can prune somebody else's panel.
 | [0003](docs/adr/0003-led-catcher-stream-ownership.md) | Who may switch the LED catcher's stream, and when it switches back |
 | [0004](docs/adr/0004-reporting-results-to-schmetterpause.md) | Handing the finished match to Schmetterpause |
 | [0005](docs/adr/0005-match-phases-and-table-halves.md) | Warm-up, the serve rally and the change of ends; halves instead of players |
+| [0006](docs/adr/0006-a-game-as-an-ingest-source.md) | zaehlwerk-pong: a game that scores through `/ingest/web` and is never reported |
 
 ## Related
 

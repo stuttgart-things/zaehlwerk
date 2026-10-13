@@ -50,6 +50,7 @@ supersedes it, not a quiet rewrite.
 | 0003 | Stream ownership when switching the LED catcher |
 | 0004 | Reporting results to Schmetterpause |
 | 0005 | Match phases and table halves |
+| 0006 | A game as an ingest source — zaehlwerk-pong |
 
 ## Terms
 

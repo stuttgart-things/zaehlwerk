@@ -110,10 +110,13 @@ func (m *Dagger) Build(
 	})
 }
 
-// BuildImage builds the container image with ko, and pushes it when asked to.
+// BuildImage builds a container image with ko, and pushes it when asked to.
 //
 // The build path is passed explicitly as well as being in .ko.yaml, because ko
-// takes it as an argument and the config only decides how it is built.
+// takes it as an argument and the config only decides how it is built. It
+// defaults to the service, and names another main package of this module for
+// its image — ./cmd/zaehlwerk-pong for the game (ADR-0006). Each has a build
+// in .ko.yaml with the same main, which is how ko finds its flags.
 func (m *Dagger) BuildImage(
 	ctx context.Context,
 	src *dagger.Directory,
@@ -123,10 +126,13 @@ func (m *Dagger) BuildImage(
 	// +optional
 	// +default="false"
 	push string,
+	// +optional
+	// +default="./cmd/zaehlwerk-api"
+	buildPath string,
 ) (string, error) {
 	return dag.Go().KoBuild(ctx, src, dagger.GoKoBuildOpts{
 		Repo:     repo,
-		BuildArg: mainPackage,
+		BuildArg: buildPath,
 		Push:     push,
 	})
 }
