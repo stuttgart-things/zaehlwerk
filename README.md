@@ -300,7 +300,7 @@ homerun2-led-catcher picks it up and renders it on the 64x64 matrix.
 | `title` | `7:5`, `SET 1:0`, `WIN 3:1` — the whole of what the panel shows |
 | `message` | `Anna 7 : 5 Bernd` — for the catcher's log, never on the matrix |
 | `author` | `zaehlwerk` |
-| `tags` | `match=<id>,set=<n>,transition=<kind>[,side=a\|b]` |
+| `tags` | `match=<id>,set=<n>,transition=<kind>[,side=a\|b]`, then the board (below) |
 
 The catcher renders `{{ title }}` and nothing else, so the score has to fit in
 a title: a 6x10 font at x=2 on a 64x64 panel is about ten glyphs, and anything
@@ -332,6 +332,26 @@ match=36c17b30,set=2,transition=set_won,side=b
 match=36c17b30,set=3,transition=match_won,side=a
 match=36c17b30,set=2,transition=undo
 ```
+
+After the routing tags comes the board — what the catcher's `score` display
+needs to draw the whole match instead of the title alone:
+
+| Tag | Value |
+| --- | ----- |
+| `points` | points of the set in progress, `5:10`; after a set win `0:0`, after the match the final set |
+| `sets` | sets won, `1:2` |
+| `serve` | `a` or `b`, who serves the next point — absent once the match is won |
+| `winner` | `a` or `b`, only once the match is won |
+| `banner` | `SATZ <name>` on a won set, `SIEG <name>` on the won match — the name cut at six characters, as the board shows it; absent on every other transition |
+| `player_a`, `player_b` | the names; a comma or semicolon in a name becomes a space |
+| `played` | finished sets, space-separated: `11-8 9-11` — absent before the first |
+
+```
+match=36c17b30,set=3,transition=point,side=b,points=5:10,sets=1:1,serve=b,player_a=Anna,player_b=Bernd,played=11-8 9-11
+```
+
+Who serves is said here because the rules are here: the catcher draws the
+server's name in orange and applies no table tennis of its own.
 
 ### Two ways onto the bus
 

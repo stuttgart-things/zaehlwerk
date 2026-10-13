@@ -195,7 +195,7 @@ func TestMessageCarriesTheFieldsTheCatcherRoutesOn(t *testing.T) {
 	require.Equal(t, "3:5", msg.Title)
 	require.Equal(t, "Anna 3 : 5 Bernd", msg.Message)
 	require.Equal(t, "zaehlwerk", msg.Author)
-	require.Equal(t, "match=m1,set=2,transition=point", msg.Tags)
+	require.Equal(t, "match=m1,set=2,transition=point", routing(msg.Tags))
 	require.Equal(t, "2026-09-05T18:30:00Z", msg.Timestamp)
 }
 
@@ -234,7 +234,7 @@ func TestTagsSayWhatHappenedAndWhichSideItWentTo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, Message(tt.tr, "tabletennis", "zaehlwerk", time.Now()).Tags)
+			require.Equal(t, tt.want, routing(Message(tt.tr, "tabletennis", "zaehlwerk", time.Now()).Tags))
 		})
 	}
 }
@@ -264,7 +264,7 @@ func TestASetWonByACorrectionIsTaggedWithTheSideThatTookIt(t *testing.T) {
 
 	var tags []string
 	sc.Observe(func(tr scorer.Transition) {
-		tags = append(tags, Message(tr, DefaultSystem, DefaultAuthor, time.Now()).Tags)
+		tags = append(tags, routing(Message(tr, DefaultSystem, DefaultAuthor, time.Now()).Tags))
 	})
 
 	id := uint64(0)
@@ -315,4 +315,128 @@ func TestMessageLeavesNoRoutingFieldEmpty(t *testing.T) {
 			require.True(t, strings.HasPrefix(msg.Tags, "match="), "tags: %q", msg.Tags)
 		})
 	}
+}
+
+// routing keeps the tags a rule routes on — match, set, transition, side — and
+// drops the board after them, so the tests about routing do not have to spell
+// out a score they are not about.
+func routing(tags string) string {
+	var keep []string
+	for _, tag := range strings.Split(tags, ",") {
+		key, _, _ := strings.Cut(tag, "=")
+		switch key {
+		case "match", "set", "transition", "side":
+			keep = append(keep, tag)
+		}
+	}
+	return strings.Join(keep, ",")
+}
+
+func TestTheTagsCarryTheWholeBoardAfterTheRoutingTags(t *testing.T) {
+	st := state([2]int{5, 10}, [2]int{1, 1})
+	st.Serving = scorer.PlayerB
+	st.CompletedSets = [][2]int{{11, 8}, {9, 11}}
+
+	tags := Tags(scorer.Transition{Kind: scorer.TransitionPoint, Side: scorer.PlayerB, State: st})
+
+	require.Equal(t,
+		"match=m1,set=3,transition=point,side=b,"+
+			"points=5:10,sets=1:1,serve=b,player_a=Anna,player_b=Bernd,played=11-8 9-11",
+		tags)
+}
+
+func TestNobodyServesOnceTheMatchIsWon(t *testing.T) {
+	st := state([2]int{11, 9}, [2]int{3, 1})
+	st.Serving = scorer.PlayerA
+	st.Complete, st.Winner = true, scorer.PlayerA
+
+	tags := Tags(scorer.Transition{Kind: scorer.TransitionMatchWon, Side: scorer.PlayerA, State: st})
+
+	require.NotContains(t, tags, "serve=")
+	require.Contains(t, tags, "points=11:9,sets=3:1,winner=a")
+	require.Contains(t, tags, ",banner=SIEG Anna")
+}
+
+// A name is free text from whoever started the match. A comma in it would end
+// the tag early and hand the rest to the catcher as a tag of its own.
+func TestANameCannotSplitTheTags(t *testing.T) {
+	st := state([2]int{0, 0}, [2]int{0, 0})
+	st.Players = [2]string{"Doe, Jane", "Max;Muster"}
+
+	tags := strings.Split(Tags(scorer.Transition{Kind: scorer.TransitionPoint, State: st}), ",")
+
+	require.Contains(t, tags, "player_a=Doe  Jane")
+	require.Contains(t, tags, "player_b=Max Muster")
+	for _, tag := range tags {
+		require.Contains(t, tag, "=", "every tag is key=value: %q", tag)
+	}
+}
+
+// Who serves is the scorer's to say: it comes off a real one here, two
+// services each, the way ITTF law 2.13.3 has it.
+func TestTheServeTagFollowsTheScorer(t *testing.T) {
+	sc, err := scorer.New(scorer.Config{MatchID: "m1", Players: [2]string{"Anna", "Bernd"}, BestOf: 5})
+	require.NoError(t, err)
+
+	var serves []string
+	sc.Observe(func(tr scorer.Transition) {
+		for _, tag := range strings.Split(Tags(tr), ",") {
+			if v, ok := strings.CutPrefix(tag, "serve="); ok {
+				serves = append(serves, v)
+			}
+		}
+	})
+
+	for id := range uint64(4) {
+		_, err := sc.Apply(scorer.ScoreEvent{MatchID: "m1", Player: scorer.PlayerA, Delta: 1, EventID: id + 1, Source: "test"})
+		require.NoError(t, err)
+	}
+
+	// After 1, 2, 3 and 4 points: a serves the first two, b the next two.
+	require.Equal(t, []string{"a", "b", "b", "a"}, serves)
+}
+
+func TestAWonSetAndAWonMatchCarryABannerNamingTheWinner(t *testing.T) {
+	tests := []struct {
+		name string
+		tr   scorer.Transition
+		want string
+	}{
+		{
+			name: "a set",
+			tr:   scorer.Transition{Kind: scorer.TransitionSetWon, Side: scorer.PlayerB, State: state([2]int{0, 0}, [2]int{0, 1})},
+			want: "banner=SATZ Bernd",
+		},
+		{
+			name: "the match",
+			tr:   scorer.Transition{Kind: scorer.TransitionMatchWon, Side: scorer.PlayerA, State: state([2]int{11, 9}, [2]int{3, 1})},
+			want: "banner=SIEG Anna",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Contains(t, strings.Split(Tags(tt.tr), ","), tt.want)
+		})
+	}
+}
+
+// The banner is what just happened. A plain point, or an undo, has nothing to
+// announce, and the next point after a won set clears the one before.
+func TestOnlyASetOrMatchWinHasABanner(t *testing.T) {
+	for _, kind := range []scorer.TransitionKind{scorer.TransitionPoint, scorer.TransitionUndo} {
+		tags := Tags(scorer.Transition{Kind: kind, Side: scorer.PlayerA, State: state([2]int{3, 2}, [2]int{0, 0})})
+		require.NotContains(t, tags, "banner=", "kind=%s", kind)
+	}
+}
+
+// The scoreboard shows six characters of a name; the banner cuts at the same
+// place, by rune, so a name with an umlaut is not split mid-character.
+func TestTheBannerCutsALongNameWhereTheBoardDoes(t *testing.T) {
+	st := state([2]int{0, 0}, [2]int{1, 0})
+	st.Players = [2]string{"Müllermeister", "Bernd"}
+
+	tags := strings.Split(Tags(scorer.Transition{Kind: scorer.TransitionSetWon, Side: scorer.PlayerA, State: st}), ",")
+
+	require.Contains(t, tags, "banner=SATZ Müller")
 }

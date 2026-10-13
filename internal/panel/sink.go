@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -256,12 +257,79 @@ func Message(t scorer.Transition, system, author string, now time.Time) homerun.
 // matches. `side` is left out, not sent as `side=`, when the transition went
 // to nobody — an undo, or a correction that lowered a score — so a rule that
 // asks for a side cannot be satisfied by a transition that has none.
+//
+// After the routing tags comes the board: everything the catcher's `score`
+// display needs to draw the whole match rather than the title alone — the
+// points and sets, the names, who serves next and the sets already played. The
+// catcher applies no rules, so who serves is said here, where the rules are;
+// it is left out once the match is over, when nobody serves and `winner`
+// says who won instead.
 func Tags(t scorer.Transition) string {
-	tags := fmt.Sprintf("match=%s,set=%d,transition=%s", t.State.MatchID, t.State.SetNumber, t.Kind)
+	st := t.State
+	tags := fmt.Sprintf("match=%s,set=%d,transition=%s", st.MatchID, st.SetNumber, t.Kind)
 	if t.Side != "" {
 		tags += ",side=" + string(t.Side)
 	}
+
+	tags += fmt.Sprintf(",points=%d:%d,sets=%d:%d", st.Points[0], st.Points[1], st.Sets[0], st.Sets[1])
+	if st.Serving != "" && !st.Complete {
+		tags += ",serve=" + string(st.Serving)
+	}
+	if st.Complete && st.Winner != "" {
+		tags += ",winner=" + string(st.Winner)
+	}
+	tags += ",player_a=" + tagValue(st.Players[0]) + ",player_b=" + tagValue(st.Players[1])
+	if len(st.CompletedSets) > 0 {
+		played := make([]string, len(st.CompletedSets))
+		for i, set := range st.CompletedSets {
+			played[i] = fmt.Sprintf("%d-%d", set[0], set[1])
+		}
+		tags += ",played=" + strings.Join(played, " ")
+	}
+	if b := banner(t); b != "" {
+		tags += ",banner=" + b
+	}
 	return tags
+}
+
+// bannerName is as much of a name as the catcher's scoreboard shows: six
+// characters, the same cut it makes for the names under the score.
+const bannerName = 6
+
+// banner is the status line the scoreboard draws under the names: who took
+// the set, or the match. Only on the transition itself — the next point
+// replaces it — so the board says what just happened without keeping it up.
+// German, like the "SATZ 3" the catcher already draws above the score: this is
+// what the table reads, not what a developer does.
+func banner(t scorer.Transition) string {
+	var prefix string
+	switch t.Kind {
+	case scorer.TransitionSetWon:
+		prefix = "SATZ"
+	case scorer.TransitionMatchWon:
+		prefix = "SIEG"
+	default:
+		return ""
+	}
+
+	var name string
+	switch t.Side {
+	case scorer.PlayerA:
+		name = t.State.Players[0]
+	case scorer.PlayerB:
+		name = t.State.Players[1]
+	default:
+		return prefix
+	}
+	runes := []rune(tagValue(name))
+	return prefix + " " + string(runes[:min(len(runes), bannerName)])
+}
+
+// tagValue keeps a player's name from splitting the tags: a comma would start
+// a new tag, and the catcher's score payload is separated by semicolons. Both
+// become spaces, which costs nothing on a panel that shows six characters.
+func tagValue(name string) string {
+	return strings.TrimSpace(strings.NewReplacer(",", " ", ";", " ").Replace(name))
 }
 
 // Severity maps a transition to a homerun severity, which is what the catcher
