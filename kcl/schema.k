@@ -179,3 +179,4 @@ schema Zaehlwerk:
         not pongHttpRouteEnabled or gatewayName != "", "pongHttpRouteEnabled needs a gatewayName"
         pongBestOf >= 1 and pongBestOf % 2 == 1, "pongBestOf is an odd number, 1 or more"
         not pongEnabled or pongImage != "" or "@" not in image, "image is pinned by digest, and the game's image has a digest of its own: set pongImage"
+
