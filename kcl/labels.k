@@ -57,6 +57,22 @@ _vaultPath = option("config.vaultPath")
 _vaultKeyPitcherToken = option("config.vaultKeyPitcherToken")
 _vaultKeySchmetterpauseToken = option("config.vaultKeySchmetterpauseToken")
 _vaultKeyRedisPassword = option("config.vaultKeyRedisPassword")
+_pongEnabled = option("config.pongEnabled")
+_pongImage = option("config.pongImage")
+_pongContainerPort = option("config.pongContainerPort")
+_pongCpuRequest = option("config.pongCpuRequest")
+_pongCpuLimit = option("config.pongCpuLimit")
+_pongMemoryRequest = option("config.pongMemoryRequest")
+_pongMemoryLimit = option("config.pongMemoryLimit")
+_pongBestOf = option("config.pongBestOf")
+_pongBotSkill = option("config.pongBotSkill")
+_pongFaults = option("config.pongFaults")
+_pongSeed = option("config.pongSeed")
+_pongAttractAfter = option("config.pongAttractAfter")
+_pongAttractPace = option("config.pongAttractPace")
+_pongBrowserIdle = option("config.pongBrowserIdle")
+_pongHttpRouteEnabled = option("config.pongHttpRouteEnabled")
+_pongHost = option("config.pongHost")
 
 # A boolean that arrives as the string "false" is still truthy, so every
 # boolean is compared rather than assigned. Getting this wrong turns an
@@ -152,6 +168,38 @@ config: schema.Zaehlwerk = schema.Zaehlwerk {
         vaultKeySchmetterpauseToken = _vaultKeySchmetterpauseToken
     if _vaultKeyRedisPassword:
         vaultKeyRedisPassword = _vaultKeyRedisPassword
+    if _pongEnabled != Undefined and _pongEnabled != None:
+        pongEnabled = _bool(_pongEnabled)
+    if _pongImage:
+        pongImage = _pongImage
+    if _pongContainerPort:
+        pongContainerPort = int(_pongContainerPort)
+    if _pongCpuRequest:
+        pongCpuRequest = _pongCpuRequest
+    if _pongCpuLimit:
+        pongCpuLimit = _pongCpuLimit
+    if _pongMemoryRequest:
+        pongMemoryRequest = _pongMemoryRequest
+    if _pongMemoryLimit:
+        pongMemoryLimit = _pongMemoryLimit
+    if _pongBestOf:
+        pongBestOf = int(_pongBestOf)
+    if _pongBotSkill:
+        pongBotSkill = _pongBotSkill
+    if _pongFaults:
+        pongFaults = _pongFaults
+    if _pongSeed:
+        pongSeed = _pongSeed
+    if _pongAttractAfter:
+        pongAttractAfter = _pongAttractAfter
+    if _pongAttractPace:
+        pongAttractPace = _pongAttractPace
+    if _pongBrowserIdle:
+        pongBrowserIdle = _pongBrowserIdle
+    if _pongHttpRouteEnabled != Undefined and _pongHttpRouteEnabled != None:
+        pongHttpRouteEnabled = _bool(_pongHttpRouteEnabled)
+    if _pongHost:
+        pongHost = _pongHost
 }
 
 # ── Derived names ───────────────────────────────────────────────────────────
@@ -186,3 +234,38 @@ selectorLabels = {
     "app.kubernetes.io/name": config.name
     "app.kubernetes.io/instance": config.name
 }
+
+# ── zaehlwerk-pong ──────────────────────────────────────────────────────────
+#
+# Its own name, so its selector does not match zaehlwerk's pod and zaehlwerk's
+# does not match its own; part-of ties the two together.
+pongName = "{}-pong".format(config.name)
+pongConfigMapName = "{}-config".format(pongName)
+
+pongLabels = {
+    "app.kubernetes.io/name": pongName
+    "app.kubernetes.io/instance": pongName
+    "app.kubernetes.io/component": "game"
+    "app.kubernetes.io/part-of": config.name
+    **config.labels
+}
+
+pongSelectorLabels = {
+    "app.kubernetes.io/name": pongName
+    "app.kubernetes.io/instance": pongName
+}
+
+# zaehlwerk's image with "-pong" on the repository and the same tag. Split at
+# the last "/" first, so a registry with a port ("localhost:5000/zaehlwerk:v1")
+# is not mistaken for a tag. A digest cannot be carried over — the game's image
+# has its own — and schema.k refuses that case.
+_slash = config.image.rfind("/")
+_tagAt = config.image[_slash + 1::].find(":")
+_repoEnd = _slash + 1 + _tagAt if _tagAt >= 0 else len(config.image)
+pongImage = config.pongImage if config.pongImage else config.image[:_repoEnd:] + "-pong" + config.image[_repoEnd::]
+
+pongHost = config.pongHost if config.pongHost else ("{}.{}".format(pongName, config.clusterDomain) if config.clusterDomain else "")
+
+# zaehlwerk as the game reaches it: through its Service, inside the cluster,
+# never through the gateway. The port is left out where it is HTTP's own.
+zaehlwerkURL = "http://{}.{}.svc".format(config.name, config.namespace) + (":{}".format(config.servicePort) if config.servicePort != 80 else "")

@@ -662,6 +662,26 @@ tasks:
         else
           status=1
         fi
+
+        # zaehlwerk-pong is off in every profile, so its part is rendered here
+        # on its own: the base with it switched on must carry exactly its four
+        # resources more, and nothing of zaehlwerk's may move.
+        base="$(task kcl:render)"
+        withpong="$(task kcl:render -- -D config.pongEnabled=true -D config.pongHttpRouteEnabled=true \
+          -D config.pongAttractAfter=10m 2>&1)" || {
+          echo "FAIL  pong — did not render"; echo "${withpong}" | tail -5; exit 1
+        }
+        pong="$(printf '%s\n' "${withpong}" | yq eval-all -o=json -I=0 \
+          'select(.metadata.labels."app.kubernetes.io/component" == "game") | .kind' - | sort | tr '\n' ' ')"
+        rest="$(printf '%s\n' "${withpong}" | yq eval-all \
+          'select(.metadata.labels."app.kubernetes.io/component" != "game")' -)"
+        if [ "${pong}" != '"ConfigMap" "Deployment" "HTTPRoute" "Service" ' ]; then
+          echo "FAIL  pong — rendered ${pong:-nothing}"; status=1
+        elif [ "${rest}" != "$(printf '%s\n' "${base}" | yq eval-all '.' -)" ]; then
+          echo "FAIL  pong — switching it on changed zaehlwerk's own resources"; status=1
+        else
+          echo "ok    pong — four resources of its own, zaehlwerk's unchanged"
+        fi
         exit "${status}"
 
   kcl:apply:

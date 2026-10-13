@@ -128,6 +128,44 @@ schema Zaehlwerk:
     vaultKeySchmetterpauseToken: str = "schmetterpause-token"
     vaultKeyRedisPassword: str = "redis-password"
 
+    # ── zaehlwerk-pong (ADR-0006) ───────────────────────────────────────────
+    #
+    # The game, as a second Deployment next to zaehlwerk, playing against it
+    # through its Service. Off by default, and with it off not one rendered
+    # line changes. It is its own pod rather than a sidecar so that it can be
+    # switched off, scaled to nothing or restarted without touching the
+    # scorekeeper, which owns the running match.
+    pongEnabled: bool = False
+
+    # Empty is zaehlwerk's image with -pong added to the repository and the
+    # same tag, so a base published as zaehlwerk:v0.5.0 pins
+    # zaehlwerk-pong:v0.5.0 without a second parameter — the two are built
+    # from one commit and released together.
+    pongImage: str = ""
+    pongContainerPort: int = 8081
+    pongCpuRequest: str = "10m"
+    pongCpuLimit: str = "200m"
+    pongMemoryRequest: str = "16Mi"
+    pongMemoryLimit: str = "64Mi"
+    pongBestOf: int = 3
+    pongBotSkill: str = "mittel"
+
+    # Empty leaves the variable out, which is what switches each of these
+    # off or to the code's default: no faults, a clock seed, no attract mode.
+    pongFaults: str = ""
+    pongSeed: str = ""
+    # e.g. "10m". Unset, the game only plays when somebody starts it.
+    pongAttractAfter: str = ""
+    pongAttractPace: str = ""
+    pongBrowserIdle: str = ""
+
+    # A route of its own, on the same gateway, at "<name>-pong.<clusterDomain>"
+    # unless pongHost says otherwise. Without it the game is reachable inside
+    # the cluster only, which is enough for attract mode — a demo needs no
+    # browser, the panel shows it.
+    pongHttpRouteEnabled: bool = False
+    pongHost: str = ""
+
     # ── Escape hatches ──────────────────────────────────────────────────────
     labels: {str:str} = {}
     extraEnvVars: {str:str} = {}
@@ -137,4 +175,7 @@ schema Zaehlwerk:
         secretsMode in ["none", "external", "existing"], "secretsMode is none, external or existing"
         not httpRouteEnabled or gatewayName != "", "httpRouteEnabled needs a gatewayName"
         not (secretsMode == "external") or secretStoreName != "", "secretsMode external needs a secretStoreName"
-
+        not pongHttpRouteEnabled or pongEnabled, "pongHttpRouteEnabled routes to a game that pongEnabled does not render"
+        not pongHttpRouteEnabled or gatewayName != "", "pongHttpRouteEnabled needs a gatewayName"
+        pongBestOf >= 1 and pongBestOf % 2 == 1, "pongBestOf is an odd number, 1 or more"
+        not pongEnabled or pongImage != "" or "@" not in image, "image is pinned by digest, and the game's image has a digest of its own: set pongImage"

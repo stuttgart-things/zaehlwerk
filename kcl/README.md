@@ -2,7 +2,8 @@
 
 KCL module for running zaehlwerk on Kubernetes. Renders a ServiceAccount, a
 ConfigMap, an ExternalSecret, a Deployment, a Service and an HTTPRoute —
-depending on what the profile switches on.
+depending on what the profile switches on — and, with `config.pongEnabled`,
+zaehlwerk-pong next to it.
 
 Everything is a variable. No hostname, no namespace, no gateway and no image
 reference is fixed in the module, so the same manifests fit a laptop cluster,
@@ -59,7 +60,7 @@ describe.
 
 ## What the schema refuses
 
-Four checks in `schema.k`, and the first is the one worth knowing:
+Seven checks in `schema.k`, and the first is the one worth knowing:
 
 | | |
 | --- | --- |
@@ -67,6 +68,9 @@ Four checks in `schema.k`, and the first is the one worth knowing:
 | `secretsMode in [none, external, existing]` | A typo would otherwise render no secret and no error. |
 | `httpRouteEnabled` needs a `gatewayName` | A route to no gateway is accepted by the API server and reaches nobody. |
 | `secretsMode: external` needs a `secretStoreName` | Same failure shape: an ExternalSecret pointing at no store stays unresolved and silent. |
+| `pongHttpRouteEnabled` needs `pongEnabled` and a `gatewayName` | A route to a game that is not rendered, or to no gateway, reaches nobody. |
+| `pongBestOf` is odd | zaehlwerk would refuse it too, but only when the first game starts — in a demo nobody is watching the log of. |
+| `pongEnabled` with a digest-pinned `image` needs `pongImage` | The game's image is derived from zaehlwerk's by its tag. A digest names one image, and the game's is another. |
 
 ## The route is the access control
 
@@ -95,6 +99,51 @@ read-only, for the Schmetterpause live tab that `docs/adr/0001` describes —
 and that needs `config.allowedOrigins` set, which is empty by default and never
 `*`. A second, public route for that endpoint alone is the shape to reach for;
 this module does not render one yet, because nothing asks for it yet.
+
+## zaehlwerk-pong
+
+The game (`docs/adr/0006`) can run next to zaehlwerk, for a fair or the office,
+where attract mode keeps the panel alive while nobody plays. It is a part of
+this module rather than a module of its own, because it is released with
+zaehlwerk and plays against exactly this Deployment's Service — and it is off
+unless a profile switches it on. With it off, not one line of the render
+changes; `task kcl:check` proves that, and proves the four resources it adds
+when it is on.
+
+```sh
+task kcl:render -- -D config.pongEnabled=true -D config.pongAttractAfter=10m
+```
+
+| Option | Default | |
+| --- | --- | --- |
+| `config.pongEnabled` | `false` | a ConfigMap, a Deployment and a Service named `<name>-pong` |
+| `config.pongImage` | zaehlwerk's image, `-pong` added, same tag | so `zaehlwerk:v0.5.0` pins `zaehlwerk-pong:v0.5.0` and CI needs no second parameter |
+| `config.pongAttractAfter` | unset, off | `PONG_ATTRACT_AFTER`, e.g. `10m` |
+| `config.pongAttractPace` | unset, `1s` in the code | `PONG_ATTRACT_PACE` |
+| `config.pongBrowserIdle` | unset, `10m` in the code | `PONG_BROWSER_IDLE` |
+| `config.pongBestOf` | `3` | `PONG_BEST_OF` |
+| `config.pongBotSkill` | `mittel` | `PONG_BOT_SKILL` |
+| `config.pongFaults`, `config.pongSeed` | unset | `PONG_FAULTS`, `PONG_SEED`. Faults never reach a demo |
+| `config.pongHttpRouteEnabled` | `false` | a route at `<name>-pong.<clusterDomain>`, or `config.pongHost`, on zaehlwerk's gateway |
+
+**Configuration is the environment and nothing else**, as for zaehlwerk: each
+option is one variable in the game's ConfigMap, and one left unset is left out
+— unset is how the code switches attract mode, faults and a fixed seed off.
+
+**`ZAEHLWERK_URL` is the Service, `http://<name>.<namespace>.svc`.** The game
+talks to zaehlwerk server-side only, so it needs no route, no certificate and no
+`ALLOWED_ORIGINS` entry, and a demo needs no route of its own either: nobody has
+to open its page for the panel to show it. The route is for starting a game in
+a browser, and like zaehlwerk's it is the access control — the game has no
+authentication — so it belongs on the same internal gateway.
+
+**One replica and `Recreate`, not a field.** A game lives in the memory of the
+pod playing it, a browser game's token is known to that pod only, and one game
+at a time holds the table. Two pods would be two demos fighting over one panel.
+
+The published base does not carry it: `base.yaml` leaves it off, and kustomize
+cannot switch on a resource that was never rendered. An environment that wants
+the game renders its own profile with `config.pongEnabled: true`.
 
 ## Secrets
 
