@@ -12,7 +12,10 @@
 #   4. zaehlwerk-pong plays headless best of threes, one of them to a deciding
 #      set with its change of ends at five, and its truth and zaehlwerk
 #      agree after every rally (ADR-0006)
-#   5. a Pong match never reaches Schmetterpause
+#   5. a game with every fault injected ends with no divergence the faults do
+#      not explain: resends discarded, a second confirmation ignored, a
+#      counter reset after a quiet minute accepted, a wrong half undone
+#   6. a Pong match never reaches Schmetterpause
 #
 # Ports are off the usual ones, so it runs next to a `task run` without
 # either noticing.
@@ -140,7 +143,30 @@ jq -e '[.ends_changes[] | select(.set == 3 and (.points | max) == 5)] | length =
   <<<"$decider" >/dev/null ||
   fail "no change of ends at five in the deciding set: $(jq -c .ends_changes <<<"$decider")"
 
-echo "5. a Pong match never reaches Schmetterpause"
+echo "5. a game with every fault has no unexplained divergence"
+# The seed fixes which presses go wrong. counter_reset waits out zaehlwerk's
+# quiet minute before each reset, so it is rare here, and this game is the
+# one step that takes a while.
+faults='{"wrong_half":0.1,"correct":true,"resend":0.1,"bounce":0.05,"lost":0.05,"ghost":0.05,"wrong_phase":0.9,"counter_reset":0.04}'
+id=$(curl -sf -X POST "$PONG/games" -H 'content-type: application/json' \
+  -d "{\"pace\":\"0s\",\"faults\":$faults}" | jq -r .id) || fail "zaehlwerk-pong did not start a faulted game"
+wait_until 400 game_over "$id" || fail "faulted game $id did not finish"
+game=$(curl -sf "$PONG/games/$id")
+games=$((games + 1))
+[ "$(jq -r .status <<<"$game")" = won ] ||
+  fail "faulted game $id: $(jq -c '{status, reason}' <<<"$game")"
+[ "$(jq .unexplained <<<"$game")" = 0 ] ||
+  fail "faulted game $id: a finding at $(jq -c '[.divergences[] | select(.expected | not)][0]' <<<"$game")"
+for kind in wrong_half resend bounce lost ghost wrong_phase counter_reset; do
+  jq -e --arg k "$kind" '[.faults[] | select(.kind == $k)] | length > 0' <<<"$game" >/dev/null ||
+    fail "faulted game $id: no $kind was injected, the seed no longer covers it"
+done
+jq -e '.zaehlwerk == ([.truth, .explained] | transpose | map(add))' <<<"$game" >/dev/null ||
+  fail "faulted game $id: zaehlwerk $(jq -c .zaehlwerk <<<"$game") is not truth $(jq -c .truth <<<"$game") moved by $(jq -c .explained <<<"$game")"
+echo "   game $id: $(jq -r '.faults | group_by(.kind) | map("\(length) \(.[0].kind)") | join(", ")' <<<"$game")"
+echo "   $(jq '.divergences | length' <<<"$game") divergences, all explained; truth $(jq -c .truth <<<"$game"), zaehlwerk $(jq -c .zaehlwerk <<<"$game")"
+
+echo "6. a Pong match never reaches Schmetterpause"
 # The one fixed wait in here: there is nothing to poll for when the check is
 # that something does not arrive. The reporter posts within milliseconds of
 # match_won, so a second is ample for a result that should not exist.
@@ -148,4 +174,4 @@ sleep 1
 has_results 2 || fail "a Pong match was reported (have $(results))"
 
 echo "ok: 2 results, $resent resends, $duplicates duplicates, retry after refuse," \
-  "$games Pong games with no divergence, ends changed at five in the decider"
+  "$games Pong games with no unexplained divergence, ends changed at five in the decider"
