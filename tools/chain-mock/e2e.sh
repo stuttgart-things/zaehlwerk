@@ -22,7 +22,9 @@
 #      faults whatever PONG_FAULTS says; a match started at the table ends
 #      it, and the next waits for that match to end; a game asked for takes
 #      the table from it
-#   8. a Pong match never reaches Schmetterpause
+#   8. a button check pressed as it says has no finding, and one press at the
+#      wrong half is the one finding it reports
+#   9. a Pong match never reaches Schmetterpause
 #
 # Ports are off the usual ones, so it runs next to a `task run` without
 # either noticing.
@@ -273,7 +275,56 @@ curl -sf -X POST "$PONG/games/$game_id/end" -H "X-Pong-Token: $(jq -r .token <<<
   fail "could not end browser game $game_id"
 echo "   demo $id gave way to browser game $game_id"
 
-echo "8. a Pong match never reaches Schmetterpause"
+echo "8. a button check, pressed the way the buttons press"
+# The buttons are a curl each: /ingest/button with a half, a source and a
+# counter per button, as the hardware sends. The game sends nothing; this is
+# what arrives at zaehlwerk. A demo may hold the table by now, and the check
+# takes it.
+declare -A pressed=([left]=0 [right]=0)
+button() {
+  pressed[$1]=$((pressed[$1] + 1))
+  curl -sf -X POST "$ZW/ingest/button" -H 'content-type: application/json' \
+    -d "{\"events\":[{\"source\":\"e2e-button-$1\",\"half\":\"$1\",\"event_id\":${pressed[$1]}}]}" \
+    >/dev/null || fail "button $1 was not taken"
+}
+# button_check <wrong> — follows the prompts, pressing the other half at the
+# first prompt in play if wrong is 1, and leaves the finished check in $game.
+button_check() {
+  local wrong=$1 last=0 n half
+  id=$(curl -sf -X POST "$PONG/games" -H 'content-type: application/json' -d '{"driver":"check"}' | jq -r .id) ||
+    fail "zaehlwerk-pong did not start a button check"
+  while game=$(curl -sf "$PONG/games/$id") && [ "$(jq -r .status <<<"$game")" = playing ]; do
+    n=$(jq '.check.prompt.n // 0' <<<"$game")
+    if [ "$n" -gt "$last" ]; then
+      half=$(jq -r .check.prompt.half <<<"$game")
+      if [ "$wrong" = 1 ] && [ "$(jq -r .check.prompt.phase <<<"$game")" = playing ]; then
+        wrong=0
+        [ "$half" = left ] && half=right || half=left
+      fi
+      button "$half"
+      last=$n
+    fi
+    [ "$last" -lt 80 ] || fail "button check $id does not end"
+    sleep 0.05
+  done
+}
+
+button_check 0
+[ "$(jq -r .status <<<"$game")" = checked ] || fail "button check $id: $(jq -c '{status, reason}' <<<"$game")"
+[ "$(jq '.check.findings | length' <<<"$game")" = 0 ] ||
+  fail "button check $id: $(jq -r .check.summary <<<"$game")"
+[ "$(jq '.check.counts.ok == .check.prompts' <<<"$game")" = true ] ||
+  fail "button check $id: $(jq -c .check.counts <<<"$game")"
+echo "   check $id: $(jq .check.prompts <<<"$game") prompts, all pressed right"
+
+button_check 1
+[ "$(jq -r .status <<<"$game")" = checked ] || fail "button check $id: $(jq -c '{status, reason}' <<<"$game")"
+[ "$(jq -c '[.check.findings[].outcome]' <<<"$game")" = '["wrong_half"]' ] ||
+  fail "button check $id: want one wrong half, got $(jq -c .check.counts <<<"$game")"
+jq -r .check.summary <<<"$game" | grep -q 'wrong half 1' || fail "button check $id: the summary does not say it"
+echo "   check $id: the wrong half found, $(jq -r '.check.findings[0] | "\(.want) -> \(.got)"' <<<"$game")"
+
+echo "9. a Pong match never reaches Schmetterpause"
 # The one fixed wait in here: there is nothing to poll for when the check is
 # that something does not arrive. The reporter posts within milliseconds of
 # match_won, so a second is ample for a result that should not exist.
@@ -281,4 +332,5 @@ sleep 1
 has_results 2 || fail "a Pong match was reported (have $(results))"
 
 echo "ok: 2 results, $resent resends, $duplicates duplicates, retry after refuse," \
-  "$games Pong games with no unexplained divergence, ends changed at five in the decider"
+  "$games Pong games with no unexplained divergence, ends changed at five in the decider," \
+  "2 button checks"
