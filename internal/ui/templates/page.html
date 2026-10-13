@@ -208,6 +208,15 @@
         .state-serve { color: var(--fg); background: color-mix(in srgb, var(--accent) 30%, transparent); }
         .state-won { color: var(--bg); background: var(--ok); }
         .state-ended { color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); }
+        /* A sentence, not a tag: the players read what to do next, so it is
+           not shouted in mono capitals like the chips around it. */
+        .state-phase {
+            color: var(--fg);
+            background: color-mix(in srgb, var(--accent) 30%, transparent);
+            text-transform: none;
+            letter-spacing: normal;
+            white-space: normal;
+        }
 
         /* Sized from the viewport, because the score is read from a phone
            held over the table or from a laptop a step away, and both want it

@@ -5,6 +5,7 @@ import (
 	"embed"
 	"html/template"
 	"net/http"
+	"strings"
 
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/panel"
@@ -72,6 +73,11 @@ type matchView struct {
 	// what the panel shows. It is here so that the page and the panel can be
 	// disagreed with in the same glance.
 	Panel string
+	// Phase is what the players have to do when it is not playing a point:
+	// empty while they play. A +1 on this page is then a press like any
+	// other — ready, the serve rally won, arrived at the new end — so the
+	// page says which (ADR-0005).
+	Phase string
 }
 
 type sideView struct {
@@ -132,7 +138,33 @@ func (s *Server) stateView(st scorer.State, running bool, kind scorer.Transition
 		Running:       running,
 		CompletedSets: st.CompletedSets,
 		Panel:         panel.Title(scorer.Transition{Kind: kind, State: st}),
+		Phase:         phaseText(st),
 	}
+}
+
+// phaseText is the page's line for a phase in which a press is not a point.
+func phaseText(st scorer.State) string {
+	switch st.Phase {
+	case scorer.PhaseWarmup:
+		return "warm-up: each side presses once when ready" + waitingFor(st)
+	case scorer.PhaseServeRally:
+		return "rally for the first serve: the winner's side presses"
+	case scorer.PhaseChangeEnds:
+		return "change ends: each player presses at the new half" + waitingFor(st)
+	default:
+		return ""
+	}
+}
+
+func waitingFor(st scorer.State) string {
+	if len(st.Waiting) == 0 {
+		return ""
+	}
+	halves := make([]string, len(st.Waiting))
+	for i, h := range st.Waiting {
+		halves[i] = string(h)
+	}
+	return " (waiting for " + strings.Join(halves, ", ") + ")"
 }
 
 // liveView is the match plus whether it can be watched.

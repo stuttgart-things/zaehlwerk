@@ -440,3 +440,53 @@ func TestTheBannerCutsALongNameWhereTheBoardDoes(t *testing.T) {
 
 	require.Contains(t, tags, "banner=SATZ Müller")
 }
+
+func TestThePhaseAndTheEndsGoLast(t *testing.T) {
+	st := state([2]int{0, 0}, [2]int{1, 0})
+	st.Phase = scorer.PhaseChangeEnds
+	st.Ends = [2]scorer.Player{scorer.PlayerB, scorer.PlayerA}
+
+	tags := Tags(scorer.Transition{Kind: scorer.TransitionConfirmed, Side: scorer.PlayerB, State: st})
+
+	require.True(t, strings.HasSuffix(tags, ",phase=change_ends,ends=b:a"), tags)
+}
+
+func TestAPhaseWithSomethingToDoHasItsInstructionAsTheBanner(t *testing.T) {
+	tests := []struct {
+		phase scorer.Phase
+		want  string
+	}{
+		{scorer.PhaseWarmup, "banner=EINSPIELEN"},
+		{scorer.PhaseServeRally, "banner=UM DIE ANGABE"},
+		{scorer.PhaseChangeEnds, "banner=SEITENWECHSEL"},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.phase), func(t *testing.T) {
+			st := state([2]int{0, 0}, [2]int{0, 0})
+			st.Phase = tt.phase
+
+			tags := Tags(scorer.Transition{Kind: scorer.TransitionConfirmed, State: st})
+
+			require.Contains(t, strings.Split(tags, ","), tt.want)
+		})
+	}
+}
+
+func TestTheServeRallyAnnouncesWhoServes(t *testing.T) {
+	st := state([2]int{0, 0}, [2]int{0, 0})
+	st.Phase = scorer.PhasePlaying
+
+	tags := Tags(scorer.Transition{Kind: scorer.TransitionServeDecided, Side: scorer.PlayerB, State: st})
+
+	require.Contains(t, strings.Split(tags, ","), "banner=ANGABE Bernd")
+}
+
+// A won set that starts a change of ends still says who won it.
+func TestASetWonBeforeAChangeOfEndsKeepsItsBanner(t *testing.T) {
+	st := state([2]int{0, 0}, [2]int{1, 0})
+	st.Phase = scorer.PhaseChangeEnds
+
+	tags := Tags(scorer.Transition{Kind: scorer.TransitionSetWon, Side: scorer.PlayerA, State: st})
+
+	require.Contains(t, strings.Split(tags, ","), "banner=SATZ Anna")
+}
