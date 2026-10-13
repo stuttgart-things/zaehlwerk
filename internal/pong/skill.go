@@ -2,6 +2,7 @@ package pong
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"sort"
 	"strings"
@@ -11,9 +12,9 @@ import (
 // and paddles but drawn: the two bots hit in turn, the server first, and each
 // shot misses with the bot's Miss share. The first miss loses the rally.
 //
-// One number is enough for a winner drawn by skill. Reaction delay, paddle
-// speed and aim error are what the browser game will need, and they will be
-// derived from the preset there rather than stored next to this.
+// One number is enough for a winner drawn by skill. The browser's bot needs
+// three, and they are derived from this one (see [Skill.Bot]) rather than
+// stored next to it, so a preset means the same strength in both games.
 type Skill struct {
 	Name string  `json:"name"`
 	Miss float64 `json:"miss"`
@@ -69,3 +70,56 @@ func Rally(rnd *rand.Rand, bots [2]Skill, server int) int {
 		hitter = 1 - hitter
 	}
 }
+
+// BotParams is how the browser's bot plays: it does not draw rallies, it moves
+// a paddle, so it needs what a person at the table has instead of a miss rate.
+type BotParams struct {
+	// ReactionMS is how long the bot takes to start moving once the ball
+	// comes its way.
+	ReactionMS int `json:"reaction_ms"`
+	// Speed is the fastest the paddle moves, in table widths a second.
+	Speed float64 `json:"speed"`
+	// Aim is how far off the bot meets the ball, as a share of half the
+	// paddle: 0 is the centre every time, 1 the edge at worst.
+	Aim float64 `json:"aim"`
+}
+
+// The bounds the lobby's sliders allow, and that a start is checked against.
+var (
+	botReactionMS = [2]int{0, 1000}
+	botSpeed      = [2]float64{0.3, 4}
+	botAim        = [2]float64{0, 1.2}
+)
+
+// Bot derives the browser bot from the miss rate, linearly: a bot that misses
+// more reacts later, moves slower and meets the ball further off centre.
+// leicht comes out at 270 ms, 1.35 and 0.70; schwer at 102 ms, 2.19 and 0.22.
+func (s Skill) Bot() BotParams {
+	return BotParams{
+		ReactionMS: int(math.Round(60 + 700*s.Miss)),
+		Speed:      math.Round((2.4-3.5*s.Miss)*100) / 100,
+		Aim:        math.Round((0.1+2*s.Miss)*100) / 100,
+	}
+}
+
+// Validate refuses values the game cannot play with.
+func (b BotParams) Validate() error {
+	switch {
+	case b.ReactionMS < botReactionMS[0] || b.ReactionMS > botReactionMS[1]:
+		return fmt.Errorf("bot reaction %d ms: want %d to %d", b.ReactionMS, botReactionMS[0], botReactionMS[1])
+	case math.IsNaN(b.Speed) || b.Speed < botSpeed[0] || b.Speed > botSpeed[1]:
+		return fmt.Errorf("bot speed %v: want %v to %v", b.Speed, botSpeed[0], botSpeed[1])
+	case math.IsNaN(b.Aim) || b.Aim < botAim[0] || b.Aim > botAim[1]:
+		return fmt.Errorf("bot aim %v: want %v to %v", b.Aim, botAim[0], botAim[1])
+	}
+	return nil
+}
+
+// Preset looks up a preset by its name.
+func Preset(name string) (Skill, bool) {
+	s, ok := skills[name]
+	return s, ok
+}
+
+// PresetNames lists the presets, the easiest first.
+func PresetNames() []string { return []string{"leicht", "mittel", "schwer"} }
