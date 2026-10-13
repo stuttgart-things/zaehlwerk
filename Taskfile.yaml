@@ -369,7 +369,7 @@ tasks:
       - go run ./cmd/zaehlwerk-api
 
   chain:pong:game:
-    desc: 'zaehlwerk-pong alone, against the zaehlwerk on ZW_PORT. SKILL=leicht,schwer, SEED=1, BEST_OF=5, FAULTS=lost=0.1,ghost=0.1'
+    desc: 'zaehlwerk-pong alone, against the zaehlwerk on ZW_PORT. SKILL=leicht,schwer, SEED=1, BEST_OF=5, FAULTS=lost=0.1,ghost=0.1, ATTRACT=1m, ATTRACT_PACE=500ms'
     env:
       HTTP_ADDR: ':{{.ZW_PONG_PORT}}'
       ZAEHLWERK_URL: '{{.API}}'
@@ -378,6 +378,9 @@ tasks:
       PONG_BOT_SKILL: '{{.SKILL | default "mittel"}}'
       PONG_SEED: '{{.SEED}}'
       PONG_FAULTS: '{{.FAULTS}}'
+      # Empty is unset to the binary: no attract mode unless ATTRACT is given.
+      PONG_ATTRACT_AFTER: '{{.ATTRACT}}'
+      PONG_ATTRACT_PACE: '{{.ATTRACT_PACE}}'
     cmds:
       - go run ./cmd/zaehlwerk-pong
 
