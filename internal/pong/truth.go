@@ -56,7 +56,9 @@ type Divergence struct {
 	// that is not the truth.
 	Explained string `json:"explained,omitempty"`
 	// Expected is a divergence the injected faults explain. Every other one
-	// is a finding.
+	// is a finding. For points that is decided by what changed at this
+	// press, so a finding is the press where something unexplained began,
+	// not every press after it.
 	Expected bool `json:"expected"`
 }
 

@@ -15,7 +15,10 @@
 #   5. a game with every fault injected ends with no divergence the faults do
 #      not explain: resends discarded, a second confirmation ignored, a
 #      counter reset after a quiet minute accepted, a wrong half undone
-#   6. a Pong match never reaches Schmetterpause
+#   6. a game played the way the browser plays it — presses with a token,
+#      one number each — ends with truth and zaehlwerk agreeing; a press
+#      without the token is refused and one sent twice counts once
+#   7. a Pong match never reaches Schmetterpause
 #
 # Ports are off the usual ones, so it runs next to a `task run` without
 # either noticing.
@@ -166,7 +169,46 @@ jq -e '.zaehlwerk == ([.truth, .explained] | transpose | map(add))' <<<"$game" >
 echo "   game $id: $(jq -r '.faults | group_by(.kind) | map("\(length) \(.[0].kind)") | join(", ")' <<<"$game")"
 echo "   $(jq '.divergences | length' <<<"$game") divergences, all explained; truth $(jq -c .truth <<<"$game"), zaehlwerk $(jq -c .zaehlwerk <<<"$game")"
 
-echo "6. a Pong match never reaches Schmetterpause"
+echo "6. a game played through the browser's presses"
+# What game.js does, without a browser: read the phase from the answer, press
+# ready for a half zaehlwerk waits for, report a rally's winning half. The
+# canvas itself is checked by hand; this checks the door it reports through.
+started=$(curl -sf -X POST "$PONG/games" -H 'content-type: application/json' \
+  -d '{"driver":"browser","mode":"pvp","faults":{}}') || fail "zaehlwerk-pong did not start a browser game"
+id=$(jq -r .id <<<"$started")
+token=$(jq -r .token <<<"$started")
+press() {
+  curl -s -o "$WORK/press.json" -w '%{http_code}' -X POST "$PONG/games/$id/presses" \
+    -H 'content-type: application/json' -H "X-Pong-Token: $1" -d "$2"
+}
+[ "$(press "" '{"rally":1,"kind":"ready","half":"left"}')" = 403 ] ||
+  fail "browser game $id: a press without the token was not refused"
+n=1
+game=$(curl -sf "$PONG/games/$id")
+while [ "$(jq -r .status <<<"$game")" = playing ] && [ $n -lt 400 ]; do
+  case $(jq -r .state.phase <<<"$game") in
+    warmup | change_ends) body="{\"rally\":$n,\"kind\":\"ready\",\"half\":\"$(jq -r '.state.waiting[0]' <<<"$game")\"}" ;;
+    *) body="{\"rally\":$n,\"kind\":\"rally\",\"half\":\"$( ((n % 3)) && echo left || echo right)\"}" ;;
+  esac
+  [ "$(press "$token" "$body")" = 200 ] || fail "browser game $id: press $n: $(cat "$WORK/press.json")"
+  if [ $n = 5 ]; then
+    # The same number again, as a page does whose answer got lost.
+    before=$(jq -c .zaehlwerk "$WORK/press.json")
+    [ "$(press "$token" "$body")" = 200 ] || fail "browser game $id: press $n again was refused"
+    [ "$(jq -c .zaehlwerk "$WORK/press.json")" = "$before" ] || fail "browser game $id: press $n counted twice"
+  fi
+  game=$(cat "$WORK/press.json")
+  n=$((n + 1))
+done
+wait_until 10 game_over "$id" || fail "browser game $id did not finish"
+game=$(curl -sf "$PONG/games/$id")
+games=$((games + 1))
+[ "$(jq -r .status <<<"$game")" = won ] || fail "browser game $id: $(jq -c '{status, reason}' <<<"$game")"
+[ "$(jq '.divergences | length' <<<"$game")" = 0 ] ||
+  fail "browser game $id: truth and zaehlwerk part at $(jq -c '.divergences[0]' <<<"$game")"
+echo "   game $id: $(jq -c .state.completed_sets <<<"$game"), $((n - 1)) presses, no divergence"
+
+echo "7. a Pong match never reaches Schmetterpause"
 # The one fixed wait in here: there is nothing to poll for when the check is
 # that something does not arrive. The reporter posts within milliseconds of
 # match_won, so a second is ample for a result that should not exist.

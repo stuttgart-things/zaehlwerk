@@ -1,0 +1,121 @@
+{{define "play"}}<!DOCTYPE html>
+<html lang="de">
+<head>
+    {{template "head"}}
+    <title>Zählwerk Pong · {{index .Board.Players 0}} gegen {{index .Board.Players 1}}</title>
+    <style>
+        .score { display: grid; gap: 0.6rem; }
+        .banner { text-align: center; font-size: clamp(1.4rem, 4vw, 2.2rem); font-weight: 700; letter-spacing: 0.08em; }
+        .banner.over { color: var(--accent-text); }
+        .reason { text-align: center; margin: 0; }
+        .sides { display: grid; grid-template-columns: 1fr auto 1fr; gap: 1rem; align-items: center; }
+        .side { display: grid; gap: 0.1rem; }
+        .side.right { text-align: right; }
+        .side .name { font-size: 1.1rem; font-weight: 600; }
+        .side .tag { font-size: 0.75rem; color: var(--warn); }
+        .points { font-family: var(--font-mono); font-size: clamp(2rem, 7vw, 3.4rem); font-weight: 700; }
+        .sets { color: var(--muted); font-family: var(--font-mono); }
+        .serve::before { content: "● "; color: var(--ok); }
+        .stage { padding: 0.5rem; }
+        canvas { display: block; width: 100%; height: auto; border-radius: var(--radius-sm); touch-action: none; background: #0b1220; }
+        .controls { display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; padding: 0.6rem 0.3rem 0.2rem; font-size: 0.85rem; }
+        .controls .hint { flex: 1; color: var(--muted); }
+        .truth { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); }
+        tr.expected td { color: var(--muted); }
+        tr.expected .mark { color: var(--warn); }
+        tr.finding td { color: var(--bad); }
+        tr.first td { background: color-mix(in srgb, var(--bad) 18%, transparent); font-weight: 600; }
+        .mark { font-size: 0.75rem; white-space: nowrap; }
+        .ok { color: var(--ok); }
+        .bad { color: var(--bad); }
+    </style>
+</head>
+<body>
+<header>
+    <h1>Zählwerk Pong</h1>
+    <a href="/">Lobby</a>
+    <span class="muted mono">Spiel {{.Board.ID}} · Match {{.Board.MatchID}}</span>
+</header>
+<main hx-ext="sse" sse-connect="/ui/games/{{.Board.ID}}/stream">
+    <section class="card score" id="score" sse-swap="score" hx-swap="innerHTML">{{template "score" .Board}}</section>
+
+    {{if .Board.Mode}}
+    <section class="card stage" id="pong" data-game="{{.Board.ID}}" data-mode="{{.Board.Mode}}" data-bots="{{.Bots}}">
+        <canvas width="960" height="540" aria-label="Tischtennisplatte"></canvas>
+        <div class="controls">
+            <span class="hint" id="hint"></span>
+            <button type="button" class="quiet" id="mute">Ton aus</button>
+            <button type="button" class="quiet" id="end" hidden>Spiel beenden</button>
+        </div>
+    </section>
+    <script src="/static/game.js"></script>
+    {{end}}
+
+    <section class="truth" id="truth" sse-swap="truth" hx-swap="innerHTML">{{template "truth" .Board}}</section>
+</main>
+</body>
+</html>
+{{end}}
+
+{{define "score"}}
+<div class="banner{{if .Over}} over{{end}}">{{if .Banner}}{{.Banner}}{{else}}&nbsp;{{end}}</div>
+{{if and .Over .Reason}}<p class="reason muted">{{.Reason}}</p>{{end}}
+<div class="sides">
+    <div class="side">
+        <span class="name{{if .Left.Serving}} serve{{end}}">{{.Left.Name}}</span>
+        <span class="sets">Sätze {{.Left.Sets}}</span>
+        {{if .Left.Waiting}}<span class="tag">wartet auf Taste</span>{{end}}
+    </div>
+    <div class="points">{{.Left.Points}} : {{.Right.Points}}</div>
+    <div class="side right">
+        <span class="name{{if .Right.Serving}} serve{{end}}">{{.Right.Name}}</span>
+        <span class="sets">Sätze {{.Right.Sets}}</span>
+        {{if .Right.Waiting}}<span class="tag">wartet auf Taste</span>{{end}}
+    </div>
+</div>
+{{if .Over}}<p style="text-align: center; margin: 0"><a class="button" href="/">Zur Lobby</a></p>{{end}}
+{{end}}
+
+{{define "truth"}}
+<div class="card">
+    <h2>Wahrheit gegen Zählwerk</h2>
+    <table>
+        <tr><th>Spieler</th><th class="num">Wahrheit</th><th class="num">Zählwerk</th><th class="num" title="Wahrheit plus das, was die eingestreuten Fehler anrichten müssen">erwartet</th></tr>
+        {{range .Compare}}
+        <tr><td>{{.Name}}</td><td class="num">{{.Truth}}</td>
+            <td class="num {{if eq .Zaehlwerk .Expected}}ok{{else}}bad{{end}}">{{.Zaehlwerk}}</td>
+            <td class="num">{{.Expected}}</td></tr>
+        {{end}}
+    </table>
+    <p class="muted" style="margin-bottom: 0.4rem">
+        {{if .Findings}}<span class="bad">{{.Findings}} unerklärte Abweichung{{if gt .Findings 1}}en{{end}}</span>{{else}}<span class="ok">Keine unerklärte Abweichung</span>{{end}}
+        · {{len .Rows}} Abweichung{{if ne (len .Rows) 1}}en{{end}} insgesamt · {{.Rallies}} Ballwechsel
+    </p>
+    {{if .Rows}}
+    <table>
+        <tr><th class="num">Nr.</th><th>Was</th><th>Wahrheit</th><th>Zählwerk</th><th>erklärt</th><th></th></tr>
+        {{range .Rows}}
+        <tr class="{{if .Expected}}expected{{else}}finding{{end}}{{if .First}} first{{end}}">
+            <td class="num">{{.Rally}}</td><td>{{.What}}</td><td class="mono">{{.Truth}}</td>
+            <td class="mono">{{.Zaehlwerk}}</td><td class="mono">{{.Explained}}</td>
+            <td class="mark">{{if .First}}erste unerklärte Abweichung{{else if .Expected}}erwartet (Fehler){{else}}Befund{{end}}</td>
+        </tr>
+        {{end}}
+    </table>
+    {{end}}
+</div>
+<div class="card">
+    <h2>Eingestreute Fehler</h2>
+    {{if .FaultRows}}
+    <table>
+        <tr><th class="num">Nr.</th><th>Fehler</th><th>Phase</th><th>Hälfte</th><th class="num">Wirkung A : B</th></tr>
+        {{range .FaultRows}}
+        <tr><td class="num">{{.Rally}}</td><td>{{.Name}}{{if .UndoneIn}} <span class="muted">· Undo</span>{{end}}</td>
+            <td class="mono">{{.Phase}}</td><td class="mono">{{.Half}}</td><td class="num">{{.Effect}}</td></tr>
+        {{end}}
+    </table>
+    {{else}}
+    <p class="muted" style="margin: 0">Keine. In der Lobby lassen sich Fehler einstellen.</p>
+    {{end}}
+</div>
+{{end}}

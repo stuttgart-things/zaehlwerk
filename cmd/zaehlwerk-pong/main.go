@@ -66,8 +66,11 @@ func run() error {
 		Handler:           game,
 		ReadTimeout:       15 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
-		WriteTimeout:      15 * time.Second,
 		IdleTimeout:       60 * time.Second,
+		// Deliberately no WriteTimeout, as in zaehlwerk-api: a page's stream
+		// stays open for the whole game, and a press is answered only after
+		// a counter reset's quiet minute. Writes to a stream are bounded one
+		// at a time instead.
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

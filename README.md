@@ -823,18 +823,60 @@ which is what the mocks above cannot know.
 
 It is its own binary, `cmd/zaehlwerk-pong`, and its own image,
 `ghcr.io/stuttgart-things/zaehlwerk-pong`, built and tagged like the others
-and released with zaehlwerk. So far it plays headless: two bots, each rally
-drawn by skill rather than played with a ball, with faults injected on purpose
-if asked. The browser game, attract mode and the button check come next.
+and released with zaehlwerk. It plays in the browser — two people at one
+device, a person against the computer, or two computers to watch — and headless,
+two bots whose rallies are drawn by skill, with faults injected on purpose if
+asked. Attract mode and the button check come next.
 
 ```bash
 task chain:pong        # zaehlwerk and zaehlwerk-pong side by side
-task chain:pong:play   # in a second terminal: a bot match, a report a second
+open http://localhost:8087/   # the lobby: start a game in the browser
+task chain:pong:play   # or, in a second terminal: a headless bot match
 ```
 
-`task chain:pong:play PACE=0s` plays it as fast as zaehlwerk answers. With
-`task panel:up` and `task run` instead, `task chain:pong:game` starts only the
-game, and the match plays on the simulated panel.
+`task chain:pong:play PACE=0s` plays the headless one as fast as zaehlwerk
+answers. With `task panel:up` and `task run` instead, `task chain:pong:game`
+starts only the game, and the match plays on the simulated panel.
+
+**In the browser.** The lobby (`/`) starts a game: the mode, the names, the
+computer's skill — a preset (`leicht`, `mittel`, `schwer`) that fills three
+sliders, reaction time, paddle speed and aim error, which can then be moved —
+and the faults below. The game's page (`/play/{id}`) is the table from above,
+one bounce per half, height as shadow and ball size, spin from the paddle's
+movement, an angle from where the ball meets the paddle, rallies that speed up,
+and a tock on paddle and table (`M` mutes it). Above it are the banner and the
+score, the panel's words (`EINSPIELEN`, `UM DIE ANGABE`, `ANGABE <name>`,
+`SEITENWECHSEL`, `SIEG <name>`); below it, truth against zaehlwerk, with the
+first unexplained divergence marked and the expected ones told apart, and the
+faults as they are injected.
+
+| | Left half | Right half |
+| - | --------- | ---------- |
+| Move | `W` / `S` | `↑` / `↓` |
+| Serve, ready | `D` | `←` |
+| Touch | drag on the left half, tap to serve or confirm | the same on the right |
+
+Against the computer either set of keys works, and `Space` serves. In the
+warm-up both sides play freely and confirm with their key; in a change of ends
+the paddles and names swap once both have pressed at their new half.
+
+The page decides rallies and nothing else. Every rally won and every ready key
+is a press, `POST /games/{id}/presses` with `{"rally": n, "kind": "rally" |
+"ready", "half": "left" | "right"}`, numbered from 1 without gaps; the same
+number again is answered without a second press. The service keeps the truth,
+injects the faults and forwards to zaehlwerk, exactly as for a headless game,
+and answers once it is ready for the next press — so the answer already holds
+whatever happened in between. Phase, ends, waiting and serving reach the page
+from zaehlwerk only, on `GET /games/{id}/events` (the view as JSON, for the
+canvas) and `GET /ui/games/{id}/stream` (the board as HTML, for htmx).
+
+Exactly one page reports for a game. Starting one hands out a token, in the
+answer to `POST /games` with `"driver": "browser"` and from the lobby in the
+URL fragment, which no server sees; the page keeps it in that tab. A press
+without it is a 403. Another tab, or another device, opens the same page and
+watches the board. `POST /games/{id}/end` with the token ends the game and its
+match; a browser game nobody presses in for ten minutes ends itself the same
+way, so a closed tab does not keep the panel.
 
 **How it scores.** A game starts its own match with `POST /matches`: free-text
 names (`Pong A`, `Pong B`), `start: "warmup"`, `change_ends: true`. It never
@@ -858,6 +900,7 @@ divergence, logged with its number.
 
 ```bash
 curl -s -X POST localhost:8087/games -d '{"pace": "0s"}'   # 201, Location: /games/{id}
+curl -s -X POST localhost:8087/games -d '{"driver": "browser", "mode": "pvc"}'   # 201, with a "token"
 curl -s localhost:8087/games/{id}
 ```
 
@@ -898,7 +941,9 @@ seed, so the same seed injects the same faults:
 
 The game keeps what the faults should have done to the score next to the
 truth, as `explained`. A divergence the faults explain is `expected`; any other
-is a finding and counts in `unexplained`. A run is good when that is 0, with
+is a finding and counts in `unexplained`. For points, a finding is the press
+where the unexplained part changed — a button pressed under the table is one
+finding, not one for every rally after it. A run is good when that is 0, with
 faults or without. zaehlwerk's answers carry no outcome, so "discarded" and
 "ignored" are checked as the state staying the same. `counter_reset` waits
 62 seconds first: zaehlwerk takes a counter that falls back as a restart only

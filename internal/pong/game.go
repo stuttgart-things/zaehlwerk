@@ -32,7 +32,8 @@ const (
 	// StatusWon is the match played to its last point.
 	StatusWon Status = "won"
 	// StatusEnded is a match the game did not finish: ended on the page,
-	// displaced by another match, or the service shutting down.
+	// displaced by another match, left by its browser, or the service
+	// shutting down.
 	StatusEnded  Status = "ended"
 	StatusFailed Status = "failed"
 )
@@ -53,7 +54,16 @@ type View struct {
 	Reason  string    `json:"reason,omitempty"`
 	Seed    int64     `json:"seed"`
 	Players [2]string `json:"players"`
-	Skills  [2]Skill  `json:"skills"`
+	// Driver is who decides the rallies: "bots" headless, or "browser".
+	Driver string `json:"driver"`
+	// Mode and Bots are a browser game's: "pvp", "pvc" or "cvc", and the bot
+	// playing as player a and b, or none for a person.
+	Mode string        `json:"mode,omitempty"`
+	Bots [2]*BotParams `json:"bots,omitempty"`
+	// LastPress is the browser's last press taken, so a page that reloads
+	// numbers on from there.
+	LastPress uint64   `json:"last_press,omitempty"`
+	Skills    [2]Skill `json:"skills"`
 	// Rallies is the rallies played for points; the serve rally is not one.
 	Rallies   int    `json:"rallies"`
 	Truth     [2]int `json:"truth"`
@@ -71,9 +81,20 @@ type View struct {
 	State       scorer.State `json:"state"`
 }
 
-// GameConfig is one headless bot match.
+// GameConfig is one match: headless between two bots, or played in a
+// browser.
 type GameConfig struct {
 	BestOf int
+	// Players are the names on the panel; BotNames when empty.
+	Players [2]string
+	// Driver is DriverBots or DriverBrowser; empty is bots.
+	Driver string
+	// Mode and Bots are what a browser game shows and plays with; the game
+	// itself does not use them.
+	Mode string
+	Bots [2]*BotParams
+	// Idle ends a browser game nobody presses in; zero is browserIdle.
+	Idle   time.Duration
 	Skills [2]Skill
 	// Pace is the pause between two reports: zero for a test, a second or so
 	// for somebody watching the panel.
@@ -96,12 +117,17 @@ type Game struct {
 	cfg    GameConfig
 	client *Client
 	log    *slog.Logger
-	rnd    *rand.Rand
-	// faultRnd draws the faults. Separate from rnd, so a game without faults
-	// draws exactly the rallies it drew before faults existed, and the same
-	// seed is the same match in every run.
+	driver Driver
+	// faultRnd draws the faults. Separate from the bots' draws, so a game
+	// without faults draws exactly the rallies it drew before faults existed,
+	// and the same seed is the same match in every run.
 	faultRnd *rand.Rand
 	done     chan struct{}
+	// token is what a browser game's presses must carry. Handed out once,
+	// to the page that started it; empty for a headless game.
+	token string
+	// stop ends the game from outside, with the reason as its cause.
+	stop context.CancelCauseFunc
 
 	mu          sync.Mutex
 	matchID     string
@@ -113,6 +139,9 @@ type Game struct {
 	divergences []Divergence
 	changes     []EndsChange
 	faults      []Fault
+	// wake is closed and replaced whenever the view changes, so a page's
+	// stream sends a new one instead of polling.
+	wake chan struct{}
 	// parted is how truth and zaehlwerk stood at the last comparison: the
 	// difference in points, and the part of it the faults explain. A points
 	// divergence is recorded when that changes, so a lost press is one entry
@@ -133,33 +162,59 @@ const faultSalt int64 = 0x0fa017
 
 func newGame(id string, cfg GameConfig, client *Client, log *slog.Logger) *Game {
 	source := "pong-" + id
+	if cfg.Players == ([2]string{}) {
+		cfg.Players = BotNames
+	}
+	if cfg.Driver == "" {
+		cfg.Driver = DriverBots
+	}
+	var driver Driver = &bots{rnd: rand.New(rand.NewSource(cfg.Seed)), skills: cfg.Skills}
+	if cfg.Driver == DriverBrowser {
+		driver = newBrowser(cfg.Idle)
+	}
 	return &Game{
 		ID:          id,
 		Source:      source,
 		cfg:         cfg,
 		client:      client,
 		log:         log.With("game", id, "source", source),
-		rnd:         rand.New(rand.NewSource(cfg.Seed)),
+		driver:      driver,
 		faultRnd:    rand.New(rand.NewSource(cfg.Seed ^ faultSalt)),
 		done:        make(chan struct{}),
+		stop:        func(error) {},
 		status:      StatusPlaying,
 		divergences: []Divergence{},
 		changes:     []EndsChange{},
 		faults:      []Fault{},
+		wake:        make(chan struct{}),
 	}
+}
+
+// changed wakes every stream waiting on the view. Called with g.mu held.
+func (g *Game) changed() {
+	close(g.wake)
+	g.wake = make(chan struct{})
+}
+
+// Changes is closed at the next change of the view.
+func (g *Game) Changes() <-chan struct{} {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.wake
 }
 
 // start creates the match. It is separate from play so that a match zaehlwerk
 // refuses to create is the caller's error, not a game that failed later.
 func (g *Game) start(ctx context.Context) error {
-	st, err := g.client.CreateMatch(ctx, BotNames, g.cfg.BestOf)
+	st, err := g.client.CreateMatch(ctx, g.cfg.Players, g.cfg.BestOf)
 	if err != nil {
 		return fmt.Errorf("starting the match: %w", err)
 	}
 	g.mu.Lock()
 	g.matchID, g.state = st.MatchID, st
+	g.changed()
 	g.mu.Unlock()
-	g.log.Info("match started", "match_id", st.MatchID, "players", st.Players,
+	g.log.Info("match started", "match_id", st.MatchID, "players", st.Players, "driver", g.cfg.Driver,
 		"best_of", g.cfg.BestOf, "skills", []string{g.cfg.Skills[0].Name, g.cfg.Skills[1].Name},
 		"seed", g.cfg.Seed)
 	return nil
@@ -175,10 +230,16 @@ var errDisplaced = errors.New("another match became current at the table")
 // treated like a displacement; reconnecting is not done yet.
 var errTableLost = errors.New("lost sight of the table")
 
+// errStopped is a browser game ended by its own page.
+var errStopped = errors.New("ended in the browser")
+
 // run plays the match to its end and watches the table while it does. table
 // is /live/stream, already past the event that said the table was free.
 func (g *Game) run(ctx context.Context, table <-chan TableEvent) {
 	defer close(g.done)
+	// After the status is set and before done closes, so a press waiting
+	// for its answer gets the last state and finds the game over.
+	defer func() { g.driver.Over(g.current()) }()
 
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
@@ -196,17 +257,17 @@ func (g *Game) run(ctx context.Context, table <-chan TableEvent) {
 	case errors.Is(err, ErrMatchOver):
 		g.finish(StatusEnded, "zaehlwerk says the match is over")
 		return
-	case errors.Is(err, errDisplaced), errors.Is(err, errTableLost), ctx.Err() != nil:
+	case errors.Is(err, errDisplaced), errors.Is(err, errTableLost), errors.Is(err, errStopped),
+		errors.Is(err, errIdle), ctx.Err() != nil:
 		// The match is no longer the game's to play, the game can no longer
-		// tell whether it is, or the service is stopping. Either way it is
-		// ended rather than left running, so it does not sit in the registry
-		// as current with nobody scoring it.
+		// tell whether it is, nobody is playing it any more, or the service
+		// is stopping. Either way it is ended rather than left running, so it
+		// does not sit in the registry as current with nobody scoring it.
 		reason := "the service stopped"
-		switch {
-		case errors.Is(err, errDisplaced):
-			reason = errDisplaced.Error()
-		case errors.Is(err, errTableLost):
-			reason = errTableLost.Error()
+		for _, known := range []error{errDisplaced, errTableLost, errStopped, errIdle} {
+			if errors.Is(err, known) {
+				reason = err.Error()
+			}
 		}
 		g.end(ctx)
 		g.finish(StatusEnded, reason)
@@ -245,7 +306,7 @@ func (g *Game) watch(ctx context.Context, cancel context.CancelCauseFunc, table 
 }
 
 // play is the match from the warm-up to the last point. Every decision about
-// where the match stands is read from zaehlwerk's last answer; the game only
+// where the match stands is read from zaehlwerk's last answer; the driver only
 // decides rallies.
 func (g *Game) play(ctx context.Context) error {
 	st := g.current()
@@ -279,7 +340,7 @@ func (g *Game) play(ctx context.Context) error {
 		case scorer.PhaseWarmup, scorer.PhaseChangeEnds:
 			st, err = g.ready(ctx, st)
 		case scorer.PhaseServeRally:
-			st, err = g.serveRally(ctx, standing)
+			st, err = g.serveRally(ctx, st, standing)
 		case scorer.PhasePlaying:
 			st, err = g.point(ctx, st, standing)
 		default:
@@ -298,14 +359,16 @@ func (g *Game) play(ctx context.Context) error {
 	return nil
 }
 
-// ready presses for the first half zaehlwerk is still waiting for: a player
-// ready after the warm-up, or arrived at the new end.
+// ready presses for the half the driver says: a player ready after the
+// warm-up, or arrived at the new end.
 func (g *Game) ready(ctx context.Context, st scorer.State) (scorer.State, error) {
-	if len(st.Waiting) == 0 {
-		return st, fmt.Errorf("zaehlwerk is in %s and waits for nobody", st.Phase)
+	half, err := g.driver.Ready(ctx, st)
+	if err != nil {
+		return st, err
 	}
-	half := st.Waiting[0]
-	after, n, err := g.report(ctx, half, true)
+	// A browser can press for a half that already has. zaehlwerk ignores
+	// that, so it is not a press that must change the state.
+	after, n, err := g.report(ctx, half, slices.Contains(st.Waiting, half))
 	if err != nil {
 		return after, err
 	}
@@ -331,13 +394,17 @@ func (g *Game) ready(ctx context.Context, st scorer.State) (scorer.State, error)
 	return after, nil
 }
 
-// serveRally plays for the first serve. Nobody serves it, so who hits first is
-// drawn too. Its winner's half is sent once, and zaehlwerk decides from it who
-// serves; the game checks that it decided for the right player.
-func (g *Game) serveRally(ctx context.Context, standing [2]scorer.Player) (scorer.State, error) {
-	winner := playerAt(Rally(g.rnd, g.cfg.Skills, g.rnd.Intn(2)))
+// serveRally plays for the first serve. Its winner's half is sent once, and
+// zaehlwerk decides from it who serves; the game checks that it decided for
+// the right player.
+func (g *Game) serveRally(ctx context.Context, st scorer.State, standing [2]scorer.Player) (scorer.State, error) {
+	winner, err := g.driver.Rally(ctx, st, standing)
+	if err != nil {
+		return st, err
+	}
 	g.mu.Lock()
 	g.truth.ServeRally, g.truth.ExplainedServe = winner, winner
+	g.changed()
 	g.mu.Unlock()
 
 	half := halfOf(winner, standing)
@@ -382,10 +449,14 @@ func (g *Game) point(ctx context.Context, st scorer.State, standing [2]scorer.Pl
 		st = after
 	}
 
-	winner := playerAt(Rally(g.rnd, g.cfg.Skills, index(st.Serving)))
+	winner, err := g.driver.Rally(ctx, st, standing)
+	if err != nil {
+		return st, err
+	}
 	g.mu.Lock()
 	g.truth.Rally(winner)
 	g.rallies++
+	g.changed()
 	g.mu.Unlock()
 	half := halfOf(winner, standing)
 
@@ -552,6 +623,7 @@ func (g *Game) injected(f Fault) {
 	g.mu.Lock()
 	g.faults = append(g.faults, f)
 	g.truth.Explain(f.Effect)
+	g.changed()
 	g.mu.Unlock()
 	g.log.Info("fault injected", "rally", f.Rally, "event_id", f.EventID, "fault", f.Kind,
 		"phase", f.Phase, "half", f.Half, "effect", f.Effect, "undone_in", f.UndoneIn)
@@ -559,24 +631,38 @@ func (g *Game) injected(f Fault) {
 
 // points compares the truth with zaehlwerk's points after a press, and records
 // a divergence where they part, or where how far they are apart changes.
+//
+// A divergence is a finding when the part no fault explains changed at that
+// press. Once something nobody accounted for has scored, truth and zaehlwerk
+// stay that far apart, and every fault after it moves them again; those moves
+// are explained, and the finding is the one press where it began.
 func (g *Game) points(n uint64, st scorer.State) {
 	truth := g.truthNow()
 	awarded := Awarded(st)
-	now := [2][2]int{{awarded[0] - truth.Won[0], awarded[1] - truth.Won[1]}, truth.Explained}
+	gap := [2]int{awarded[0] - truth.Won[0], awarded[1] - truth.Won[1]}
+	now := [2][2]int{gap, truth.Explained}
 
 	g.mu.Lock()
-	changed := now != g.parted
+	before := g.parted
 	g.parted = now
 	g.mu.Unlock()
-
-	if d, off := truth.Points(n, st); off && changed {
-		g.diverged(d)
+	if now == before {
+		return
 	}
+
+	unexplained := func(p [2][2]int) [2]int { return [2]int{p[0][0] - p[1][0], p[0][1] - p[1][1]} }
+	d := Divergence{Rally: n, What: "points", Truth: score(truth.Won), Zaehlwerk: score(awarded),
+		Expected: unexplained(now) == unexplained(before)}
+	if truth.Explained != ([2]int{}) {
+		d.Explained = score([2]int{truth.Won[0] + truth.Explained[0], truth.Won[1] + truth.Explained[1]})
+	}
+	g.diverged(d)
 }
 
 func (g *Game) walked(st scorer.State) {
 	g.mu.Lock()
 	g.changes = append(g.changes, EndsChange{Set: st.SetNumber, Points: st.Points})
+	g.changed()
 	g.mu.Unlock()
 	g.log.Info("change of ends", "set", st.SetNumber, "points", st.Points,
 		"left", st.Players[index(st.Ends[0])], "right", st.Players[index(st.Ends[1])])
@@ -585,6 +671,7 @@ func (g *Game) walked(st scorer.State) {
 func (g *Game) diverged(d Divergence) {
 	g.mu.Lock()
 	g.divergences = append(g.divergences, d)
+	g.changed()
 	g.mu.Unlock()
 	if d.Expected {
 		g.log.Info("truth and zaehlwerk disagree, as the faults explain", "rally", d.Rally,
@@ -612,6 +699,7 @@ func sleep(ctx context.Context, d time.Duration) error {
 func (g *Game) setState(st scorer.State) {
 	g.mu.Lock()
 	g.state = st
+	g.changed()
 	g.mu.Unlock()
 }
 
@@ -646,12 +734,14 @@ func (g *Game) end(ctx context.Context) {
 	}
 	g.mu.Lock()
 	g.state = st
+	g.changed()
 	g.mu.Unlock()
 }
 
 func (g *Game) finish(status Status, reason string) {
 	g.mu.Lock()
 	g.status, g.reason = status, reason
+	g.changed()
 	g.mu.Unlock()
 	if status != StatusWon {
 		g.log.Info("game over", "status", status, "reason", reason)
@@ -665,6 +755,10 @@ func (g *Game) Done() <-chan struct{} { return g.done }
 func (g *Game) View() View {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	var lastPress uint64
+	if b, ok := g.driver.(*browser); ok {
+		lastPress = b.last.Load()
+	}
 	unexplained := 0
 	for _, d := range g.divergences {
 		if !d.Expected {
@@ -678,7 +772,11 @@ func (g *Game) View() View {
 		Status:      g.status,
 		Reason:      g.reason,
 		Seed:        g.cfg.Seed,
-		Players:     BotNames,
+		Players:     g.cfg.Players,
+		Driver:      g.cfg.Driver,
+		Mode:        g.cfg.Mode,
+		Bots:        g.cfg.Bots,
+		LastPress:   lastPress,
 		Skills:      g.cfg.Skills,
 		Rallies:     g.rallies,
 		Truth:       g.truth.Won,
