@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 )
@@ -33,6 +34,7 @@ const maxLobbyForm = 8 << 10
 func (s *Server) routeUI() {
 	s.mux.HandleFunc("GET /{$}", s.lobby)
 	s.mux.HandleFunc("GET /ui/bot", s.botSliders)
+	s.mux.HandleFunc("GET /ui/attract", s.attractCard)
 	s.mux.HandleFunc("POST /ui/games", s.startFromLobby)
 	s.mux.HandleFunc("GET /play/{id}", s.playPage)
 	s.mux.HandleFunc("GET /ui/games/{id}/stream", s.boardStream)
@@ -43,6 +45,8 @@ func (s *Server) routeUI() {
 type lobbyView struct {
 	// Running is the game playing now, which the lobby offers to watch.
 	Running *View
+	// Attract is attract mode as the lobby tells it; nil when it is off.
+	Attract *attractView
 	BestOf  int
 	Bots    [2]botView
 	Faults  []faultField
@@ -109,7 +113,56 @@ func (s *Server) lobby(w http.ResponseWriter, _ *http.Request) {
 		v.Running = &rv
 	}
 	s.mu.Unlock()
+	v.Attract = s.attractView(time.Now())
 	render(w, "lobby", v)
+}
+
+// attractView is attract mode in the lobby: on, and when the next demo starts,
+// or why none is waiting.
+type attractView struct {
+	After string
+	// In is the time left before the next demo, empty when none is waiting.
+	In   string
+	Demo bool
+	// Blind is zaehlwerk out of sight; with In and Demo empty it is a match
+	// at the table.
+	Blind bool
+}
+
+func (s *Server) attractView(now time.Time) *attractView {
+	st := s.Attract()
+	if !st.On {
+		return nil
+	}
+	v := &attractView{After: minutes(st.After), Blind: st.Blind}
+	s.mu.Lock()
+	v.Demo = s.running != nil && s.running.cfg.Attract
+	s.mu.Unlock()
+	if !st.Next.IsZero() && !v.Demo {
+		v.In = minutes(max(st.Next.Sub(now), 0))
+	}
+	return v
+}
+
+// minutes says a wait the way the lobby says it: in whole minutes, rounded up
+// so it never promises a demo sooner than it comes, and in seconds under one.
+// Seconds above a minute would be stale before the card is fetched again.
+func minutes(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%d s", int(d.Round(time.Second).Seconds()))
+	}
+	return fmt.Sprintf("%d Min.", int((d+time.Minute-1)/time.Minute))
+}
+
+// attractCard is the lobby's attract card on its own, which the lobby fetches
+// again every few seconds so its countdown stays roughly true.
+func (s *Server) attractCard(w http.ResponseWriter, _ *http.Request) {
+	v := s.attractView(time.Now())
+	if v == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	render(w, "attract", v)
 }
 
 // botSliders is the sliders for a preset, swapped in when the lobby's preset

@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -51,4 +52,35 @@ func TestAnUnknownFaultIsRefusedAtStartup(t *testing.T) {
 	t.Setenv("PONG_FAULTS", "wrong-half=0.05")
 	_, err := config()
 	require.ErrorContains(t, err, "PONG_FAULTS")
+}
+
+func TestAttractModeIsOffUnlessItIsSet(t *testing.T) {
+	t.Setenv("PONG_ATTRACT_AFTER", "")
+	cfg, err := config()
+	require.NoError(t, err)
+	require.Zero(t, cfg.AttractAfter)
+	require.Equal(t, time.Second, cfg.AttractPace)
+	require.Equal(t, 10*time.Minute, cfg.BrowserIdle)
+}
+
+func TestAttractModeAndTheBrowserIdleAreTakenFromTheEnvironment(t *testing.T) {
+	t.Setenv("PONG_ATTRACT_AFTER", "10m")
+	t.Setenv("PONG_ATTRACT_PACE", "1500ms")
+	t.Setenv("PONG_BROWSER_IDLE", "30m")
+	cfg, err := config()
+	require.NoError(t, err)
+	require.Equal(t, 10*time.Minute, cfg.AttractAfter)
+	require.Equal(t, 1500*time.Millisecond, cfg.AttractPace)
+	require.Equal(t, 30*time.Minute, cfg.BrowserIdle)
+}
+
+func TestADurationThatIsNoneIsRefusedAtStartup(t *testing.T) {
+	for _, key := range []string{"PONG_ATTRACT_AFTER", "PONG_ATTRACT_PACE", "PONG_BROWSER_IDLE"} {
+		for _, raw := range []string{"10", "0s", "-1m"} {
+			t.Setenv(key, raw)
+			_, err := config()
+			require.ErrorContains(t, err, key, raw)
+			t.Setenv(key, "")
+		}
+	}
 }

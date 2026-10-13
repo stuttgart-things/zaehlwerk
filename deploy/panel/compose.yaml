@@ -52,3 +52,27 @@ services:
       LOG_LEVEL: info
     volumes:
       - ./profile.yaml:/app/profile.yaml:ro
+
+  # zaehlwerk-pong in attract mode, against the zaehlwerk on the host: a demo
+  # on the simulated panel once the table has been free for a minute. Only
+  # with its profile, so `up -d` alone starts the panel as before:
+  #
+  #   docker compose -f deploy/panel/compose.yaml --profile pong up -d
+  #   REDIS_ADDR=localhost go run ./cmd/zaehlwerk-api
+  #
+  # Lobby on http://localhost:8087. The image is main's; ZW_PONG_IMAGE takes a
+  # release or a pr-<n> tag, and `task chain:pong` runs it from source instead.
+  pong:
+    image: ${ZW_PONG_IMAGE:-ghcr.io/stuttgart-things/zaehlwerk-pong:main}
+    profiles: [pong]
+    ports:
+      - "${ZW_PONG_PORT:-8087}:8081"
+    # zaehlwerk runs on the host, not in here, so the container reaches it
+    # through the host's gateway address.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      ZAEHLWERK_URL: http://host.docker.internal:${ZW_PORT:-8080}
+      PONG_ATTRACT_AFTER: ${ZW_PONG_ATTRACT_AFTER:-1m}
+      PONG_ATTRACT_PACE: ${ZW_PONG_ATTRACT_PACE:-1s}
+      LOG_LEVEL: INFO

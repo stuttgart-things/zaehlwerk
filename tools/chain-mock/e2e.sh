@@ -18,7 +18,11 @@
 #   6. a game played the way the browser plays it — presses with a token,
 #      one number each — ends with truth and zaehlwerk agreeing; a press
 #      without the token is refused and one sent twice counts once
-#   7. a Pong match never reaches Schmetterpause
+#   7. attract mode starts a demo on a free table after the wait, with no
+#      faults whatever PONG_FAULTS says; a match started at the table ends
+#      it, and the next waits for that match to end; a game asked for takes
+#      the table from it
+#   8. a Pong match never reaches Schmetterpause
 #
 # Ports are off the usual ones, so it runs next to a `task run` without
 # either noticing.
@@ -114,6 +118,7 @@ wait_until 10 has_results 2 || fail "the retried result did not arrive (have $(r
 # over, and the fake Schmetterpause must still hold exactly their two results.
 HTTP_ADDR=":$PONG_PORT" ZAEHLWERK_URL=$ZW PONG_BEST_OF=3 PONG_SEED=1 \
   "$WORK/zaehlwerk-pong" >"$WORK/pong.log" 2>&1 &
+pong_pid=$!
 wait_until 20 curl -sf "$PONG/healthz" || fail "zaehlwerk-pong did not come up"
 
 game_over() { [ "$(curl -sf "$PONG/games/$1" | jq -r .status)" != playing ]; }
@@ -208,7 +213,67 @@ games=$((games + 1))
   fail "browser game $id: truth and zaehlwerk part at $(jq -c '.divergences[0]' <<<"$game")"
 echo "   game $id: $(jq -c .state.completed_sets <<<"$game"), $((n - 1)) presses, no divergence"
 
-echo "7. a Pong match never reaches Schmetterpause"
+echo "7. attract mode: a demo on a free table, and it always gives way"
+# The same binary again, with attract mode on and a wait short enough for CI.
+# PONG_FAULTS is set to show it does not reach a demo.
+kill "$pong_pid"
+wait "$pong_pid" 2>/dev/null || true
+HTTP_ADDR=":$PONG_PORT" ZAEHLWERK_URL=$ZW PONG_BEST_OF=3 PONG_SEED=1 PONG_FAULTS=lost=1 \
+  PONG_ATTRACT_AFTER=2s PONG_ATTRACT_PACE=20ms \
+  "$WORK/zaehlwerk-pong" >"$WORK/pong.log" 2>&1 &
+wait_until 20 curl -sf "$PONG/healthz" || fail "zaehlwerk-pong with attract mode did not come up"
+up=$SECONDS
+
+# The log is the one place that names a demo's game; the API has no list.
+demos() { jq -r 'select(.msg | startswith("the table was free")) | .game' "$WORK/pong.log"; }
+demo_count() { demos | wc -l; }
+has_demos() { [ "$(demo_count)" -ge "$1" ]; }
+current() { curl -sf "$ZW/matches/current" | jq -r .match_id; }
+
+wait_until 20 has_demos 1 || fail "attract mode started no demo on a free table"
+[ $((SECONDS - up)) -ge 1 ] || fail "the demo did not wait"
+id=$(demos | head -1)
+game=$(curl -sf "$PONG/games/$id")
+[ "$(jq -r .attract <<<"$game")" = true ] || fail "demo $id is not marked as one"
+[ "$(jq -c '[.fault_shares[] | select(. != 0 and . != false)] | length' <<<"$game")" = 0 ] ||
+  fail "demo $id runs with faults: $(jq -c .fault_shares <<<"$game")"
+wait_until 60 game_over "$id" || fail "demo $id did not finish"
+game=$(curl -sf "$PONG/games/$id")
+[ "$(jq -r .status <<<"$game")" = won ] || fail "demo $id: $(jq -c '{status, reason}' <<<"$game")"
+[ "$(jq '.faults | length' <<<"$game")" = 0 ] || fail "demo $id injected faults"
+[ "$(jq '.divergences | length' <<<"$game")" = 0 ] ||
+  fail "demo $id: truth and zaehlwerk part at $(jq -c '.divergences[0]' <<<"$game")"
+games=$((games + 1))
+echo "   demo $id: $(jq -c .state.completed_sets <<<"$game"), no faults, no divergence"
+
+# The next demo, after a whole wait. A match started at the table ends it.
+wait_until 20 has_demos 2 || fail "no second demo after the first was won"
+id=$(demos | sed -n 2p)
+real=$(curl -sf -X POST "$ZW/matches" -H 'content-type: application/json' \
+  -d '{"players":["Anna","Bernd"],"best_of":3}' | jq -r .match_id) || fail "could not start a match at the table"
+wait_until 10 game_over "$id" || fail "demo $id did not give way to match $real"
+[ "$(curl -sf "$PONG/games/$id" | jq -r .reason)" = "another match became current at the table" ] ||
+  fail "demo $id ended for another reason: $(curl -sf "$PONG/games/$id" | jq -c '{status, reason}')"
+# Nothing starts while that match is current, for longer than the wait.
+sleep 5
+[ "$(demo_count)" = 2 ] || fail "a demo started while match $real was current"
+[ "$(current)" = "$real" ] || fail "match $real was ended by zaehlwerk-pong"
+curl -sf -X POST "$ZW/matches/$real/end" >/dev/null || fail "could not end match $real"
+echo "   demo $id gave way to match $real, and waited for it to end"
+
+# The next one, after that match; a game asked for takes the table from it.
+wait_until 20 has_demos 3 || fail "no demo after match $real ended"
+id=$(demos | sed -n 3p)
+started=$(curl -sf -X POST "$PONG/games" -H 'content-type: application/json' \
+  -d '{"driver":"browser","mode":"pvp"}') || fail "a browser game did not get the table from demo $id"
+game_id=$(jq -r .id <<<"$started")
+[ "$(curl -sf "$PONG/games/$id" | jq -r .reason)" = "gave the table to a new game" ] ||
+  fail "demo $id: $(curl -sf "$PONG/games/$id" | jq -c '{status, reason}')"
+curl -sf -X POST "$PONG/games/$game_id/end" -H "X-Pong-Token: $(jq -r .token <<<"$started")" >/dev/null ||
+  fail "could not end browser game $game_id"
+echo "   demo $id gave way to browser game $game_id"
+
+echo "8. a Pong match never reaches Schmetterpause"
 # The one fixed wait in here: there is nothing to poll for when the check is
 # that something does not arrive. The reporter posts within milliseconds of
 # match_won, so a second is ample for a result that should not exist.

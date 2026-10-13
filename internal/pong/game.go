@@ -56,6 +56,8 @@ type View struct {
 	Players [2]string `json:"players"`
 	// Driver is who decides the rallies: "bots" headless, or "browser".
 	Driver string `json:"driver"`
+	// Attract is a demo started by attract mode rather than by anybody.
+	Attract bool `json:"attract,omitempty"`
 	// Mode and Bots are a browser game's: "pvp", "pvc" or "cvc", and the bot
 	// playing as player a and b, or none for a person.
 	Mode string        `json:"mode,omitempty"`
@@ -94,8 +96,11 @@ type GameConfig struct {
 	Mode string
 	Bots [2]*BotParams
 	// Idle ends a browser game nobody presses in; zero is browserIdle.
-	Idle   time.Duration
-	Skills [2]Skill
+	Idle time.Duration
+	// Attract is a demo the service started by itself on a free table. It
+	// gives the table to any game somebody asks for.
+	Attract bool
+	Skills  [2]Skill
 	// Pace is the pause between two reports: zero for a test, a second or so
 	// for somebody watching the panel.
 	Pace time.Duration
@@ -258,13 +263,13 @@ func (g *Game) run(ctx context.Context, table <-chan TableEvent) {
 		g.finish(StatusEnded, "zaehlwerk says the match is over")
 		return
 	case errors.Is(err, errDisplaced), errors.Is(err, errTableLost), errors.Is(err, errStopped),
-		errors.Is(err, errIdle), ctx.Err() != nil:
+		errors.Is(err, errIdle), errors.Is(err, errYielded), ctx.Err() != nil:
 		// The match is no longer the game's to play, the game can no longer
-		// tell whether it is, nobody is playing it any more, or the service
-		// is stopping. Either way it is ended rather than left running, so it
+		// tell whether it is, nobody is playing it any more, a demo made way
+		// for a game, or the service is stopping. Either way it is ended rather than left running, so it
 		// does not sit in the registry as current with nobody scoring it.
 		reason := "the service stopped"
-		for _, known := range []error{errDisplaced, errTableLost, errStopped, errIdle} {
+		for _, known := range []error{errDisplaced, errTableLost, errStopped, errIdle, errYielded} {
 			if errors.Is(err, known) {
 				reason = err.Error()
 			}
@@ -774,6 +779,7 @@ func (g *Game) View() View {
 		Seed:        g.cfg.Seed,
 		Players:     g.cfg.Players,
 		Driver:      g.cfg.Driver,
+		Attract:     g.cfg.Attract,
 		Mode:        g.cfg.Mode,
 		Bots:        g.cfg.Bots,
 		LastPress:   lastPress,

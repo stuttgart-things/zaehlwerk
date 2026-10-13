@@ -33,6 +33,7 @@ import externalsecret
 import deploy
 import service
 import httproute
+import pong
 
 _resources = [
     serviceaccount.serviceAccount
@@ -41,6 +42,11 @@ _resources = [
     deploy.deployment
     service.service
     httproute.httproute
+    # zaehlwerk-pong, all four Undefined unless config.pongEnabled.
+    pong.pongConfigMap
+    pong.pongDeployment
+    pong.pongService
+    pong.pongHTTPRoute
 ]
 
 manifests = [r for r in _resources if r]

@@ -826,7 +826,8 @@ It is its own binary, `cmd/zaehlwerk-pong`, and its own image,
 and released with zaehlwerk. It plays in the browser — two people at one
 device, a person against the computer, or two computers to watch — and headless,
 two bots whose rallies are drawn by skill, with faults injected on purpose if
-asked. Attract mode and the button check come next.
+asked, and by itself in attract mode when the table has been free for a while.
+The button check comes next.
 
 ```bash
 task chain:pong        # zaehlwerk and zaehlwerk-pong side by side
@@ -875,8 +876,8 @@ answer to `POST /games` with `"driver": "browser"` and from the lobby in the
 URL fragment, which no server sees; the page keeps it in that tab. A press
 without it is a 403. Another tab, or another device, opens the same page and
 watches the board. `POST /games/{id}/end` with the token ends the game and its
-match; a browser game nobody presses in for ten minutes ends itself the same
-way, so a closed tab does not keep the panel.
+match; a browser game nobody presses in for ten minutes (`PONG_BROWSER_IDLE`)
+ends itself the same way, so a closed tab does not keep the panel.
 
 **How it scores.** A game starts its own match with `POST /matches`: free-text
 names (`Pong A`, `Pong B`), `start: "warmup"`, `change_ends: true`. It never
@@ -923,6 +924,37 @@ started one ends its own match and stops. On shutdown the running game ends its
 match, so it does not stay current with nobody scoring it. Games are in memory,
 the last twenty of them.
 
+**Attract mode.** With `PONG_ATTRACT_AFTER` set, the game keeps the panel
+alive at a fair or in the office: once the table has been free that long, it
+starts a headless bot match by itself, one report every `PONG_ATTRACT_PACE`
+(a second, which the panel can be followed at), and never with faults, whatever
+`PONG_FAULTS` says. Unset, there is no attract mode, and the log says so at
+startup. The service stays on `/live/stream` for this — it listens rather than
+polls, and connects again when the stream breaks — and "free" is what the
+stream says: the wait starts at a `no_match` and at nothing else.
+
+It always gives way, and never takes the table from anybody:
+
+- A match started at the table displaces the demo, which ends its own match.
+  The wait then starts again only at the next `no_match`, once that match is
+  over.
+- A game somebody starts, in the lobby or with `POST /games`, ends a running
+  demo and takes the table. Every start holds one lock from looking at the
+  table to the new game running, so the demo cannot start again in between.
+- A match somebody left running is never ended. It blocks the demo, and the
+  log names it once, after it has been quiet for the whole wait.
+- A won demo is followed by a whole wait before the next, so demo and free
+  table take turns rather than match following match.
+
+The lobby says it is on and when the next demo starts, or that a match is at
+the table; `/healthz` is the same either way. A demo is marked `"attract":
+true` on `GET /games/{id}`.
+
+```bash
+task chain:pong:game ATTRACT=1m        # from source, against task run
+docker compose -f deploy/panel/compose.yaml --profile pong up -d   # the image, with the simulated panel
+```
+
 **Faults.** Between the truth and the ingest, a game can send what a real table
 sends when something goes wrong. The truth is never touched; every fault is
 logged with its rally number and listed under `faults`, with the `effect` it
@@ -964,7 +996,11 @@ and fails on the first rally where truth and zaehlwerk part, on a deciding set
 without its change of ends at five, and on a Pong result arriving at the fake
 Schmetterpause. Then it plays one game with every fault above zero and fails on
 any unexplained divergence, or if the seed no longer injects every fault. That
-game waits out one counter reset, so the e2e takes a minute longer.
+game waits out one counter reset, so the e2e takes a minute longer. Last, it
+starts the service again in attract mode with a two-second wait and fails if no
+demo starts on the free table, if a demo carries faults, if one does not give
+way to a match started at the table or to a game started through the API, or if
+a demo starts while that match is still current.
 
 | Variable | Default | |
 | -------- | ------- | - |
@@ -975,10 +1011,23 @@ game waits out one counter reset, so the e2e takes a minute longer.
 | `PONG_BOT_SKILL` | `mittel` | `leicht`, `mittel` or `schwer` for both bots, or `leicht,schwer` for Pong A and Pong B. A shot misses 30, 15 or 6 times in a hundred |
 | `PONG_FAULTS` | none | Faults for every game, e.g. `wrong_half=0.05,resend=0.1,correct=true`: names from the table above with a share from 0 to 1, and `correct`. An unknown name or a share out of range stops the service at startup |
 | `PONG_SEED` | the clock | The n-th game of a service started with the same seed draws the same rallies. A clock seed is logged at startup, so a run can be repeated |
+| `PONG_ATTRACT_AFTER` | none | Attract mode: how long the table must be free before a demo starts, e.g. `10m`. Unset is off |
+| `PONG_ATTRACT_PACE` | `1s` | The demo's pause between two reports |
+| `PONG_BROWSER_IDLE` | `10m` | How long a browser game waits for a press before it ends itself and its match |
+
+Every duration is a Go duration and must be above zero; anything else stops
+the service at startup.
 
 It answers `/healthz` the way zaehlwerk does, with its version, and does not
 ask zaehlwerk: a zaehlwerk that is down is a game that cannot start, not a pod
 to restart.
+
+**Deployment.** The image is scanned with Trivy like zaehlwerk's, because in
+attract mode it runs unattended. On Kubernetes it is an optional part of the
+KCL module: `config.pongEnabled` renders its own Deployment, Service and
+ConfigMap next to zaehlwerk's, `config.pongHttpRouteEnabled` a route, and
+`ZAEHLWERK_URL` is zaehlwerk's Service. Off, the render does not change by a
+line. The options are in [kcl/README.md](kcl/README.md#zaehlwerk-pong).
 
 ## CI
 
@@ -987,7 +1036,7 @@ Two workflows, on every pull request and on main.
 | | |
 | --- | --- |
 | **Build & Test** | golangci-lint, the suite with `-race` and a redis-stack bound, and a smoke test that plays a point through the built binary. Plus govulncheck |
-| **Build, Push & Scan** | the image, built with ko and pushed to ghcr.io — `pr-<n>` on a pull request, `main` on main, the version and `latest` on a release tag — then scanned with Trivy |
+| **Build, Push & Scan** | the image, built with ko and pushed to ghcr.io — `pr-<n>` on a pull request, `main` on main, the version and `latest` on a release tag — then scanned with Trivy; zaehlwerk-pong's image the same way |
 
 The first three go through [dagger/main.go](dagger/main.go), which hands
 everything that is the same in every Go service here to
