@@ -168,6 +168,10 @@ func New(registry *match.Registry, lifecycle Lifecycle, opts ...Option) *Server 
 	s.mux.HandleFunc("GET /ui", s.index)
 	s.mux.HandleFunc("GET /ui/{$}", s.index)
 
+	s.mux.HandleFunc("GET /ui/watch", s.watch)
+	s.mux.HandleFunc("GET /ui/watch/{$}", s.watch)
+	s.mux.HandleFunc("GET /ui/watch/next", s.watchNext)
+
 	s.mux.HandleFunc("POST /ui/matches", s.createMatch)
 	s.mux.HandleFunc("POST /ui/matches/{id}/point", s.point)
 	s.mux.HandleFunc("POST /ui/matches/{id}/undo", s.undo)
@@ -213,6 +217,56 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	// longer serves.
 	w.Header().Set("Cache-Control", "no-store")
 	s.render(w, "page", v)
+}
+
+// watch renders the spectator view: the same match as the scoring page, for a
+// screen nobody touches.
+//
+// It is a page of its own rather than a mode of the scoring page, so that a
+// stray tap on a TV or a tablet on the wall cannot score: there is nothing on
+// it that posts. It resolves the match the way [Server.index] does — the
+// running one, or ?match — and only the running one is followed.
+func (s *Server) watch(w http.ResponseWriter, r *http.Request) {
+	v := view{}
+
+	if id := r.URL.Query().Get("match"); id != "" {
+		m, err := s.registry.Get(id)
+		if err != nil {
+			v.Error = err.Error()
+		} else {
+			v.Match = s.matchView(m, kindOf(m.Scorer.State()))
+		}
+	} else {
+		v.Follow = true
+		if m, err := s.registry.Current(); err == nil {
+			v.Match = s.matchView(m, kindOf(m.Scorer.State()))
+		}
+	}
+
+	v.Stream = v.Match != nil && s.hub != nil
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Same as the scoring page: a screen left on across a deploy would keep
+	// swapping into markup the release no longer serves.
+	w.Header().Set("Cache-Control", "no-store")
+	s.render(w, "watch", v)
+}
+
+// watchNext tells a following spectator view whether a different match is now
+// running, by sending it back to /ui/watch.
+//
+// Polled rather than pushed: the stream a page holds is one match's, and the
+// hub has no channel for "a match started". A finished match is left on the
+// screen until the next one starts, which is what somebody looking up from
+// the next table wants to see.
+func (s *Server) watchNext(w http.ResponseWriter, r *http.Request) {
+	m, err := s.registry.Current()
+	if err != nil || m.ID == r.URL.Query().Get("match") {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	w.Header().Set("HX-Redirect", "/ui/watch")
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // createMatch starts a match from the form at the bottom of the page and

@@ -51,10 +51,14 @@ func newStreamFixture(t *testing.T, opts ...Option) *streamFixture {
 
 func (f *streamFixture) connect() (*bufio.Reader, context.CancelFunc) {
 	f.t.Helper()
+	return f.connectTo("/ui/matches/" + f.match.ID + "/stream")
+}
+
+func (f *streamFixture) connectTo(path string) (*bufio.Reader, context.CancelFunc) {
+	f.t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		f.server.URL+"/ui/matches/"+f.match.ID+"/stream", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.server.URL+path, nil)
 	require.NoError(f.t, err)
 
 	resp, err := f.server.Client().Do(req)

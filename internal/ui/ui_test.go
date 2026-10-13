@@ -167,6 +167,19 @@ func TestThePageShowsAFinishedMatchOnlyWhenAsked(t *testing.T) {
 	require.Contains(t, named, "ended")
 }
 
+// The page is read by whoever keeps score. How points reach the service and
+// what the panel field is called are the README's to explain.
+func TestThePageCarriesNoDeveloperCopy(t *testing.T) {
+	f := newFixture(t)
+	f.match("Anna", "Bernd")
+
+	_, body := f.do(http.MethodGet, "/ui", nil)
+
+	require.NotContains(t, body, "pitched to the matrix")
+	require.NotContains(t, body, "/ingest")
+	require.Contains(t, body, `class="panel-preview"`, "the panel preview itself stays")
+}
+
 func TestAnUnknownMatchIsSaidRatherThanShown(t *testing.T) {
 	f := newFixture(t)
 

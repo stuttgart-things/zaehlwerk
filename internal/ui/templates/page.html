@@ -14,41 +14,7 @@
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"></script>
     <style>
-        /* The palette, the type and the shapes are schmetterpause's
-           (web/static/css/app.css there), because this is the same product
-           family: somebody scores a match here and enters it there, and the
-           two should not look like they came from different offices. Copied
-           rather than shared — there is no asset pipeline between the two
-           repositories, and a handful of tokens does not justify one. A change
-           to them over there is worth carrying over here. */
-        :root {
-            color-scheme: dark;
-
-            --bg: #0a0a12;
-            --card: #15152a;
-            --panel: #1e1e3d;
-            --line: #2e2e55;
-            --field-line: #6a6aa8;
-
-            --fg: #ececff;
-            --fg-soft: #c6c6e4;
-            --muted: #8f8fb8;
-
-            /* One action colour, as over there: everything that scores or
-               starts something is this violet. */
-            --accent: #7452ff;
-            --accent-text: #8c70ff;
-            --accent-ink: #ffffff;
-
-            --ok: #3ddc97;
-            --bad: #ff5d73;
-
-            --font-ui: "Space Grotesk", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-            --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-
-            --radius: 0.875rem;
-            --radius-sm: 0.5rem;
-        }
+        {{template "tokens"}}
 
         * { box-sizing: border-box; }
 
@@ -125,6 +91,16 @@
             background: var(--card);
             color: var(--fg-soft);
         }
+
+        .watch-link {
+            flex: none;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--accent-text);
+            text-decoration: none;
+        }
+
+        .watch-link:hover, .watch-link:focus-visible { text-decoration: underline; }
 
         main { flex: 1; padding-top: 1rem; padding-bottom: 1.5rem; }
 
@@ -590,6 +566,9 @@
     <header class="topbar">
         <a class="brand" href="/ui" title="Start page: the match the table is scoring now">Zähl<span class="brand-mark">werk</span></a>
         <span class="tagline">Table tennis · live score</span>
+        {{/* A new tab, because the screen it is for is usually another
+             device, and this one is still keeping score. */}}
+        <a class="watch-link" href="/ui/watch" target="_blank" rel="noopener" title="The score without the buttons, for a screen everybody can see">Watch</a>
         <span class="source" title="This page's source. Each page counts for itself, so two phones on one match never share a counter.">
             <span id="source-badge">&hellip;</span>
         </span>
@@ -702,7 +681,6 @@
     </main>
 
     <footer class="footer">
-        <span>Points go to /ingest, same as the buttons.</span>
         <span class="keys">a / b score, u takes one back.</span>
         {{if .ReportsTo}}<span class="reports" title="SCHMETTERPAUSE_URL">Results go to {{.ReportsTo}}</span>{{else}}<span class="reports">Results are not reported to Schmetterpause.</span>{{end}}
         <a href="https://github.com/stuttgart-things/zaehlwerk">stuttgart-things/zaehlwerk</a>
