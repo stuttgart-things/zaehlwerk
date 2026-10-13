@@ -15,54 +15,94 @@ import (
 // scorer that can only ever agree with the first. Rallies are compared with
 // what zaehlwerk has awarded over the whole match, which is arithmetic over
 // its state and no rule at all.
+//
+// Faults sit between the truth and zaehlwerk, so they never touch Won. What
+// they should do to zaehlwerk's score is kept beside it, in Explained.
 type Truth struct {
 	// Won is the rallies each player really won while points were played.
 	Won [2]int
 	// ServeRally is who won the rally for the first serve, empty before it.
 	ServeRally scorer.Player
+	// Explained is how far the injected faults should have moved zaehlwerk's
+	// points away from Won: a lost press is -1 for its winner, a ghost or a
+	// bounce +1 for the player at its half.
+	Explained [2]int
+	// ExplainedServe is who zaehlwerk should say serves after the injected
+	// faults: ServeRally, unless a wrong half went uncorrected.
+	ExplainedServe scorer.Player
 }
 
 // Rally records a rally won while points are played.
 func (t *Truth) Rally(winner scorer.Player) { t.Won[index(winner)]++ }
 
+// Explain records what an injected fault should do to zaehlwerk's points.
+func (t *Truth) Explain(effect [2]int) {
+	t.Explained[0] += effect[0]
+	t.Explained[1] += effect[1]
+}
+
 // Divergence is a rally after which the truth and zaehlwerk disagree.
 type Divergence struct {
-	// EventID is the rally's number, the event id it was reported with.
-	EventID uint64 `json:"event_id"`
-	// What disagrees: "points", "serve" or "ends".
+	// Rally is the press after which they disagree, numbered as the game
+	// numbers its presses.
+	Rally uint64 `json:"rally"`
+	// What disagrees: "points", "serve" or "ends", or a fault whose answer
+	// was not what zaehlwerk must answer — "resend", "wrong_phase",
+	// "counter_reset", "undo".
 	What      string `json:"what"`
 	Truth     string `json:"truth"`
 	Zaehlwerk string `json:"zaehlwerk"`
+	// Explained is what zaehlwerk should show after the injected faults, when
+	// that is not the truth.
+	Explained string `json:"explained,omitempty"`
+	// Expected is a divergence the injected faults explain. Every other one
+	// is a finding.
+	Expected bool `json:"expected"`
 }
 
-// Points compares the rallies won with the points zaehlwerk has awarded, and
-// reports a divergence if they differ.
-func (t Truth) Points(eventID uint64, st scorer.State) (Divergence, bool) {
+// Points compares the rallies won with the points zaehlwerk has awarded. It
+// reports a divergence when they differ, or when the faults said they should
+// and they do not.
+func (t Truth) Points(rally uint64, st scorer.State) (Divergence, bool) {
 	awarded := Awarded(st)
-	if awarded == t.Won {
+	explained := [2]int{t.Won[0] + t.Explained[0], t.Won[1] + t.Explained[1]}
+	if awarded == t.Won && explained == t.Won {
 		return Divergence{}, false
 	}
-	return Divergence{EventID: eventID, What: "points",
-		Truth: score(t.Won), Zaehlwerk: score(awarded)}, true
+	d := Divergence{Rally: rally, What: "points",
+		Truth: score(t.Won), Zaehlwerk: score(awarded), Expected: awarded == explained}
+	if explained != t.Won {
+		d.Explained = score(explained)
+	}
+	return d, true
 }
 
 // Serve compares who won the serve rally with who zaehlwerk says serves first.
-func (t Truth) Serve(eventID uint64, st scorer.State) (Divergence, bool) {
-	if st.Serving == t.ServeRally {
+func (t Truth) Serve(rally uint64, st scorer.State) (Divergence, bool) {
+	explained := t.ExplainedServe
+	if explained == "" {
+		explained = t.ServeRally
+	}
+	if st.Serving == t.ServeRally && explained == t.ServeRally {
 		return Divergence{}, false
 	}
-	return Divergence{EventID: eventID, What: "serve",
-		Truth: string(t.ServeRally), Zaehlwerk: string(st.Serving)}, true
+	d := Divergence{Rally: rally, What: "serve",
+		Truth: string(t.ServeRally), Zaehlwerk: string(st.Serving), Expected: st.Serving == explained}
+	if explained != t.ServeRally {
+		d.Explained = string(explained)
+	}
+	return d, true
 }
 
 // Ends compares where the bots stand with where zaehlwerk says they stand.
 // They walk only when zaehlwerk calls a change of ends, so ends that move
-// without one would put the next point on the wrong player.
-func Ends(eventID uint64, standing [2]scorer.Player, st scorer.State) (Divergence, bool) {
+// without one would put the next point on the wrong player. No fault explains
+// that.
+func Ends(rally uint64, standing [2]scorer.Player, st scorer.State) (Divergence, bool) {
 	if st.Ends == standing {
 		return Divergence{}, false
 	}
-	return Divergence{EventID: eventID, What: "ends",
+	return Divergence{Rally: rally, What: "ends",
 		Truth: ends(standing), Zaehlwerk: ends(st.Ends)}, true
 }
 
@@ -100,6 +140,28 @@ func playerAt(i int) scorer.Player {
 		return scorer.PlayerB
 	}
 	return scorer.PlayerA
+}
+
+// other is the opposite half.
+func other(h scorer.Half) scorer.Half {
+	if h == scorer.HalfLeft {
+		return scorer.HalfRight
+	}
+	return scorer.HalfLeft
+}
+
+// effectAt is one point more for the player standing at a half.
+func effectAt(h scorer.Half, standing [2]scorer.Player) [2]int {
+	var e [2]int
+	e[index(standing[halfIndex(h)])] = 1
+	return e
+}
+
+func halfIndex(h scorer.Half) int {
+	if h == scorer.HalfRight {
+		return 1
+	}
+	return 0
 }
 
 // halfOf is the half a player stands at.

@@ -37,3 +37,18 @@ func TestAnUnknownSkillIsRefusedAtStartup(t *testing.T) {
 	_, err := config()
 	require.ErrorContains(t, err, "PONG_BOT_SKILL")
 }
+
+func TestFaultsAreTakenFromTheEnvironment(t *testing.T) {
+	t.Setenv("PONG_FAULTS", "wrong_half=0.05,resend=0.1,correct=true")
+	cfg, err := config()
+	require.NoError(t, err)
+	require.Equal(t, 0.05, cfg.Faults.WrongHalf)
+	require.Equal(t, 0.1, cfg.Faults.Resend)
+	require.True(t, cfg.Faults.Correct)
+}
+
+func TestAnUnknownFaultIsRefusedAtStartup(t *testing.T) {
+	t.Setenv("PONG_FAULTS", "wrong-half=0.05")
+	_, err := config()
+	require.ErrorContains(t, err, "PONG_FAULTS")
+}

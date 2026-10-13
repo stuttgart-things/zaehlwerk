@@ -49,7 +49,31 @@ func TestALostPointIsADivergenceAtTheRallyItWasLost(t *testing.T) {
 
 	d, off := truth.Points(7, scorer.State{Points: [2]int{1, 0}})
 	require.True(t, off)
-	require.Equal(t, Divergence{EventID: 7, What: "points", Truth: "1:1", Zaehlwerk: "1:0"}, d)
+	require.Equal(t, Divergence{Rally: 7, What: "points", Truth: "1:1", Zaehlwerk: "1:0"}, d)
+}
+
+func TestAPointTheFaultsLostIsAnExpectedDivergence(t *testing.T) {
+	var truth Truth
+	truth.Rally(scorer.PlayerA)
+	truth.Rally(scorer.PlayerB)
+	truth.Explain([2]int{0, -1})
+
+	d, off := truth.Points(7, scorer.State{Points: [2]int{1, 0}})
+	require.True(t, off)
+	require.Equal(t, Divergence{Rally: 7, What: "points", Truth: "1:1", Zaehlwerk: "1:0",
+		Explained: "1:0", Expected: true}, d)
+}
+
+func TestAFaultZaehlwerkDidNotFeelIsAFindingEvenWhenTheTruthAgrees(t *testing.T) {
+	// A ghost was sent, and zaehlwerk awarded nothing for it.
+	var truth Truth
+	truth.Rally(scorer.PlayerA)
+	truth.Explain([2]int{0, 1})
+
+	d, off := truth.Points(3, scorer.State{Points: [2]int{1, 0}})
+	require.True(t, off)
+	require.False(t, d.Expected)
+	require.Equal(t, "1:1", d.Explained)
 }
 
 func TestAServeRallyWonByOneSideMakesThatSideServe(t *testing.T) {
@@ -63,6 +87,18 @@ func TestAServeRallyWonByOneSideMakesThatSideServe(t *testing.T) {
 	require.Equal(t, "serve", d.What)
 }
 
+func TestAnUncorrectedWrongHalfInTheServeRallyExplainsTheOtherServer(t *testing.T) {
+	truth := Truth{ServeRally: scorer.PlayerA, ExplainedServe: scorer.PlayerB}
+
+	d, off := truth.Serve(3, scorer.State{Serving: scorer.PlayerB})
+	require.True(t, off)
+	require.True(t, d.Expected)
+
+	d, off = truth.Serve(3, scorer.State{Serving: scorer.PlayerA})
+	require.True(t, off)
+	require.False(t, d.Expected, "the wrong half was sent and zaehlwerk did not follow it")
+}
+
 func TestEndsThatMoveWithoutAChangeOfEndsAreADivergence(t *testing.T) {
 	standing := [2]scorer.Player{scorer.PlayerA, scorer.PlayerB}
 
@@ -71,7 +107,7 @@ func TestEndsThatMoveWithoutAChangeOfEndsAreADivergence(t *testing.T) {
 
 	d, off := Ends(9, standing, scorer.State{Ends: [2]scorer.Player{scorer.PlayerB, scorer.PlayerA}})
 	require.True(t, off)
-	require.Equal(t, Divergence{EventID: 9, What: "ends", Truth: "a:b", Zaehlwerk: "b:a"}, d)
+	require.Equal(t, Divergence{Rally: 9, What: "ends", Truth: "a:b", Zaehlwerk: "b:a"}, d)
 }
 
 func TestAPlayerIsReportedForTheHalfTheyStandAt(t *testing.T) {
