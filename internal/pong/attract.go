@@ -23,6 +23,15 @@ import (
 // errYielded is a demo ended because somebody started a game.
 var errYielded = errors.New("gave the table to a new game")
 
+// errIntruded is a demo ended because zaehlwerk's score parted from the truth.
+// A demo has no faults, so nothing the game did explains that: somebody else is
+// counting into its match — buttons pressed during a demo, or a real match
+// started in the instant between the demo seeing a free table and creating its
+// own, which left the demo's match current and the buttons scoring into it.
+// Ending the demo's match makes the newest running match current again, or the
+// table free.
+var errIntruded = errors.New("somebody else is counting into the demo")
+
 // AttractStatus is where attract mode stands, for the lobby.
 type AttractStatus struct {
 	// On is attract mode configured at all.

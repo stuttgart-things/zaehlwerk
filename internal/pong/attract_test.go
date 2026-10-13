@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -225,6 +226,57 @@ func TestTwoGamesAskedForAtOnceEndTheDemoOnce(t *testing.T) {
 	}
 	got := []int{<-statuses, <-statuses}
 	require.ElementsMatch(t, []int{http.StatusCreated, http.StatusConflict}, got)
+}
+
+func TestAButtonPressedDuringADemoEndsItAndTheWaitStartsAgain(t *testing.T) {
+	tbl := newTable(t)
+	p, log := newAttract(t, tbl.url, func(c *Config) { c.AttractPace = 30 * time.Millisecond })
+	demo := p.demo()
+	// Early in the first set, so the press is a rally and not a ready, which
+	// would change nothing the demo could see.
+	require.Eventually(t, func() bool {
+		st := p.get(demo.ID).State
+		return st.Phase == scorer.PhasePlaying && st.Points[0]+st.Points[1] < 4
+	}, 5*time.Second, time.Millisecond)
+
+	body := `{"events": [{"source": "button-left", "half": "left", "event_id": 1}]}`
+	resp, err := http.Post(tbl.url+"/ingest/button", "application/json", strings.NewReader(body))
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	demo = p.finished(demo.ID)
+	ended := time.Now()
+	require.Equal(t, StatusEnded, demo.Status)
+	require.Equal(t, errIntruded.Error(), demo.Reason)
+	require.NotEmpty(t, demo.Divergences)
+	require.Equal(t, 1, log.count("truth and zaehlwerk disagree in a demo, giving way"))
+
+	ours, err := tbl.registry.Get(demo.MatchID)
+	require.NoError(t, err)
+	require.False(t, ours.Running(), "the demo ended its own match")
+	_, err = tbl.registry.Current()
+	require.Error(t, err, "and left the table free")
+
+	// The end is a no_match, and the wait starts from there, whole.
+	next := p.demo()
+	require.NotEqual(t, demo.ID, next.ID)
+	require.Greater(t, time.Since(ended), testAttractAfter/2)
+}
+
+func TestABrowserGameDoesNotEndAtADivergenceItsFaultsExplain(t *testing.T) {
+	// Attract mode on, so it is the game that decides, not the service.
+	p, _ := newAttract(t, newTable(t).url, func(c *Config) { c.AttractAfter = 10 * time.Minute })
+	b := startBrowser(t, p, map[string]any{"faults": Faults{Lost: 1}})
+	rnd := rand.New(rand.NewSource(1))
+
+	_, n := b.playUntil(rnd, 1, func(v View) bool { return v.State.Phase == scorer.PhasePlaying })
+	v := b.press(Press{Rally: n, Kind: PressRally, Half: scorer.HalfRight}).View
+	require.NotEmpty(t, v.Divergences)
+	require.True(t, v.Divergences[0].Expected)
+
+	v = b.press(Press{Rally: n + 1, Kind: PressRally, Half: scorer.HalfLeft}).View
+	require.Equal(t, StatusPlaying, v.Status, "giving way is for demos only")
 }
 
 func TestAStaleMatchBlocksTheDemoAndIsLeftAlone(t *testing.T) {
