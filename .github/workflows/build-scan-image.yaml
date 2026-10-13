@@ -122,8 +122,8 @@ jobs:
   # is released with it: a release tag dispatches this workflow, and the pong
   # image gets the version the zaehlwerk image gets. That is also why
   # release-please needs no entry for it — one package, one tag, every image.
-  # Not scanned, like the mocks: the same module and the same base image as
-  # zaehlwerk, whose scan already covers both.
+  # Scanned, unlike the mocks: with attract mode it runs unattended at a fair
+  # or in the office, next to real users, like zaehlwerk itself.
   build-pong-pr:
     if: github.event_name == 'pull_request'
     uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
@@ -166,6 +166,19 @@ jobs:
       image-ref: ${{ needs.build-pr.outputs.image-ref }}
       severity: HIGH,CRITICAL
       artifact-name: trivy-image-report-pr-${{ github.event.number }}
+      continue-on-error: true
+
+  # The game's image, scanned like zaehlwerk's and report-only for the same
+  # reason. Its own report, so a finding names the image it is in.
+  scan-pong-pr:
+    if: github.event_name == 'pull_request'
+    needs: build-pong-pr
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-dagger-trivy-image-scan.yaml@main
+    with:
+      runs-on: ubuntu-latest
+      image-ref: ${{ needs.build-pong-pr.outputs.image-ref }}
+      severity: HIGH,CRITICAL
+      artifact-name: trivy-image-report-pong-pr-${{ github.event.number }}
       continue-on-error: true
 
   # The kustomize base carries the image reference, so it can only be built
@@ -211,4 +224,15 @@ jobs:
       image-ref: ${{ needs.build-main.outputs.image-ref }}
       severity: HIGH,CRITICAL
       artifact-name: trivy-image-report-${{ github.ref_name }}
+      continue-on-error: true
+
+  scan-pong-main:
+    if: github.event_name != 'pull_request'
+    needs: build-pong-main
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-dagger-trivy-image-scan.yaml@main
+    with:
+      runs-on: ubuntu-latest
+      image-ref: ${{ needs.build-pong-main.outputs.image-ref }}
+      severity: HIGH,CRITICAL
+      artifact-name: trivy-image-report-pong-${{ github.ref_name }}
       continue-on-error: true
