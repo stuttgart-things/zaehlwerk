@@ -98,3 +98,12 @@ func TestTheSpectatorStreamCarriesTheScoreWithoutButtons(t *testing.T) {
 	require.Equal(t, "spectator", ev.name)
 	require.Contains(t, ev.data, `<div class="points">2</div>`)
 }
+
+func TestTheSpectatorViewShowsTheMascotWhileItWaits(t *testing.T) {
+	f := newFixture(t)
+
+	_, body := f.do(http.MethodGet, "/ui/watch", nil)
+
+	require.Contains(t, body, `<img class="brand-logo" src="/ui/static/mark-180.png"`)
+	require.Regexp(t, `<div class="mascot" style="--paddle: #[0-9a-f]{6}"><svg id="mascot"`, body)
+}

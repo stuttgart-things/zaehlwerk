@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#0a0a12">
+    <link rel="icon" type="image/png" sizes="32x32" href="/ui/static/mark-32.png">
+    <link rel="apple-touch-icon" href="/ui/static/mark-180.png">
     <title>Zählwerk · watch</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -31,9 +33,10 @@
             -webkit-font-smoothing: antialiased;
         }
 
-        .topbar { display: flex; align-items: baseline; gap: 1rem; }
-        .brand { font-weight: 700; font-size: clamp(1.2rem, 2.2vw, 2rem); letter-spacing: -0.02em; }
+        .topbar { display: flex; align-items: center; gap: 1rem; }
+        .brand { display: inline-flex; align-items: center; gap: 0.6em; font-weight: 700; font-size: clamp(1.2rem, 2.2vw, 2rem); letter-spacing: -0.02em; }
         .brand-mark { color: var(--accent-text); }
+        .brand-logo { display: block; flex: none; width: 1.4em; height: 1.4em; }
         .tagline {
             font-family: var(--font-mono);
             font-size: clamp(0.7rem, 1vw, 0.95rem);
@@ -168,13 +171,17 @@
         }
 
         .empty p { margin: 0; }
+        /* A screen on the wall with nothing running would otherwise be one
+           line of text in a dark room. */
+        .empty .mascot { width: min(30vh, 40vw); margin-bottom: 1rem; }
+        .mascot svg { display: block; width: 100%; height: auto; }
         .empty .hint { font-size: 0.5em; color: var(--muted); }
         .error { text-align: center; color: var(--bad); }
     </style>
 </head>
 <body>
     <header class="topbar">
-        <span class="brand">Zähl<span class="brand-mark">werk</span></span>
+        <span class="brand"><img class="brand-logo" src="/ui/static/mark-180.png" width="28" height="28" alt=""><span>Zähl<span class="brand-mark">werk</span></span></span>
         <span class="tagline">Table tennis · live score</span>
     </header>
 
@@ -229,6 +236,7 @@
 {{- end}}
 {{- else}}
 <div class="empty">
+  <div class="mascot" style="{{paddle}}">{{mascot}}</div>
   <p>No match is running.</p>
   {{- if .Follow}}<p class="hint">This screen picks up the next one by itself.</p>{{end}}
 </div>
