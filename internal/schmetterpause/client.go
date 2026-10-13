@@ -130,6 +130,10 @@ func New(cfg Config) (*Client, error) {
 	}, nil
 }
 
+// BaseURL is where this client sends its calls, for showing which instance a
+// page reports to.
+func (c *Client) BaseURL() string { return c.base }
+
 // Players fetches the list, every time it is asked.
 func (c *Client) Players(ctx context.Context) ([]Player, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/api/players", nil)

@@ -507,3 +507,47 @@ func TestTheFormDefaultsAreTheMatchAsBefore(t *testing.T) {
 	}
 	require.Equal(t, scorer.PhasePlaying, m.Scorer.State().Phase, "no change of ends unless asked for")
 }
+
+func TestThePageSaysWhichSchmetterpauseItReportsTo(t *testing.T) {
+	f := newFixture(t, WithReportsTo("http://schmetterpause.schmetterpause.svc"))
+
+	_, body := f.do(http.MethodGet, "/ui", nil)
+
+	require.Contains(t, body, "Results go to http://schmetterpause.schmetterpause.svc")
+}
+
+func TestThePageSaysWhenNothingIsReported(t *testing.T) {
+	f := newFixture(t)
+
+	_, body := f.do(http.MethodGet, "/ui", nil)
+
+	require.Contains(t, body, "Results are not reported to Schmetterpause.")
+}
+
+func TestThePageNeverShowsAPasswordFromTheURL(t *testing.T) {
+	f := newFixture(t, WithReportsTo("https://zw:s3cret@schmetterpause.example"))
+
+	_, body := f.do(http.MethodGet, "/ui", nil)
+
+	require.NotContains(t, body, "s3cret")
+	require.Contains(t, body, "schmetterpause.example")
+}
+
+func TestTheWordmarkLeadsBackToTheStartPage(t *testing.T) {
+	f := newFixture(t)
+
+	_, body := f.do(http.MethodGet, "/ui", nil)
+
+	require.Regexp(t, `<a class="brand" href="/ui"`, body)
+}
+
+func TestWarmUpIsOfferedBeforeStraightIn(t *testing.T) {
+	f := newFixture(t)
+
+	_, body := f.do(http.MethodGet, "/ui", nil)
+
+	warmup := strings.Index(body, "<span>Warm-up</span>")
+	straight := strings.Index(body, "<span>Straight in</span>")
+	require.Positive(t, warmup)
+	require.Less(t, warmup, straight)
+}
