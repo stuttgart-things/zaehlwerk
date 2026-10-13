@@ -288,6 +288,57 @@ func TestAGameEndsItsMatchWhenAnotherMatchTakesTheTable(t *testing.T) {
 	require.False(t, ours.Running(), "the game's match was ended, not left behind")
 }
 
+// cuttable forwards to zaehlwerk and can close every /live/stream it carries,
+// as a proxy or a network that drops long-lived connections does.
+type cuttable struct {
+	next http.Handler
+
+	mu      sync.Mutex
+	streams []context.CancelFunc
+}
+
+func (c *cuttable) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/live/stream" {
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+		c.mu.Lock()
+		c.streams = append(c.streams, cancel)
+		c.mu.Unlock()
+		r = r.WithContext(ctx)
+	}
+	c.next.ServeHTTP(w, r)
+}
+
+func (c *cuttable) cut() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, cancel := range c.streams {
+		cancel()
+	}
+}
+
+func TestAGameThatLosesTheTableEndsItsMatch(t *testing.T) {
+	tbl := newTable(t)
+	proxy := &cuttable{next: tbl.zaehlwerk}
+	srv := httptest.NewServer(proxy)
+	t.Cleanup(srv.Close)
+	p := newPong(t, srv.URL, 1)
+
+	status, v, _ := p.start("20ms")
+	require.Equal(t, http.StatusCreated, status)
+	require.Eventually(t, func() bool { return p.get(v.ID).State.Phase == scorer.PhasePlaying },
+		5*time.Second, 5*time.Millisecond)
+
+	proxy.cut()
+
+	v = p.finished(v.ID)
+	require.Equal(t, StatusEnded, v.Status)
+	require.Equal(t, errTableLost.Error(), v.Reason)
+	ours, err := tbl.registry.Get(v.MatchID)
+	require.NoError(t, err)
+	require.False(t, ours.Running(), "the game's match was ended, not played on blind")
+}
+
 func TestAGameEndedOnThePageStopsReporting(t *testing.T) {
 	tbl := newTable(t)
 	p := newPong(t, tbl.url, 1)

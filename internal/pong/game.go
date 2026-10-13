@@ -136,6 +136,12 @@ func (g *Game) start(ctx context.Context) error {
 // plays: somebody started a real one.
 var errDisplaced = errors.New("another match became current at the table")
 
+// errTableLost is /live/stream closing while the game plays. Without it the
+// game cannot see another match become current, and would play a match that is
+// no longer the table's to the end, with its transitions on the panel. It is
+// treated like a displacement; reconnecting is not done yet.
+var errTableLost = errors.New("lost sight of the table")
+
 // run plays the match to its end and watches the table while it does. table
 // is /live/stream, already past the event that said the table was free.
 func (g *Game) run(ctx context.Context, table <-chan TableEvent) {
@@ -157,13 +163,17 @@ func (g *Game) run(ctx context.Context, table <-chan TableEvent) {
 	case errors.Is(err, ErrMatchOver):
 		g.finish(StatusEnded, "zaehlwerk says the match is over")
 		return
-	case errors.Is(err, errDisplaced), ctx.Err() != nil:
-		// The match is no longer the game's to play, or the service is
-		// stopping. Either way it is ended rather than left running, so it
-		// does not sit in the registry as current with nobody scoring it.
+	case errors.Is(err, errDisplaced), errors.Is(err, errTableLost), ctx.Err() != nil:
+		// The match is no longer the game's to play, the game can no longer
+		// tell whether it is, or the service is stopping. Either way it is
+		// ended rather than left running, so it does not sit in the registry
+		// as current with nobody scoring it.
 		reason := "the service stopped"
-		if errors.Is(err, errDisplaced) {
+		switch {
+		case errors.Is(err, errDisplaced):
 			reason = errDisplaced.Error()
+		case errors.Is(err, errTableLost):
+			reason = errTableLost.Error()
 		}
 		g.end(ctx)
 		g.finish(StatusEnded, reason)
@@ -174,7 +184,8 @@ func (g *Game) run(ctx context.Context, table <-chan TableEvent) {
 }
 
 // watch reads the table while the game plays. A snapshot of another match
-// means that match is now current: somebody started it, and it is theirs.
+// means that match is now current: somebody started it, and it is theirs. A
+// stream that closes leaves the game blind to that, so it ends the game too.
 func (g *Game) watch(ctx context.Context, cancel context.CancelCauseFunc, table <-chan TableEvent) {
 	for {
 		select {
@@ -182,6 +193,12 @@ func (g *Game) watch(ctx context.Context, cancel context.CancelCauseFunc, table 
 			return
 		case ev, ok := <-table:
 			if !ok {
+				// Also closed when ctx ends. Only the first cause counts, and
+				// a game that won or is stopping is not one that got lost.
+				if ctx.Err() == nil {
+					g.log.Warn("/live/stream closed, ending our match")
+					cancel(errTableLost)
+				}
 				return
 			}
 			if ev.Kind == kindSnapshot && ev.State != nil && ev.State.MatchID != g.matchIDNow() {

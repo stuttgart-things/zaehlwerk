@@ -98,5 +98,8 @@ different image.
 - A button pressed under the table during a Pong match scores into it, because
   it is the current match. The truth then disagrees with zaehlwerk, which is
   correct — something nobody accounted for did score.
+- A game that loses `/live/stream` ends its match, as if displaced: it can no
+  longer see another match become current, and playing on blind would put a
+  match that is not the table's on the panel. Reconnecting is left for later.
 - zaehlwerk-pong adds an image to release, scan and clean up, built the same way
   as the piezo board and the buttons.
