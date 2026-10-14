@@ -133,7 +133,10 @@ different image.
   the event id zaehlwerk sees stays the service's counter, because injected
   faults add presses of their own.
 - One reporter per game is a token handed to the page that started it, in
-  the URL fragment from the lobby. A second tab watches. A browser game nobody
+  the URL fragment from the lobby. A second tab watches. A duplicated tab,
+  which copies the token with `sessionStorage`, watches too: before taking
+  its part, a tab asks the other tabs of its browser whether one holds the
+  token already (`web/tab.js`, #97). A browser game nobody
   presses in for ten minutes (`PONG_BROWSER_IDLE`) ends its match, so a closed
   tab does not hold the table.
 - The canvas is one embedded file of hand-written JavaScript, a little over

@@ -71,6 +71,7 @@
             <button type="button" class="quiet" id="end" hidden>Spiel beenden</button>
         </div>
     </section>
+    <script src="/static/tab.js"></script>
     <script src="/static/game.js"></script>
     {{end}}
 
@@ -79,7 +80,9 @@
     <div class="row">
         <button type="button" class="quiet" id="check-end" hidden>Prüfung beenden</button>
         <button type="button" class="quiet" id="check-copy" hidden>Zusammenfassung kopieren</button>
+        <span class="muted" id="check-note"></span>
     </div>
+    <script src="/static/tab.js"></script>
     <script src="/static/check.js"></script>
     {{else}}
     <section class="truth" id="truth" sse-swap="truth" hx-swap="innerHTML">{{template "truth" .Board}}</section>

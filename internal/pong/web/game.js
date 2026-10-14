@@ -29,19 +29,22 @@
 
   // The token comes once, in the fragment of the lobby's redirect, and stays in
   // this tab. A second tab has none and watches: one reporter per game. The
-  // guest's comes from /join, marked, and reports nothing either.
+  // guest's comes from /join, marked, and reports nothing either. A duplicated
+  // tab has it too, so a tab takes its part only once no other tab says it
+  // holds the token (tab.js); until then it is neither and sends nothing.
+  const key = 'pong-token-' + id;
   let token = '';
   try {
-    const key = 'pong-token-' + id;
     if (location.hash.length > 1) {
       sessionStorage.setItem(key, location.hash.slice(1));
       history.replaceState(null, '', location.pathname);
     }
     token = sessionStorage.getItem(key) || '';
   } catch (e) { /* no storage: this tab watches */ }
-  let guest = token.startsWith('guest:');
-  if (guest) token = token.slice('guest:'.length);
-  let reporter = token !== '' && !guest;
+  const part = token.startsWith('guest:') ? 'guest' : 'host';
+  if (part === 'guest') token = token.slice('guest:'.length);
+  let guest = false, reporter = false;
+  let asking = token !== '', copied = false;
 
   // The table from above: its length across the screen, the net down the
   // middle, a player behind each end.
@@ -490,7 +493,7 @@
     else if (now < messageUntil) centre = message;
     else if (remote && reporter && view && view.status === 'playing' && !guestHere(now)) centre = guestAt ? 'Gast getrennt – warten' : 'Warten auf den Gast';
     else if (remote && !reporter && view && view.status === 'playing' && !(now - frameAt < SILENCE_MS)) centre = 'Gastgeber getrennt';
-    else if (!reporter && !guest && view) centre = 'Zuschauen';
+    else if (!reporter && !guest && !asking && view) centre = 'Zuschauen';
     else if (st && st.phase === 'change_ends') centre = 'SEITENWECHSEL';
     if (centre) g.fillText(centre, W / 2, H / 2 + 10);
   }
@@ -499,8 +502,9 @@
     const el = document.getElementById('hint');
     if (!el) return;
     if (!reporter && !guest) {
-      el.textContent = view && view.status === 'playing'
-        ? 'Zuschauen: gespielt und gemeldet wird im Tab, der das Spiel gestartet hat.' : '';
+      el.textContent = asking || !view || view.status !== 'playing' ? ''
+        : copied ? 'Dieses Spiel spielt ein anderer Tab. Hier wird nur zugeschaut.'
+          : 'Zuschauen: gespielt und gemeldet wird im Tab, der das Spiel gestartet hat.';
       return;
     }
     el.textContent = {
@@ -511,8 +515,7 @@
     }[mode] || '';
   }
 
-  if (endButton && reporter) {
-    endButton.hidden = false;
+  if (endButton) {
     endButton.addEventListener('click', async () => {
       await fetch('/games/' + id + '/end', { method: 'POST', headers: { 'X-Pong-Token': token } }).catch(() => {});
       location.href = '/';
@@ -645,12 +648,32 @@
     const relay = new EventSource('/games/' + id + '/relay');
     relay.addEventListener('frame', (e) => onFrame(JSON.parse(e.data)));
     relay.addEventListener('guest', (e) => onGuest(JSON.parse(e.data)));
-    if (reporter) {
-      fetchCode();
-      setInterval(showJoin, 1000);
-      const again = document.getElementById('new-code');
-      if (again) again.addEventListener('click', fetchCode);
-    }
+    const again = document.getElementById('new-code');
+    if (again) again.addEventListener('click', fetchCode);
+  }
+
+  // The part this tab plays, once it has asked whether another tab holds the
+  // token. A copy forgets the token, so a reload of it watches too.
+  if (asking) {
+    pongTab.claim(id, part, () => reporter || guest).then((mine) => {
+      asking = false;
+      if (!mine) {
+        copied = true;
+        token = '';
+        try { sessionStorage.removeItem(key); } catch (e) { /* nothing kept */ }
+        say('Dieses Spiel spielt ein anderer Tab.', 4000);
+      } else if (!view || view.status === 'playing') {
+        guest = part === 'guest';
+        reporter = part === 'host';
+        if (endButton && reporter) endButton.hidden = false;
+        if (remote && reporter) {
+          fetchCode();
+          setInterval(showJoin, 1000);
+        }
+      }
+      hint();
+      showJoin();
+    });
   }
 
   const events = new EventSource('/games/' + id + '/events');

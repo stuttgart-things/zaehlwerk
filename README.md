@@ -995,7 +995,8 @@ canvas) and `GET /ui/games/{id}/stream` (the board as HTML, for htmx).
 Exactly one page reports for a game. Starting one hands out a token, in the
 answer to `POST /games` with `"driver": "browser"` and from the lobby in the
 URL fragment, which no server sees; the page keeps it in that tab. A press
-without it is a 403. Another tab, or another device, opens the same page and
+without it is a 403. A duplicated tab carries the token too, but asks the
+other tabs first and watches when one already holds it. Another tab, or another device, opens the same page and
 watches the board. `POST /games/{id}/end` with the token ends the game and its
 match; a browser game nobody presses in for ten minutes (`PONG_BROWSER_IDLE`)
 ends itself the same way, so a closed tab does not keep the panel. A game

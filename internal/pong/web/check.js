@@ -19,6 +19,21 @@
     }
     token = sessionStorage.getItem(key) || '';
   } catch (e) { /* no storage: this tab watches */ }
+  // A duplicated tab has the token too; until no other tab says it holds it
+  // (tab.js), this one does not show the end button.
+  let asking = token !== '';
+  const note = document.getElementById('check-note');
+  if (asking) {
+    pongTab.claim(id, 'check', () => token !== '').then((mine) => {
+      asking = false;
+      if (!mine) {
+        token = '';
+        try { sessionStorage.removeItem(key); } catch (e) { /* nothing kept */ }
+        note.textContent = 'Diese Prüfung läuft in einem anderen Tab. Beenden kann sie nur der.';
+      }
+      show();
+    });
+  }
 
   const end = document.getElementById('check-end');
   const copy = document.getElementById('check-copy');
@@ -26,7 +41,8 @@
   // token, copy once there is a summary to copy.
   const show = () => {
     const over = !!document.getElementById('summary');
-    end.hidden = over || token === '';
+    end.hidden = over || asking || token === '';
+    if (over) note.textContent = '';
     copy.hidden = !over;
   };
   end.addEventListener('click', async () => {
