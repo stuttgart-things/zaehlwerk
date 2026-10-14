@@ -390,7 +390,7 @@ func (s *Server) boardStream(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) script(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("file")
-	if name != "game.js" && name != "check.js" {
+	if name != "game.js" && name != "check.js" && name != "tab.js" {
 		http.NotFound(w, r)
 		return
 	}

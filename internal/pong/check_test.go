@@ -407,3 +407,21 @@ func TestTheCheckScriptIsServedAndNothingElseIs(t *testing.T) {
 	_ = resp.Body.Close()
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
+
+func TestEveryPageWithATokenAsksOtherTabsFirst(t *testing.T) {
+	// tab.js has to run before the page's own script, which calls it.
+	before := func(page, script string) {
+		t.Helper()
+		tab := strings.Index(page, `src="/static/tab.js"`)
+		require.NotEqual(t, -1, tab)
+		require.Less(t, tab, strings.Index(page, `src="/static/`+script+`"`))
+	}
+
+	game := newPong(t, newTable(t).url, 1)
+	before(mustGet(t, game.url+"/play/"+startBrowser(t, game, nil).id), "game.js")
+
+	check := newPong(t, newTable(t).url, 1)
+	before(mustGet(t, check.url+"/play/"+newCheck(t, check)), "check.js")
+
+	require.Contains(t, mustGet(t, game.url+"/static/tab.js"), "BroadcastChannel")
+}
