@@ -1,6 +1,6 @@
 # 9. Pong on two devices
 
-Status: Proposed
+Status: Accepted
 Date: 2026-10-14
 
 ## Context
@@ -366,6 +366,10 @@ decision.
   copied tab sends the same guest token, and both tabs then move the paddle,
   with the last sample winning. This is #97, for the guest token as for the
   host's. It is not solved here.
+- **The lockout can be abused.** Anybody on the same network can lock every
+  new code with five wrong entries, and the guest never gets in. For a demo
+  behind the internal route this is accepted. Should it happen, a lockout per
+  client address is the next step.
 - **Two Pong instances** (ADR-0008 Consequences). A code entered on the wrong
   instance finds no game there and says so. Nothing beyond that is planned.
 
