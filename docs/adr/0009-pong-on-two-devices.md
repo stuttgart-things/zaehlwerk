@@ -66,9 +66,14 @@ flight.** The browser interpolates between the frames it receives.
   keeps only the latest frame and wakes the stream, the way `follow` wakes on
   `Changes()`. A guest whose stream falls behind therefore skips frames rather
   than building up a queue.
-- **Guest → host:** the guest posts its paddle 30 times a second while the
-  paddle moves, and twice a second while it is still, which is the guest's
-  heartbeat. zaehlwerk-pong again keeps only the latest sample.
+- **Guest → host:** the guest posts its paddle 30 times a second while a ball
+  is in play, whether the paddle moves or not, and twice a second otherwise,
+  which is the guest's heartbeat. zaehlwerk-pong again keeps only the latest
+  sample. Full rate during play is not about the paddle's position but about
+  its tick: the host judges a contact only once a sample with a later tick
+  arrives (section 5). A still paddle sending twice a second made the host
+  wait out the full 120 ms at every crossing, and its screen showed the ball
+  flying on and jumping back even on a fast connection.
 - **One in flight:** each sender waits for the answer before its next POST. A
   sample produced in the meantime replaces the one waiting, so a slow request
   delays the next one but never piles them up.
@@ -157,7 +162,7 @@ interpret the contents. Physics and rules stay on the host.
 
 | Direction | Route | Body | Rate | Size |
 | --- | --- | --- | --- | --- |
-| guest → pong | `POST /games/{id}/paddle` (guest token) | `{"tick": 812, "y": 241.5, "ready": 2}` | 30/s moving, 2/s still | ~40 B |
+| guest → pong | `POST /games/{id}/paddle` (guest token) | `{"tick": 812, "y": 241.5, "ready": 2}` | 30/s while a ball is in play, 2/s otherwise | ~40 B |
 | host → pong | `POST /games/{id}/frames` (host token) | `{"tick": 815, "ball": {"x":…,"y":…,"z":…}, "resting": null, "paddles": [212.0, 241.5], "say": "NETZ", "fx": [1100]}` | 30/s | ~120–160 B |
 | pong → both | `GET /games/{id}/relay`, SSE | event `frame` (the latest host frame), event `guest` (the latest guest sample) | as posted, latest only | as above |
 
@@ -195,7 +200,7 @@ anything about them.
 ### 4. Failures
 
 Each device notices that the other is gone by silence: no message from the
-other for **2 seconds**. The guest's heartbeat (2/s at rest) and the host's
+other for **2 seconds**. The guest's heartbeat (2/s between rallies) and the host's
 frames (30/s) mean that silence is never just a still paddle.
 
 - **The guest drops.** The host pauses. A ball in flight is taken off the

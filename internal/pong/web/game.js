@@ -56,8 +56,12 @@
   const LET = 0.05;          // a serve that touches the net and lands in
   const HUMAN_SPEED = 560;
   // Two devices (ADR-0009): thirty messages a second each way, one request
-  // in flight; the guest at rest sends twice a second, which is its heartbeat,
-  // so two seconds without a message is a device gone. The guest draws the
+  // in flight. The guest sends at that rate while a ball is in play, even with
+  // its paddle still: the host judges a contact only once a sample with a later
+  // tick arrives, and a still paddle sending twice a second made it wait the
+  // full 120 ms and show the ball jumping back. Otherwise the guest sends twice
+  // a second, which is its heartbeat, so two seconds without a message is a
+  // device gone. The guest draws the
   // host's table 50 ms behind to have two frames to draw between, and its
   // contact is judged against the tick it saw, at most 120 ms late.
   const SEND_MS = 33, REST_MS = 500, SILENCE_MS = 2000, INTERP_MS = 50, JUDGE_MS = 120;
@@ -552,7 +556,8 @@
 
   function sample(now) {
     const y = paddles[guestHalf()].y;
-    if (y === sentY && keys === sentKeys && now - sentAt < REST_MS) return;
+    const inPlay = ball !== null && resting === null;
+    if (!inPlay && y === sentY && keys === sentKeys && now - sentAt < REST_MS) return;
     postSample(now, () => {
       sentY = y; sentKeys = keys; sentAt = now;
       return { tick: Math.floor(shownTick), y: y, ready: keys };
