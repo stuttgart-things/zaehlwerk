@@ -46,6 +46,7 @@ ZW_PORT=${E2E_ZW_PORT:-18080}
 SP_PORT=${E2E_SP_PORT:-18082}
 PONG_PORT=${E2E_PONG_PORT:-18081}
 TOKEN=chain-e2e
+HUB_TOKEN=chain-e2e-hub
 ZW=http://localhost:$ZW_PORT
 SP=http://localhost:$SP_PORT
 PONG=http://localhost:$PONG_PORT
@@ -96,6 +97,7 @@ SCHMETTERPAUSE_ADDR=":$SP_PORT" SCHMETTERPAUSE_TOKEN=$TOKEN \
 # A grace period short enough for CI, and long enough for the undo in step 4,
 # which is two curls after the match point.
 HTTP_ADDR=":$ZW_PORT" SCHMETTERPAUSE_URL=$SP SCHMETTERPAUSE_TOKEN=$TOKEN SCHMETTERPAUSE_REPORT_DELAY=2s \
+  CHECKIN_TOKEN=$HUB_TOKEN \
   "$WORK/zaehlwerk-api" >"$WORK/zw.log" 2>&1 &
 
 wait_until 20 curl -sf "$ZW/healthz" || fail "zaehlwerk did not come up"
@@ -484,15 +486,25 @@ echo "12. two fobs check in, play, and the result goes without an operator"
 # does not take the table in between.
 kill "$pong_pid" 2>/dev/null || true
 wait "$pong_pid" 2>/dev/null || true
-# checkin <event_id> <half> <uid> — the status code; the answer is left in
-# checkin.json. The counter is passed in because $(…) runs in a subshell.
+# checkin <event_id> <half> <uid> [token] — the status code; the answer is
+# left in checkin.json. The counter is passed in because $(…) runs in a
+# subshell. The hub sends its token as a bearer (#113); a fourth argument
+# sends another one instead, "" none at all.
 checkin() {
+  local token=${4-$HUB_TOKEN}
   curl -s -o "$WORK/checkin.json" -w '%{http_code}' -X POST "$ZW/ingest/checkin" \
-    -H 'content-type: application/json' \
+    -H 'content-type: application/json' ${token:+-H "authorization: Bearer $token"} \
     -d "{\"source\":\"e2e-hub\",\"event_id\":$1,\"half\":\"$2\",\"uid\":\"$3\"}"
 }
 checkins() { curl -sf "$SP/checkins" | jq length; }
 outcome() { jq -r .outcome "$WORK/checkin.json"; }
+
+# Anybody else on the network: Anna's UID is no secret, the token is.
+[ "$(checkin 1 left 04:a3:1b:22 "")" = 401 ] ||
+  fail "a check-in without the hub's token was not refused: $(cat "$WORK/checkin.json")"
+[ "$(checkin 1 left 04:a3:1b:22 not-the-hub)" = 401 ] ||
+  fail "a check-in with a wrong token was not refused: $(cat "$WORK/checkin.json")"
+[ "$(checkins)" = 0 ] || fail "a refused check-in reached Schmetterpause ($(checkins) check-ins over there)"
 
 [ "$(checkin 1 left 04:a3:1b:22)" = 200 ] && [ "$(outcome)" = claimed ] ||
   fail "Anna's fob did not claim the left half: $(cat "$WORK/checkin.json")"
@@ -534,6 +546,7 @@ for log in zw sp; do
     ! grep -qF "$spelling" "$WORK/$log.log" || fail "a UID ($spelling) is in $log.log"
   done
 done
+echo "   a check-in without the hub's token, or with another, refused with 401 and never resolved"
 echo "   match $match: Anna and Bernd by fob, $presses presses, $(jq -c .sets <<<"$last") reported with two check-ins and no operator"
 
 echo "ok: 4 results, $resent resends, $duplicates duplicates, retry after refuse," \

@@ -296,6 +296,7 @@ func RunFromEnv(ctx context.Context, log *slog.Logger) error {
 	}
 
 	rig := New(api, env("BUTTONS_SOURCE", "button-mock"), settings, log)
+	rig.SetCheckinToken(os.Getenv("CHECKIN_TOKEN"))
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           NewServer(rig, public+"/ui", strings.TrimRight(os.Getenv("PIEZO_CONTROL_URL"), "/"), log),
@@ -305,7 +306,9 @@ func RunFromEnv(ctx context.Context, log *slog.Logger) error {
 	errs := make(chan error, 1)
 	go func() { errs <- srv.ListenAndServe() }()
 	log.Info("buttons up", "addr", addr, "api", api, "device", settings.Device, "long_press", settings.LongPress,
-		"both_window", settings.BothWindow, "piezo_control", os.Getenv("PIEZO_CONTROL_URL"))
+		"both_window", settings.BothWindow, "piezo_control", os.Getenv("PIEZO_CONTROL_URL"),
+		// Whether a token is set, never the token.
+		"checkin_token", os.Getenv("CHECKIN_TOKEN") != "")
 
 	select {
 	case err := <-errs:

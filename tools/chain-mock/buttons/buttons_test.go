@@ -45,8 +45,13 @@ func rig(t *testing.T, zw *httptest.Server, change func(*Settings)) *Rig {
 	if change != nil {
 		change(&s)
 	}
-	return New(zw.URL, "button-test", s, quiet)
+	r := New(zw.URL, "button-test", s, quiet)
+	r.SetCheckinToken(testHubToken)
+	return r
 }
+
+// testHubToken is CHECKIN_TOKEN on both sides in these tests.
+const testHubToken = "hub-secret"
 
 func current(t *testing.T, r *Rig) scorer.State {
 	t.Helper()

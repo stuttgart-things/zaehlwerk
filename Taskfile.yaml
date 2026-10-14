@@ -32,6 +32,8 @@ vars:
   # Shared by both ends of the chain, so the fake and zaehlwerk agree on it
   # without anybody typing it twice. Not a secret: nothing real is behind it.
   CHAIN_TOKEN: chain-mock
+  # CHECKIN_TOKEN between chain:run and chain:buttons, which plays the hub.
+  CHAIN_HUB_TOKEN: chain-mock-hub
   API: http://localhost:{{.ZW_PORT | default "8080"}}
   SIMULATOR: http://localhost:{{.ZW_SIMULATOR_PORT | default "8081"}}
 
@@ -307,6 +309,8 @@ tasks:
       HTTP_ADDR: ':{{.ZW_PORT}}'
       SCHMETTERPAUSE_URL: '{{.FAKE_SCHMETTERPAUSE}}'
       SCHMETTERPAUSE_TOKEN: '{{.CHAIN_TOKEN}}'
+      # What chain:buttons sends as the hub; without it check-in is off.
+      CHECKIN_TOKEN: '{{.CHAIN_HUB_TOKEN}}'
       LOG_LEVEL: '{{.LOG_LEVEL | default "INFO"}}'
     cmds:
       - go run ./cmd/zaehlwerk-api
@@ -340,6 +344,7 @@ tasks:
     env:
       ZAEHLWERK_URL: '{{.API}}'
       BUTTONS_ADDR: ':{{.ZW_BUTTONS_PORT}}'
+      CHECKIN_TOKEN: '{{.CHAIN_HUB_TOKEN}}'
       # Opt-in: without a board running, the page would only report one
       # that is not answering.
       PIEZO_CONTROL_URL: '{{if .PIEZO}}http://localhost:{{.ZW_PIEZO_CONTROL_PORT}}{{end}}'
