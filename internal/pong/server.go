@@ -92,6 +92,8 @@ type Server struct {
 	checkGap time.Duration
 	// heartbeat is how often an idle stream to a page writes a keepalive.
 	heartbeat time.Duration
+	// now is the clock a join code expires by; only the tests set it.
+	now func() time.Time
 }
 
 func New(cfg Config, log *slog.Logger) *Server {
@@ -106,6 +108,7 @@ func New(cfg Config, log *slog.Logger) *Server {
 		games:     make(map[string]*Game),
 		heartbeat: DefaultHeartbeat,
 		idle:      cfg.BrowserIdle,
+		now:       time.Now,
 	}
 	s.mux.HandleFunc("GET /healthz", s.healthz)
 	s.mux.HandleFunc("POST /games", s.startGame)
@@ -113,6 +116,7 @@ func New(cfg Config, log *slog.Logger) *Server {
 	s.mux.HandleFunc("GET /games/{id}/events", s.events)
 	s.mux.HandleFunc("POST /games/{id}/presses", s.press)
 	s.mux.HandleFunc("POST /games/{id}/end", s.endGame)
+	s.mux.HandleFunc("POST /games/{id}/code", s.drawCode)
 	s.routeUI()
 	return s
 }
@@ -165,10 +169,12 @@ type startBody struct {
 
 // started is the answer to a start: the game, and for a browser game the
 // token its presses must carry. The token is in this answer and nowhere
-// else, so the page that started the game is the one that reports for it.
+// else, so the page that started the game is the one that reports for it. A
+// game on two devices adds the code its guest joins with.
 type started struct {
 	View
-	Token string `json:"token,omitempty"`
+	Token    string `json:"token,omitempty"`
+	JoinCode string `json:"join_code,omitempty"`
 }
 
 // errBusy is a game or a match already holding the table.
@@ -244,8 +250,17 @@ func (s *Server) startGame(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadGateway, err)
 		return
 	}
+	answer := started{View: g.View(), Token: g.token}
+	if g.remote != nil {
+		c, err := g.remote.draw()
+		if err != nil {
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+		answer.JoinCode = c.Code
+	}
 	w.Header().Set("Location", "/games/"+g.ID)
-	writeJSON(w, http.StatusCreated, started{View: g.View(), Token: g.token})
+	writeJSON(w, http.StatusCreated, answer)
 }
 
 // The modes of a browser game, and the lobby's mode for a button check.
@@ -254,6 +269,9 @@ const (
 	ModePvC   = "pvc"   // a person as player a, the computer as b
 	ModeCvC   = "cvc"   // two bots, in the browser, to watch
 	ModeCheck = "check" // the buttons at the table
+	// ModeRemote is two people on two devices (ADR-0009): the host plays
+	// a on the page that started the game, the guest b on a second one.
+	ModeRemote = "remote"
 )
 
 // checkGame is a button check: no faults, because the hardware brings its own,
@@ -274,18 +292,22 @@ func browserGame(mode string, players [2]string, bots [2]*BotParams) (GameConfig
 		ModePvP: {"Links", "Rechts"},
 		ModePvC: {"Spieler", "Computer"},
 		ModeCvC: BotNames,
+		// The host names both: zaehlwerk takes the names when the match
+		// is created, and the guest joins only afterwards.
+		ModeRemote: {"Gastgeber", "Gast"},
 	}
 	if cfg.Mode == "" {
 		cfg.Mode = ModePvP
 	}
 	names, ok := defaults[cfg.Mode]
 	if !ok {
-		return cfg, fmt.Errorf("mode %q: want pvp, pvc or cvc", mode)
+		return cfg, fmt.Errorf("mode %q: want pvp, pvc, cvc or remote", mode)
 	}
 
 	// Who is a bot follows from the mode, so a request cannot make a person
 	// of the computer or the other way round: in pvc it is player b.
-	wantBot := map[string][2]bool{ModePvP: {false, false}, ModePvC: {false, true}, ModeCvC: {true, true}}[cfg.Mode]
+	wantBot := map[string][2]bool{ModePvP: {false, false}, ModePvC: {false, true}, ModeCvC: {true, true},
+		ModeRemote: {false, false}}[cfg.Mode]
 	preset, _ := Preset(DefaultSkill)
 	for i := range players {
 		name := strings.TrimSpace(players[i])
@@ -353,6 +375,12 @@ func (s *Server) start(cfg GameConfig) (*Game, error) {
 	// A check's token only ends it: it presses nothing.
 	if cfg.Driver == DriverBrowser || cfg.Driver == DriverCheck {
 		if g.token, err = newToken(); err != nil {
+			s.mu.Unlock()
+			return nil, err
+		}
+	}
+	if cfg.Mode == ModeRemote {
+		if g.remote, err = newRemote(s.now); err != nil {
 			s.mu.Unlock()
 			return nil, err
 		}

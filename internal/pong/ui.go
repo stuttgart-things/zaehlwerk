@@ -37,6 +37,8 @@ func (s *Server) routeUI() {
 	s.mux.HandleFunc("GET /ui/bot", s.botSliders)
 	s.mux.HandleFunc("GET /ui/attract", s.attractCard)
 	s.mux.HandleFunc("POST /ui/games", s.startFromLobby)
+	s.mux.HandleFunc("GET /join", s.joinPage)
+	s.mux.HandleFunc("POST /ui/join", s.joinFromForm)
 	s.mux.HandleFunc("GET /play/{id}", s.playPage)
 	s.mux.HandleFunc("GET /ui/games/{id}/stream", s.boardStream)
 	s.mux.HandleFunc("GET /static/{file}", s.script)
@@ -210,6 +212,71 @@ func (s *Server) startFromLobby(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("HX-Redirect", target)
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) joinPage(w http.ResponseWriter, _ *http.Request) { render(w, "join", nil) }
+
+// joinMessages are the refusals of a join as the guest reads them.
+var joinMessages = []struct {
+	err error
+	msg string
+}{
+	{errNoGuestWanted, "Gerade wartet kein Spiel auf einen Gast."},
+	{errJoined, "Diesem Spiel ist schon ein Gast beigetreten."},
+	{errCodeLocked, "Der Code ist nach fünf falschen Versuchen gesperrt. Auf dem Gerät des Gastgebers gibt es einen neuen."},
+	{errCodeExpired, "Der Code ist abgelaufen. Auf dem Gerät des Gastgebers gibt es einen neuen."},
+	{errWrongCode, "Der Code passt nicht."},
+}
+
+// joinFromForm is POST /ui/join: the code from /join, answered with the game's
+// page and the guest's token in the fragment, which the guest's page keeps in
+// its tab as the host's page keeps the host's.
+func (s *Server) joinFromForm(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<10)
+	if err := r.ParseForm(); err != nil {
+		s.joinError(w, r, http.StatusBadRequest, "Das Formular kam nicht an.", err)
+		return
+	}
+	g, token, err := s.join(strings.TrimSpace(r.FormValue("code")))
+	if err != nil {
+		msg, status := "Beitreten ging nicht.", http.StatusInternalServerError
+		for _, m := range joinMessages {
+			if errors.Is(err, m.err) {
+				msg, status = m.msg, http.StatusConflict
+				break
+			}
+		}
+		if errors.Is(err, errWrongCode) || errors.Is(err, errCodeLocked) {
+			status = http.StatusForbidden
+		}
+		s.joinError(w, r, status, msg, err)
+		return
+	}
+
+	target := "/play/" + g.ID + "#" + GuestTokenPrefix + token
+	if r.Header.Get("HX-Request") == "" {
+		http.Redirect(w, r, target, http.StatusSeeOther)
+		return
+	}
+	w.Header().Set("HX-Redirect", target)
+	w.WriteHeader(http.StatusOK)
+}
+
+// joinError says why a join was refused. To htmx it is a 200, which it swaps,
+// as the lobby's refusals are; to anything else it is the status it is.
+func (s *Server) joinError(w http.ResponseWriter, r *http.Request, status int, msg string, err error) {
+	s.log.Info("a join was refused", "error", err)
+	if r.Header.Get("HX-Request") != "" {
+		status = http.StatusOK
+	}
+	html, perr := partial("lobby-error", struct{ Message, Detail string }{msg, err.Error()})
+	if perr != nil {
+		http.Error(w, perr.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = w.Write([]byte(html))
 }
 
 // lobbyForm reads the lobby's form into a browser game.
