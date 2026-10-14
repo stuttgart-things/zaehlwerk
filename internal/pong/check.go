@@ -304,7 +304,14 @@ func (g *Game) runCheck(ctx context.Context, table <-chan TableEvent) error {
 				limit.Stop()
 				return ctx.Err()
 			case <-limit.C:
-				g.found(p, CheckMissing, "nothing arrived")
+				got := "nothing arrived"
+				if p.Kind == PressReady {
+					// zaehlwerk drops a ready from a half that is not
+					// waiting without a transition, so the stream cannot
+					// tell a wrong half here from no press at all.
+					got += "; may also be a press at the wrong half, which zaehlwerk ignores here"
+				}
+				g.found(p, CheckMissing, got)
 				missed++
 				if missed >= maxMissed {
 					return errNobodyPresses

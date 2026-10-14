@@ -984,7 +984,7 @@ second after it is answered. Each ends as one of:
 | `ok` | the press arrived at the half asked for |
 | `wrong_half` | it arrived at the other half |
 | `double` | the same button again in the second after the press: a bounce, or a hub sending twice |
-| `missing` | nothing arrived before the timeout |
+| `missing` | nothing arrived before the timeout; on a ready prompt it may also be a press at the wrong half, which zaehlwerk ignores |
 | `unexpected` | a press in the second between two prompts that is not a bounce, or a transition no press makes |
 
 The page and `GET /games/{id}` (`check`) keep the counts, the first findings

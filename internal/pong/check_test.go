@@ -237,6 +237,29 @@ func TestAPromptNobodyPressesForIsMissing(t *testing.T) {
 	require.Equal(t, "nothing arrived", v.Check.Findings[0].Got)
 }
 
+func TestAMissingReadySaysItMayBeAWrongHalf(t *testing.T) {
+	tbl := newTable(t)
+	p := newPong(t, tbl.url, 1)
+	id := newCheck(t, p)
+	b := newButtons(t, tbl.url)
+
+	skipped := 0
+	p.followPrompts(id, b, func(pr *Prompt) bool {
+		if pr.Kind == PressReady && skipped == 0 {
+			skipped = pr.N
+			return false
+		}
+		return true
+	})
+	v := p.finished(id)
+
+	require.Equal(t, StatusChecked, v.Status, v.Reason)
+	require.Len(t, v.Check.Findings, 1)
+	require.Equal(t, CheckMissing, v.Check.Findings[0].Outcome)
+	require.Equal(t, skipped, v.Check.Findings[0].Prompt)
+	require.Equal(t, "nothing arrived; may also be a press at the wrong half, which zaehlwerk ignores here", v.Check.Findings[0].Got)
+}
+
 func TestAPressBetweenTwoPromptsIsUnexpected(t *testing.T) {
 	tbl := newTable(t)
 	p := newPong(t, tbl.url, 1)
