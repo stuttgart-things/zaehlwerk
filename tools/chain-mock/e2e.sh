@@ -33,6 +33,10 @@
 #   10. a button check pressed as it says has no finding, and one press at the
 #      wrong half is the one finding it reports
 #   11. a Pong match never reaches Schmetterpause
+#   12. two fobs check in at the two halves and start a match, a retried
+#      check-in resolves once, an unknown fob and one during the match change
+#      nothing, the match is played, and its result reaches Schmetterpause
+#      with both check-ins and no operator; no UID is in either log (ADR-0010)
 #
 # Ports are off the usual ones, so it runs next to a `task run` without
 # either noticing.
@@ -474,8 +478,66 @@ echo "11. a Pong match never reaches Schmetterpause"
 [ "$(scheduled)" = "$reported" ] || fail "a Pong match was set out to be reported"
 has_results 3 || fail "a Pong match was reported (have $(results))"
 
-echo "ok: 3 results, $resent resends, $duplicates duplicates, retry after refuse," \
+echo "12. two fobs check in, play, and the result goes without an operator"
+# The hub's part of zaehlwerk-firmware#63, as curls: a fob, a half, once,
+# under the hub's source and counter. Pong is stopped first, so attract mode
+# does not take the table in between.
+kill "$pong_pid" 2>/dev/null || true
+wait "$pong_pid" 2>/dev/null || true
+# checkin <event_id> <half> <uid> — the status code; the answer is left in
+# checkin.json. The counter is passed in because $(…) runs in a subshell.
+checkin() {
+  curl -s -o "$WORK/checkin.json" -w '%{http_code}' -X POST "$ZW/ingest/checkin" \
+    -H 'content-type: application/json' \
+    -d "{\"source\":\"e2e-hub\",\"event_id\":$1,\"half\":\"$2\",\"uid\":\"$3\"}"
+}
+checkins() { curl -sf "$SP/checkins" | jq length; }
+outcome() { jq -r .outcome "$WORK/checkin.json"; }
+
+[ "$(checkin 1 left 04:a3:1b:22)" = 200 ] && [ "$(outcome)" = claimed ] ||
+  fail "Anna's fob did not claim the left half: $(cat "$WORK/checkin.json")"
+[ "$(checkin 1 left 04:a3:1b:22)" = 200 ] && [ "$(jq -r .repeated "$WORK/checkin.json")" = true ] ||
+  fail "the retried check-in was not answered as a repeat: $(cat "$WORK/checkin.json")"
+[ "$(checkins)" = 1 ] || fail "a retried check-in was resolved again ($(checkins) check-ins over there)"
+[ "$(checkin 2 right DE:AD:BE:EF)" = 404 ] && [ "$(outcome)" = unknown ] ||
+  fail "an unknown fob was not answered as one: $(cat "$WORK/checkin.json")"
+[ "$(curl -sf "$ZW/checkin" | jq -r '.left.name + "|" + (.right.name // "")')" = "Anna|" ] ||
+  fail "the halves are not Anna and free: $(curl -sf "$ZW/checkin")"
+[ "$(checkin 3 right 04-5C-7E-91)" = 200 ] && [ "$(outcome)" = started ] ||
+  fail "Bernd's fob did not start the match: $(cat "$WORK/checkin.json")"
+match=$(jq -r .match_id "$WORK/checkin.json")
+[ "$(curl -sf "$ZW/matches/current" | jq -r '.match_id + "|" + .phase + "|" + (.players | join(","))')" = "$match|serve_rally|Anna,Bernd" ] ||
+  fail "the checked-in match is not Anna against Bernd playing for the serve: $(curl -sf "$ZW/matches/current")"
+before=$(checkins)
+[ "$(checkin 4 left "04 11 22 33 44 55 66")" = 409 ] && [ "$(outcome)" = refused ] ||
+  fail "a check-in during the match was not refused: $(cat "$WORK/checkin.json")"
+[ "$(checkins)" = "$before" ] || fail "a check-in during the match reached Schmetterpause"
+
+# The serve rally, then Anna wins every point at the left half.
+presses=0
+while [ "$(curl -sf "$ZW/matches/$match" | jq -r .complete)" = false ] && [ $presses -lt 60 ]; do
+  presses=$((presses + 1))
+  curl -sf -X POST "$ZW/ingest/button" -H 'content-type: application/json' \
+    -d "{\"events\":[{\"source\":\"e2e-checkin-left\",\"half\":\"left\",\"event_id\":$presses}]}" >/dev/null ||
+    fail "press $presses at the left half was refused"
+done
+wait_until 10 has_results 4 || fail "the checked-in result did not arrive (have $(results))"
+last=$(curl -sf "$SP/results" | jq -c '.[-1]')
+[ "$(jq -r '[.home, .away, .entered_via, .operator] | join("|")' <<<"$last")" = "Anna|Bernd|checkin|" ] ||
+  fail "the checked-in result arrived as $last"
+[ "$(jq -r '.home_checkin_id != null and .away_checkin_id != null' <<<"$last")" = true ] ||
+  fail "the checked-in result has no check-ins: $last"
+[ "$(curl -sf "$SP/checkins" | jq '[.[] | select(.used)] | length')" = 2 ] ||
+  fail "the result did not use exactly the two check-ins"
+for log in zw sp; do
+  for spelling in de:ad:be:ef DE:AD:BE:EF deadbeef DEADBEEF 04:a3:1b:22 04:A3:1B:22 04-5C-7E-91 "04 11 22 33"; do
+    ! grep -qF "$spelling" "$WORK/$log.log" || fail "a UID ($spelling) is in $log.log"
+  done
+done
+echo "   match $match: Anna and Bernd by fob, $presses presses, $(jq -c .sets <<<"$last") reported with two check-ins and no operator"
+
+echo "ok: 4 results, $resent resends, $duplicates duplicates, retry after refuse," \
   "an undone match point withheld," \
   "$games Pong games with no unexplained divergence, ends changed at five in the decider," \
   "one of them on two devices," \
-  "2 button checks"
+  "2 button checks, a match started by two fobs"
