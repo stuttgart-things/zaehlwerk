@@ -21,9 +21,11 @@
 #      one number each — ends with truth and zaehlwerk agreeing; a press
 #      without the token is refused and one sent twice counts once
 #   8. attract mode starts a demo on a free table after the wait, with no
-#      faults whatever PONG_FAULTS says; a match started at the table ends
-#      it, and the next waits for that match to end; a game asked for takes
-#      the table from it
+#      faults whatever PONG_FAULTS says; a match started on the page ends it
+#      inside zaehlwerk at once and the buttons count into that match, a
+#      demo asked for while it runs is refused and Schmetterpause hears of
+#      neither, and the next demo waits for that match to end; a game asked
+#      for takes the table from a demo (ADR-0008)
 #   9. a button check pressed as it says has no finding, and one press at the
 #      wrong half is the one finding it reports
 #   10. a Pong match never reaches Schmetterpause
@@ -285,20 +287,50 @@ game=$(curl -sf "$PONG/games/$id")
 games=$((games + 1))
 echo "   demo $id: $(jq -c .state.completed_sets <<<"$game"), no faults, no divergence"
 
-# The next demo, after a whole wait. A match started at the table ends it.
+# The next demo, after a whole wait. A match started on the page ends it,
+# inside zaehlwerk and at once (ADR-0008): its match takes no press any more
+# before the game has even seen the table change.
 wait_until 20 has_demos 2 || fail "no second demo after the first was won"
 id=$(demos | sed -n 2p)
-real=$(curl -sf -X POST "$ZW/matches" -H 'content-type: application/json' \
-  -d '{"players":["Anna","Bernd"],"best_of":3}' | jq -r .match_id) || fail "could not start a match at the table"
+wait_until 10 sh -c "curl -sf '$PONG/games/$id' | jq -e '.match_id != \"\"'" || fail "demo $id has no match"
+demo_match=$(curl -sf "$PONG/games/$id" | jq -r .match_id)
+[ "$(curl -sf "$ZW/matches/$demo_match" | jq -r .complete)" = false ] || fail "demo $id was over before the page started"
+curl -sf -X POST "$ZW/ui/matches" -d best_of=3 \
+  -d "home_id=$(jq -r '.[0].id' <<<"$roster")" -d "away_id=$(jq -r '.[1].id' <<<"$roster")" \
+  -d "operator_id=$(jq -r '.[2].id' <<<"$roster")" >/dev/null || fail "the page did not start a match"
+real=$(current)
+[ "$real" != "$demo_match" ] || fail "the page's match is not current"
+late=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$ZW/ingest/web" -H 'content-type: application/json' \
+  -d "{\"match_id\":\"$demo_match\",\"source\":\"e2e-late\",\"player\":\"a\",\"event_id\":1}")
+[ "$late" = 409 ] || fail "demo match $demo_match still takes presses after the page started $real ($late)"
+demo_points=$(curl -sf "$ZW/matches/$demo_match" | jq -c .points)
 wait_until 10 game_over "$id" || fail "demo $id did not give way to match $real"
 [ "$(curl -sf "$PONG/games/$id" | jq -r .reason)" = "another match became current at the table" ] ||
   fail "demo $id ended for another reason: $(curl -sf "$PONG/games/$id" | jq -c '{status, reason}')"
+# The buttons count into the page's match, which they resolve to.
+for n in 1 2 3; do
+  curl -sf -X POST "$ZW/ingest/button" -H 'content-type: application/json' \
+    -d "{\"events\":[{\"source\":\"e2e-demo-button\",\"half\":\"left\",\"event_id\":$n}]}" >/dev/null ||
+    fail "button press $n was not taken"
+done
+[ "$(curl -sf "$ZW/matches/$real" | jq '.points | add')" = 3 ] ||
+  fail "the buttons did not count into match $real: $(curl -sf "$ZW/matches/$real" | jq -c .points)"
+[ "$(curl -sf "$ZW/matches/$demo_match" | jq -c .points)" = "$demo_points" ] ||
+  fail "a button press reached demo match $demo_match"
+# What attract mode sends, had it seen a free table an instant before the page
+# started: refused, with the match that has the table.
+refused=$(curl -s -w '\n%{http_code}' -X POST "$ZW/matches" -H 'content-type: application/json' \
+  -d '{"players":["Pong A","Pong B"],"best_of":3,"demo":true}')
+[ "$(tail -n 1 <<<"$refused")" = 409 ] || fail "a demo was created next to match $real: $refused"
+[ "$(head -n 1 <<<"$refused" | jq -r .state.match_id)" = "$real" ] || fail "the refusal does not name $real: $refused"
 # Nothing starts while that match is current, for longer than the wait.
 sleep 5
 [ "$(demo_count)" = 2 ] || fail "a demo started while match $real was current"
 [ "$(current)" = "$real" ] || fail "match $real was ended by zaehlwerk-pong"
 curl -sf -X POST "$ZW/matches/$real/end" >/dev/null || fail "could not end match $real"
-echo "   demo $id gave way to match $real, and waited for it to end"
+[ "$(scheduled)" = "$reported" ] && has_results 3 || fail "Schmetterpause heard of the demo or the unfinished match"
+echo "   demo $id ended at once by match $real from the page, the buttons counted there," \
+  "a demo asked for next to it refused, and the next waited for it to end"
 
 # The next one, after that match; a game asked for takes the table from it.
 wait_until 20 has_demos 3 || fail "no demo after match $real ended"
