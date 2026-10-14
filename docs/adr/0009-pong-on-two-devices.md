@@ -373,10 +373,12 @@ decision.
   for every speed, and rests on an assumed WLAN. Whether it is enough on phones in power-saving mode
   needs a measurement at the first trial. The constant is the one place to
   change.
-- **A copied guest tab.** Duplicating a tab copies its `sessionStorage`, so the
-  copied tab sends the same guest token, and both tabs then move the paddle,
-  with the last sample winning. This is #97, for the guest token as for the
-  host's. It is not solved here.
+- **A copied guest tab.** Solved in #97. Duplicating a tab copies its
+  `sessionStorage`, so the copied tab had the same guest token, and both tabs
+  moved the paddle, with the last sample winning. Now a tab with a token asks
+  the other tabs of its browser on a `BroadcastChannel` whether one already
+  holds it, and an answered tab drops the token and watches. This holds for
+  the host's token and a check's as well, and needs no change on the server.
 - **The lockout can be abused.** Anybody on the same network can lock every
   new code with five wrong entries, and the guest never gets in. For a demo
   behind the internal route this is accepted. Should it happen, a lockout per
