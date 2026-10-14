@@ -381,3 +381,18 @@ func mustGet(t *testing.T, u string) string {
 	require.NoError(t, err)
 	return string(raw)
 }
+
+func TestABrowserGameEndsWhenZaehlwerkEndsItsMatch(t *testing.T) {
+	tbl := newTable(t)
+	b := startBrowser(t, newPong(t, tbl.url, 1), nil)
+
+	// Nobody presses, so nothing the game reports is refused: only the table
+	// can tell it the match is over, and PONG_BROWSER_IDLE is ten minutes.
+	m, err := tbl.registry.Get(b.get(b.id).MatchID)
+	require.NoError(t, err)
+	tbl.zaehlwerk.EndMatch(m)
+
+	v := b.finished(b.id)
+	require.Equal(t, StatusEnded, v.Status)
+	require.Equal(t, errMatchEnded.Error(), v.Reason)
+}
