@@ -1,10 +1,13 @@
 package pong
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"sync"
@@ -13,7 +16,8 @@ import (
 
 // A game on two devices (ADR-0009): the host is the browser game of ADR-0006
 // and the only reporter; the guest joins with a code, moves player b's paddle
-// and presses ready, and reports nothing.
+// and presses ready, and reports nothing. The service relays between the two
+// and reads none of it: the physics and the rules are the host's.
 
 const (
 	// joinCodeDigits is short enough to type at the table. Four digits are
@@ -27,6 +31,9 @@ const (
 	// joinCodeTries is how many wrong codes lock the code: five chances in
 	// 10,000 for whoever guesses, per code the host draws.
 	joinCodeTries = 5
+	// relayBodyCap bounds one relay message. A frame is about 160 bytes and a
+	// paddle sample about 40; anything near this is not a message of either.
+	relayBodyCap = 512
 	// GuestTokenPrefix marks the guest's token in the fragment of /play/{id},
 	// so the page knows which role it plays. The header carries the token
 	// without it.
@@ -54,10 +61,18 @@ type remote struct {
 	// guest is the guest's token, empty until somebody joins. It stays valid
 	// for the whole game, so a reload carries on.
 	guest string
+
+	// frame and sample are the latest host frame and guest sample, as sent.
+	// Only the latest is kept: a stream that falls behind skips to it rather
+	// than building up a queue. seq counts each, so a stream sends a message
+	// once and the same body sent twice still goes out twice.
+	frame, sample       []byte
+	frameSeq, sampleSeq uint64
+	wake                chan struct{}
 }
 
 func newRemote(now func() time.Time) (*remote, error) {
-	r := &remote{now: now}
+	r := &remote{now: now, wake: make(chan struct{})}
 	if err := r.redraw(); err != nil {
 		return nil, err
 	}
@@ -151,6 +166,34 @@ func (r *remote) isGuest(token string) bool {
 	return r.guest != "" && subtle.ConstantTimeCompare([]byte(token), []byte(r.guest)) == 1
 }
 
+func (r *remote) put(frame bool, raw []byte) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if frame {
+		r.frame = raw
+		r.frameSeq++
+	} else {
+		r.sample = raw
+		r.sampleSeq++
+	}
+	close(r.wake)
+	r.wake = make(chan struct{})
+}
+
+// relayed is the relay as it stands: the latest of each, and a channel closed
+// at the next message.
+type relayed struct {
+	frame, sample       []byte
+	frameSeq, sampleSeq uint64
+	wake                <-chan struct{}
+}
+
+func (r *remote) latest() relayed {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return relayed{frame: r.frame, sample: r.sample, frameSeq: r.frameSeq, sampleSeq: r.sampleSeq, wake: r.wake}
+}
+
 // remoteGame is a game on two devices that is still playing, or the error
 // that says why the request has nothing to do with it.
 func remoteGame(g *Game) (*remote, int, error) {
@@ -213,4 +256,161 @@ func (s *Server) join(code string) (*Game, string, error) {
 	}
 	g.log.Info("a guest joined")
 	return g, token, nil
+}
+
+// relayFrame is what the host sends: where the ball and the paddles are, at
+// its tick. The service checks its shape and nothing else.
+type relayFrame struct {
+	Tick    uint64     `json:"tick"`
+	Ball    *relayBall `json:"ball"`
+	Resting *int       `json:"resting"`
+	Paddles [2]float64 `json:"paddles"`
+	Say     string     `json:"say,omitempty"`
+	Fx      []float64  `json:"fx,omitempty"`
+}
+
+type relayBall struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+	Z float64 `json:"z"`
+}
+
+// guestSample is what the guest sends: its paddle at the host tick it was
+// drawing, and how often it has pressed ready, a count that only goes up so a
+// sample replaced before it was sent loses no press.
+type guestSample struct {
+	Tick  uint64  `json:"tick"`
+	Y     float64 `json:"y"`
+	Ready uint64  `json:"ready"`
+}
+
+// paddle is POST /games/{id}/paddle, from the guest.
+func (s *Server) paddle(w http.ResponseWriter, r *http.Request) {
+	g, ok := s.game(r.PathValue("id"))
+	if !ok {
+		fail(w, http.StatusNotFound, fmt.Errorf("no game %q", r.PathValue("id")))
+		return
+	}
+	rm, status, err := remoteGame(g)
+	if err != nil {
+		fail(w, status, err)
+		return
+	}
+	if !rm.isGuest(r.Header.Get(TokenHeader)) {
+		fail(w, http.StatusForbidden, errors.New("only the guest that joined moves its paddle"))
+		return
+	}
+	raw, status, err := relayBody(w, r, &guestSample{})
+	if err != nil {
+		fail(w, status, err)
+		return
+	}
+	rm.put(false, raw)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// frames is POST /games/{id}/frames, from the host.
+func (s *Server) frames(w http.ResponseWriter, r *http.Request) {
+	g, ok := s.tokenGame(w, r)
+	if !ok {
+		return
+	}
+	rm, status, err := remoteGame(g)
+	if err != nil {
+		fail(w, status, err)
+		return
+	}
+	raw, status, err := relayBody(w, r, &relayFrame{})
+	if err != nil {
+		fail(w, status, err)
+		return
+	}
+	rm.put(true, raw)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// relayBody reads one relay message: capped, of the expected shape, with no
+// field the shape does not have. What goes on is the body as sent, on one
+// line.
+func relayBody(w http.ResponseWriter, r *http.Request, into any) ([]byte, int, error) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, relayBodyCap))
+	if err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			return nil, http.StatusRequestEntityTooLarge, fmt.Errorf("a relay message is at most %d bytes", relayBodyCap)
+		}
+		return nil, http.StatusBadRequest, fmt.Errorf("reading the message: %w", err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(into); err != nil {
+		return nil, http.StatusBadRequest, fmt.Errorf("decoding the message: %w", err)
+	}
+	if dec.More() {
+		return nil, http.StatusBadRequest, errors.New("decoding the message: more than one value")
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, body); err != nil {
+		return nil, http.StatusBadRequest, fmt.Errorf("decoding the message: %w", err)
+	}
+	return compact.Bytes(), 0, nil
+}
+
+// relay is GET /games/{id}/relay: the latest host frame as `frame` and the
+// latest guest sample as `guest`, each sent once, until the page goes. It
+// takes no token, like /games/{id}/events: a third device may watch the ball.
+func (s *Server) relay(w http.ResponseWriter, r *http.Request) {
+	g, ok := s.game(r.PathValue("id"))
+	if !ok {
+		fail(w, http.StatusNotFound, fmt.Errorf("no game %q", r.PathValue("id")))
+		return
+	}
+	if g.remote == nil {
+		fail(w, http.StatusConflict, errNotRemote)
+		return
+	}
+	rc := http.NewResponseController(w)
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-cache")
+	h.Set("Connection", "keep-alive")
+	h.Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	if err := writeRaw(rc, w, ": relay\n\n"); err != nil {
+		return
+	}
+
+	heartbeat := time.NewTicker(s.heartbeat)
+	defer heartbeat.Stop()
+	var sentFrame, sentSample uint64
+	for {
+		now := g.remote.latest()
+		if now.frameSeq != sentFrame {
+			if err := writeEvent(r.Context(), rc, w, "frame", string(now.frame)); err != nil {
+				return
+			}
+			sentFrame = now.frameSeq
+		}
+		if now.sampleSeq != sentSample {
+			if err := writeEvent(r.Context(), rc, w, "guest", string(now.sample)); err != nil {
+				return
+			}
+			sentSample = now.sampleSeq
+		}
+	wait:
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-s.ctx.Done():
+				return
+			case <-now.wake:
+				break wait
+			case <-heartbeat.C:
+				if err := writeRaw(rc, w, ": ping\n\n"); err != nil {
+					return
+				}
+			}
+		}
+	}
 }

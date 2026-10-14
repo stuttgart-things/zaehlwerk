@@ -1,10 +1,13 @@
 package pong
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
@@ -18,7 +21,7 @@ import (
 
 // A game on two devices (ADR-0009) is played here the way the two pages play
 // it: the host through its token, the guest through the code and the token
-// the join hands out.
+// the join hands out, and the relay between them read as SSE.
 
 type remoteFixture struct {
 	*browserFixture
@@ -109,6 +112,41 @@ func (r *remoteFixture) drawCode(token string) (int, Code) {
 	var c Code
 	_ = json.Unmarshal([]byte(body), &c)
 	return status, c
+}
+
+type relayEvent struct {
+	name, data string
+}
+
+// relayFor reads the relay for d and returns what came in that time.
+func (r *remoteFixture) relayFor(d time.Duration) []relayEvent {
+	r.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), d)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.url+"/games/"+r.id+"/relay", nil)
+	require.NoError(r.t, err)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(r.t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(r.t, http.StatusOK, resp.StatusCode)
+	require.Equal(r.t, "text/event-stream", resp.Header.Get("Content-Type"))
+
+	var events []relayEvent
+	var ev relayEvent
+	sc := bufio.NewScanner(resp.Body)
+	for sc.Scan() {
+		line := sc.Text()
+		switch {
+		case strings.HasPrefix(line, "event: "):
+			ev.name = strings.TrimPrefix(line, "event: ")
+		case strings.HasPrefix(line, "data: "):
+			ev.data += strings.TrimPrefix(line, "data: ")
+		case line == "" && ev.name != "":
+			events = append(events, ev)
+			ev = relayEvent{}
+		}
+	}
+	return events
 }
 
 func TestAGuestJoinsWithTheCodeAndGetsItsOwnToken(t *testing.T) {
@@ -215,10 +253,128 @@ func TestTheGuestTokenCannotPressOrEnd(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, status)
 	status, _ = r.post("/end", guest, "")
 	require.Equal(t, http.StatusForbidden, status)
+	status, _ = r.post("/frames", guest, `{"tick":1,"ball":null,"resting":null,"paddles":[1,2]}`)
+	require.Equal(t, http.StatusForbidden, status, "nor send the host's frames")
 
 	v := r.get(r.id)
 	require.Equal(t, StatusPlaying, v.Status)
 	require.Equal(t, []scorer.Half{scorer.HalfLeft, scorer.HalfRight}, v.State.Waiting, "nothing was pressed")
+}
+
+func TestOnlyTheGuestMovesItsPaddle(t *testing.T) {
+	r := startRemote(t, newPong(t, newTable(t).url, 1))
+	sample := `{"tick":1,"y":200,"ready":0}`
+
+	status, _ := r.post("/paddle", r.token, sample)
+	require.Equal(t, http.StatusForbidden, status, "not the host")
+	status, _ = r.post("/paddle", "", sample)
+	require.Equal(t, http.StatusForbidden, status, "not before anybody joined")
+
+	guest := r.joinAsGuest()
+	status, _ = r.post("/paddle", guest, sample)
+	require.Equal(t, http.StatusNoContent, status)
+}
+
+func TestTheRelayKeepsOnlyTheLatestFrame(t *testing.T) {
+	r := startRemote(t, newPong(t, newTable(t).url, 1))
+	for _, tick := range []string{"1", "2", "3"} {
+		status, body := r.post("/frames", r.token,
+			`{"tick":`+tick+`,"ball":{"x":1,"y":2,"z":3},"resting":null,"paddles":[100,200],"fx":[700]}`)
+		require.Equal(t, http.StatusNoContent, status, body)
+	}
+
+	events := r.relayFor(300 * time.Millisecond)
+
+	require.Equal(t, []relayEvent{{"frame",
+		`{"tick":3,"ball":{"x":1,"y":2,"z":3},"resting":null,"paddles":[100,200],"fx":[700]}`}}, events)
+}
+
+func TestTheRelayKeepsOnlyTheLatestPaddle(t *testing.T) {
+	r := startRemote(t, newPong(t, newTable(t).url, 1))
+	guest := r.joinAsGuest()
+	for _, y := range []string{"10", "20", "30"} {
+		status, body := r.post("/paddle", guest, "{\n  \"tick\": 7, \"y\": "+y+", \"ready\": 1\n}")
+		require.Equal(t, http.StatusNoContent, status, body)
+	}
+
+	events := r.relayFor(300 * time.Millisecond)
+
+	require.Equal(t, []relayEvent{{"guest", `{"tick":7,"y":30,"ready":1}`}}, events,
+		"the latest only, on one line")
+}
+
+func TestARelayBodyOverTheCapIsRefused(t *testing.T) {
+	r := startRemote(t, newPong(t, newTable(t).url, 1))
+	guest := r.joinAsGuest()
+	long := `{"tick":1,"ball":null,"resting":null,"paddles":[1,2],"say":"` + strings.Repeat("x", relayBodyCap) + `"}`
+
+	status, _ := r.post("/frames", r.token, long)
+	require.Equal(t, http.StatusRequestEntityTooLarge, status)
+	status, _ = r.post("/paddle", guest, `{"tick":1,"y":2,"ready":0,"score":[11,0]}`)
+	require.Equal(t, http.StatusBadRequest, status, "a field the shape does not have")
+	status, _ = r.post("/paddle", guest, `{"tick":1,"y":2,"ready":0}{"tick":2}`)
+	require.Equal(t, http.StatusBadRequest, status, "two values")
+
+	require.Empty(t, r.relayFor(200*time.Millisecond), "nothing refused was relayed")
+}
+
+func TestTheRelayIsOnlyForAGameOnTwoDevices(t *testing.T) {
+	b := startBrowser(t, newPong(t, newTable(t).url, 1), map[string]any{"mode": ModePvP})
+
+	resp, err := http.Get(b.url + "/games/" + b.id + "/relay")
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	require.Equal(t, http.StatusConflict, resp.StatusCode)
+
+	r := &remoteFixture{browserFixture: b}
+	status, _ := r.post("/frames", b.token, `{"tick":1,"ball":null,"resting":null,"paddles":[1,2]}`)
+	require.Equal(t, http.StatusConflict, status)
+	status, _ = r.drawCode(b.token)
+	require.Equal(t, http.StatusConflict, status)
+	status, _ = r.join("1234")
+	require.Equal(t, http.StatusConflict, status, "no game waits for a guest")
+}
+
+// The guest's ready goes to the host over the relay, and the host presses it
+// with its own token and its own press numbers: zaehlwerk, the real one in
+// this process, sees one source and nothing from the guest.
+func TestTheGuestsReadyReachesZaehlwerkOnlyThroughTheHost(t *testing.T) {
+	tbl := newTable(t)
+	rec := &recorder{next: tbl.zaehlwerk}
+	proxy := httptest.NewServer(rec)
+	t.Cleanup(proxy.Close)
+	r := startRemote(t, newPong(t, proxy.URL, 1))
+	guest := r.joinAsGuest()
+
+	status, _ := r.post("/paddle", guest, `{"tick":12,"y":240,"ready":1}`)
+	require.Equal(t, http.StatusNoContent, status)
+	rec.mu.Lock()
+	require.Empty(t, rec.sent, "the guest's ready did not reach zaehlwerk by itself")
+	rec.mu.Unlock()
+
+	events := r.relayFor(200 * time.Millisecond)
+	require.Len(t, events, 1)
+	var sample guestSample
+	require.NoError(t, json.Unmarshal([]byte(events[0].data), &sample))
+	require.EqualValues(t, 1, sample.Ready)
+
+	// The host presses ready where zaehlwerk has the guest, player b.
+	v := r.get(r.id)
+	half := scorer.HalfLeft
+	if v.State.Ends[1] == scorer.PlayerB {
+		half = scorer.HalfRight
+	}
+	answer := r.press(Press{Rally: 1, Kind: PressReady, Half: half})
+	require.NotContains(t, answer.State.Waiting, half)
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	require.Len(t, rec.sent, 1)
+	require.Equal(t, "pong-"+r.id, rec.sent[0]["source"])
+	require.Equal(t, string(half), rec.sent[0]["half"])
+	m, err := tbl.registry.Get(v.MatchID)
+	require.NoError(t, err)
+	require.Equal(t, answer.State.Waiting, m.Scorer.State().Waiting)
 }
 
 func TestTheLobbyOffersTwoDevicesAndTheJoinPageAsksForTheCode(t *testing.T) {

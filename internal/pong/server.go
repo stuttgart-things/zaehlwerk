@@ -117,6 +117,9 @@ func New(cfg Config, log *slog.Logger) *Server {
 	s.mux.HandleFunc("POST /games/{id}/presses", s.press)
 	s.mux.HandleFunc("POST /games/{id}/end", s.endGame)
 	s.mux.HandleFunc("POST /games/{id}/code", s.drawCode)
+	s.mux.HandleFunc("POST /games/{id}/paddle", s.paddle)
+	s.mux.HandleFunc("POST /games/{id}/frames", s.frames)
+	s.mux.HandleFunc("GET /games/{id}/relay", s.relay)
 	s.routeUI()
 	return s
 }
