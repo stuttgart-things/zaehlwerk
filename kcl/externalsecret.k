@@ -60,6 +60,17 @@ externalSecret = {
                     property: config.vaultKeyRedisPassword
                 }
             }
+            # Behind a switch rather than always: a property missing in Vault
+            # fails the whole ExternalSecret, so the key is asked for only
+            # once it is there.
+            if config.checkinEnabled:
+                {
+                    secretKey: "CHECKIN_TOKEN"
+                    remoteRef: {
+                        key: config.vaultPath
+                        property: config.vaultKeyCheckinToken
+                    }
+                }
         ]
     }
 } if labels.renderExternalSecret else Undefined

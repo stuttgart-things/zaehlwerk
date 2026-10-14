@@ -57,6 +57,8 @@ _vaultPath = option("config.vaultPath")
 _vaultKeyPitcherToken = option("config.vaultKeyPitcherToken")
 _vaultKeySchmetterpauseToken = option("config.vaultKeySchmetterpauseToken")
 _vaultKeyRedisPassword = option("config.vaultKeyRedisPassword")
+_checkinEnabled = option("config.checkinEnabled")
+_vaultKeyCheckinToken = option("config.vaultKeyCheckinToken")
 _pongEnabled = option("config.pongEnabled")
 _pongImage = option("config.pongImage")
 _pongContainerPort = option("config.pongContainerPort")
@@ -168,6 +170,10 @@ config: schema.Zaehlwerk = schema.Zaehlwerk {
         vaultKeySchmetterpauseToken = _vaultKeySchmetterpauseToken
     if _vaultKeyRedisPassword:
         vaultKeyRedisPassword = _vaultKeyRedisPassword
+    if _checkinEnabled != Undefined and _checkinEnabled != None:
+        checkinEnabled = _bool(_checkinEnabled)
+    if _vaultKeyCheckinToken:
+        vaultKeyCheckinToken = _vaultKeyCheckinToken
     if _pongEnabled != Undefined and _pongEnabled != None:
         pongEnabled = _bool(_pongEnabled)
     if _pongImage:

@@ -127,6 +127,13 @@ schema Zaehlwerk:
     vaultKeyPitcherToken: str = "omni-pitcher-token"
     vaultKeySchmetterpauseToken: str = "schmetterpause-token"
     vaultKeyRedisPassword: str = "redis-password"
+    # checkinEnabled adds CHECKIN_TOKEN to the ExternalSecret and nothing else
+    # (#113). Off, the ExternalSecret renders as it did before, so a Vault
+    # entry without the key never leaves the Secret unresolved. deploy.k reads
+    # the key either way, optionally: on a cluster with secretsMode "existing"
+    # it is one more key in the Secret, and without it check-in stays off.
+    checkinEnabled: bool = False
+    vaultKeyCheckinToken: str = "checkin-token"
 
     # ── zaehlwerk-pong (ADR-0006) ───────────────────────────────────────────
     #
