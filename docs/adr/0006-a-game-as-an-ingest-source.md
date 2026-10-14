@@ -3,6 +3,10 @@
 Status: Accepted
 Date: 2026-10-13
 
+> Supplemented by [ADR-0008](0008-demo-matches.md): zaehlwerk knows
+> a Pong match as a demo, a real match ends it, and a demo is refused while a
+> real match runs.
+
 ## Context
 
 The chain can be played without hardware today, but only by mocks that
