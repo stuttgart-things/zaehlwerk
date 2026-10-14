@@ -733,9 +733,11 @@ the first rally and says so.
 | `PIEZO_CONTROL_ADDR` | — | a listener for `GET`/`POST /control`: pause, pace and the three shares, changed while it plays. Unset, no listener. The table mock's page drives it |
 
 `task chain:e2e` plays all of this once without anybody at the keyboard. It
-checks that the result arrives, that a resent event is a duplicate, and that a
-refused result gets through on the retry. CI runs the same script on every pull
-request (`chain-e2e.yaml`).
+checks that the result arrives, that a resent event is a duplicate, that a
+refused result gets through on the retry, and that a match point given to the
+wrong player and undone in the grace period is never reported while the right
+result is, once. It runs zaehlwerk with a grace period of `2s`. CI runs the
+same script on every pull request (`chain-e2e.yaml`).
 
 The board also ships as its own image, `ghcr.io/stuttgart-things/zaehlwerk-piezo`,
 built from `tools/chain-mock/cmd/piezo`. It has the same tags as the zaehlwerk
