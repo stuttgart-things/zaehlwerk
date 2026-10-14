@@ -97,10 +97,14 @@ func checkinClient(t *testing.T) (*client, *spStub, *lockedBuffer) {
 	desk := checkin.NewDesk(spClient, checkin.WithLogger(log))
 	return &client{
 		t:        t,
-		server:   New(registry, WithLogger(log), WithCheckin(desk)),
+		server:   New(registry, WithLogger(log), WithCheckin(desk, hubToken)),
 		registry: registry,
+		bearer:   hubToken,
 	}, sp, logs
 }
+
+// hubToken is CHECKIN_TOKEN in these tests.
+const hubToken = "hub-secret"
 
 func checkinBody(eventID int, half, uid string) string {
 	return fmt.Sprintf(`{"source":"hub-1","event_id":%d,"half":%q,"uid":%q}`, eventID, half, uid)
@@ -236,4 +240,51 @@ func TestAnUnknownUIDAppearsInNoLogNoAnswerAndNoState(t *testing.T) {
 	for _, known := range []string{"04:a3:1b:22", "04a31b22", "04:5c:7e:91", "045c7e91"} {
 		require.NotContains(t, haystack, known, "a known UID leaked")
 	}
+}
+
+func TestACheckInWithoutTheHubsTokenIsRefusedBeforeItIsRead(t *testing.T) {
+	c, sp, logs := checkinClient(t)
+
+	for _, bearer := range []string{"", "hub-secre", "hub-secret-and-more", "HUB-SECRET"} {
+		c.bearer = bearer
+		rec, raw := c.do(http.MethodPost, "/ingest/checkin", checkinBody(1, "left", "04:a3:1b:22"))
+		require.Equalf(t, http.StatusUnauthorized, rec.Code, "bearer %q: %s", bearer, raw)
+		require.Contains(t, rec.Header().Get("WWW-Authenticate"), "Bearer")
+		require.Contains(t, string(raw), "the hub's token")
+	}
+
+	// The token as anything but a bearer is no token.
+	c.bearer = ""
+	req := httptest.NewRequest(http.MethodPost, "/ingest/checkin", strings.NewReader(checkinBody(1, "left", "04:a3:1b:22")))
+	req.Header.Set("Authorization", hubToken)
+	rec := httptest.NewRecorder()
+	c.server.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
+
+	require.Zero(t, sp.calls(), "Schmetterpause was never asked who the fob is")
+	_, raw := c.do(http.MethodGet, "/checkin", "")
+	require.Contains(t, string(raw), `"left":null`, "the half is still free")
+	require.NotContains(t, logs.String(), hubToken)
+
+	// The hub's own request still goes through, with the same event id: a
+	// refused request was not counted.
+	c.bearer = hubToken
+	require.Equal(t, checkin.Claimed, c.checkIn(http.StatusOK, checkinBody(1, "left", "04:a3:1b:22")).Outcome)
+}
+
+func TestCheckInIsOffWithoutAToken(t *testing.T) {
+	sp := &spStub{}
+	srv := httptest.NewServer(sp.handler(t))
+	t.Cleanup(srv.Close)
+	spClient, err := schmetterpause.New(schmetterpause.Config{BaseURL: srv.URL, Token: "tok"})
+	require.NoError(t, err)
+	c := newClient(t)
+	c.server = New(c.registry, WithCheckin(checkin.NewDesk(spClient), ""))
+
+	out := c.failure(http.StatusServiceUnavailable, http.MethodPost, "/ingest/checkin",
+		checkinBody(1, "left", "04:a3:1b:22"))
+	require.Contains(t, out.Error, "check-in is off")
+	_, raw := c.do(http.MethodGet, "/checkin", "")
+	require.JSONEq(t, `{"enabled":false,"left":null,"right":null}`, string(raw))
+	require.Zero(t, sp.calls())
 }

@@ -46,9 +46,13 @@ type Server struct {
 
 	build BuildInfo
 
-	// desk is nil when no Schmetterpause is configured: a fob cannot be
-	// resolved without it, and check-in answers 503 (ADR-0010).
+	// desk is nil when no Schmetterpause or no CHECKIN_TOKEN is configured: a
+	// fob cannot be resolved without the one, and must not be taken from
+	// anybody without the other. Check-in then answers 503 (ADR-0010).
 	desk *checkin.Desk
+	// checkinToken is what the hub sends as a bearer on a check-in. It is
+	// never empty while desk is set.
+	checkinToken string
 }
 
 // BuildInfo is what the binary can say about itself, reported by /healthz so a
@@ -129,9 +133,16 @@ func WithSetOpener(o scorer.SetOpener) Option {
 	return func(s *Server) { s.setOpener = o }
 }
 
-// WithCheckin turns on check-in per table half through d (ADR-0010).
-func WithCheckin(d *checkin.Desk) Option {
-	return func(s *Server) { s.desk = d }
+// WithCheckin turns on check-in per table half through d, for a hub that
+// sends token as a bearer (ADR-0010, #113). An empty token leaves check-in off:
+// a check-in names a player, so there is no way to take one from anybody.
+func WithCheckin(d *checkin.Desk, token string) Option {
+	return func(s *Server) {
+		if token == "" {
+			return
+		}
+		s.desk, s.checkinToken = d, token
+	}
 }
 
 // WithHeartbeat sets how often an idle stream writes a keepalive comment.

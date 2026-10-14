@@ -116,5 +116,13 @@ The route answers 503, one line at start says so, and nothing else changes
 - One table. A half belongs to the one table this service scores, as the panel
   and `Registry.Current` already do (ADR-0003). Several tables need a table id
   on the claim and on the check-in (schmetterpause#280, #60).
+- **Only the hub checks in** (#113). A check-in names a player to
+  Schmetterpause, and during "Fob koppeln" pairs a UID with one, so an open
+  route would let anybody on the network check a colleague in without a chip
+  at the table, or pair a UID of their own choice. The hub sends
+  `CHECKIN_TOKEN` as a bearer, compared in constant time before the body is
+  read; unset, check-in is off with a line at start, in the shape of the
+  other couplings (invariants 3 and 4). The firmware's side is
+  zaehlwerk-firmware#65. Points stay without a token: they name nobody.
 - The phone path is still open. When Schmetterpause has a route for it, it ends
   in the same claim, with Schmetterpause calling in rather than the hub.

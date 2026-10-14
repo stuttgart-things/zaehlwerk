@@ -170,7 +170,13 @@ type Rig struct {
 	fob       *heldFob
 	hubSource string
 	hubEvent  uint64
+	// checkinToken is CHECKIN_TOKEN, sent as a bearer with every check-in:
+	// zaehlwerk takes one only from the hub (#113). Set once, before use.
+	checkinToken string
 }
+
+// SetCheckinToken gives the hub the token zaehlwerk wants on a check-in.
+func (r *Rig) SetCheckinToken(token string) { r.checkinToken = token }
 
 // Ack is what the hub sends back to a display device with the radio ACK of
 // its press: the score after it. A display that sleeps between taps knows

@@ -178,6 +178,9 @@ func (r *Rig) postCheckin(ctx context.Context, body checkinBody) (int, checkinAn
 		return 0, a, fmt.Errorf("building the check-in: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if r.checkinToken != "" {
+		req.Header.Set("Authorization", "Bearer "+r.checkinToken)
+	}
 	resp, err := r.http.Do(req)
 	if err != nil {
 		return 0, a, fmt.Errorf("POST /ingest/checkin: %w", err)

@@ -29,7 +29,7 @@ func checkedInTable(t *testing.T) (*httptest.Server, *match.Registry, *fakesp.Se
 
 	registry := match.NewRegistry()
 	srv := httptest.NewServer(api.New(registry, api.WithLogger(quiet),
-		api.WithCheckin(checkin.NewDesk(sp, checkin.WithLogger(quiet)))))
+		api.WithCheckin(checkin.NewDesk(sp, checkin.WithLogger(quiet)), testHubToken)))
 	t.Cleanup(srv.Close)
 	return srv, registry, fake
 }

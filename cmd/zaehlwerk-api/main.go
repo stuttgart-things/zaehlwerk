@@ -131,9 +131,10 @@ func run() error {
 	}))
 
 	// Check-in needs Schmetterpause to say who a fob is, and a match from two
-	// bare claims would have nobody to report to (ADR-0010).
+	// bare claims would have nobody to report to (ADR-0010). It needs the
+	// hub's token too, or anybody on the network could check a player in.
 	if desk := checkinDesk(log, spClient); desk != nil {
-		apiOpts = append(apiOpts, api.WithCheckin(desk))
+		apiOpts = append(apiOpts, api.WithCheckin(desk, os.Getenv("CHECKIN_TOKEN")))
 	}
 
 	if spClient != nil {
@@ -251,6 +252,10 @@ func schmetterpauseClient(log *slog.Logger) *schmetterpause.Client {
 
 // checkinDesk builds check-in per table half, or says it is off.
 //
+// CHECKIN_TOKEN is what the hub sends as a bearer. Unset, check-in is off,
+// whatever else is configured: a check-in names a player to Schmetterpause,
+// and an open route would take one from anybody on the network (#113).
+//
 // CHECKIN_TIMEOUT is how long a lone claim holds its half. CHECKIN_START is
 // the phase a checked-in match starts in, serve_rally or warmup: nobody chose
 // a first server, so it is always played for. CHECKIN_CHANGE_ENDS=true has
@@ -260,6 +265,10 @@ func schmetterpauseClient(log *slog.Logger) *schmetterpause.Client {
 func checkinDesk(log *slog.Logger, sp *schmetterpause.Client) *checkin.Desk {
 	if sp == nil {
 		log.Info("check-in disabled, a fob cannot be resolved without SCHMETTERPAUSE_URL")
+		return nil
+	}
+	if os.Getenv("CHECKIN_TOKEN") == "" {
+		log.Info("check-in disabled, CHECKIN_TOKEN not configured")
 		return nil
 	}
 

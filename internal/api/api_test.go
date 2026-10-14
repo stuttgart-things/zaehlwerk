@@ -21,6 +21,8 @@ type client struct {
 	t        *testing.T
 	server   *Server
 	registry *match.Registry
+	// bearer goes on every request when set, as the hub's token does.
+	bearer string
 }
 
 func newClient(t *testing.T, opts ...match.Option) *client {
@@ -47,6 +49,9 @@ func (c *client) do(method, path, body string) (*httptest.ResponseRecorder, []by
 	req := httptest.NewRequest(method, path, reader)
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if c.bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+c.bearer)
 	}
 
 	rec := httptest.NewRecorder()
