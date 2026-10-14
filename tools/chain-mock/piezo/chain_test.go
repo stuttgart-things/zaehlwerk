@@ -47,14 +47,11 @@ func fake(t *testing.T) (*fakesp.Server, *schmetterpause.Client) {
 func chain(t *testing.T, sp *schmetterpause.Client) *httptest.Server {
 	t.Helper()
 
-	var reporter *schmetterpause.Reporter
-	registry := match.NewRegistry(match.WithObserver(func(tr scorer.Transition) {
-		reporter.Observe(tr)
-	}))
 	// No grace period: what is under test is the result arriving, not when;
 	// the reporter's own tests cover the wait.
-	reporter = schmetterpause.NewReporter(sp, registry,
+	reporter := schmetterpause.NewReporter(sp,
 		schmetterpause.WithLogger(quiet), schmetterpause.WithDelay(0))
+	registry := match.NewRegistry(match.WithMatchObserver(reporter.Observe))
 
 	apiSrv := api.New(registry, api.WithLogger(quiet))
 	uiSrv := ui.New(registry, apiSrv, ui.WithLogger(quiet), ui.WithSchmetterpause(sp, reporter))

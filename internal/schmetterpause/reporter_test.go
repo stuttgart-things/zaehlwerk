@@ -49,15 +49,15 @@ func reporterHarness(t *testing.T, handler http.HandlerFunc) (*match.Registry, *
 		wg       sync.WaitGroup
 		reporter *Reporter
 	)
-	registry := match.NewRegistry(match.WithObserver(func(tr scorer.Transition) {
+	registry := match.NewRegistry(match.WithMatchObserver(func(m *match.Match, tr scorer.Transition) {
 		// Counted here rather than inside the Reporter so the test can wait
 		// for the goroutine the observer starts.
 		if tr.Kind == scorer.TransitionMatchWon {
 			wg.Add(1)
 		}
-		reporter.Observe(tr)
+		reporter.Observe(m, tr)
 	}))
-	reporter = NewReporter(c, registry, WithDelay(0), withDone(wg.Done))
+	reporter = NewReporter(c, WithDelay(0), withDone(wg.Done))
 	return registry, reporter, &wg
 }
 
@@ -227,10 +227,10 @@ func graceHarness(t *testing.T, delay time.Duration) (*match.Registry, *Reporter
 	require.NoError(t, err)
 
 	var reporter *Reporter
-	registry := match.NewRegistry(match.WithObserver(func(tr scorer.Transition) {
-		reporter.Observe(tr)
+	registry := match.NewRegistry(match.WithMatchObserver(func(m *match.Match, tr scorer.Transition) {
+		reporter.Observe(m, tr)
 	}))
-	reporter = NewReporter(c, registry, WithDelay(delay))
+	reporter = NewReporter(c, WithDelay(delay))
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
@@ -335,7 +335,7 @@ func TestAMatchWonTwiceInTheGracePeriodWaitsFromTheSecondWin(t *testing.T) {
 	first := m.Report().Due
 
 	time.Sleep(grace / 2)
-	reporter.Observe(scorer.Transition{Kind: scorer.TransitionMatchWon, State: m.Scorer.State()})
+	reporter.Observe(m, scorer.Transition{Kind: scorer.TransitionMatchWon, State: m.Scorer.State()})
 
 	require.True(t, m.Report().Due.After(first), "a second win must start the grace period again")
 	require.Eventually(t, func() bool { return len(sp.sent()) == 1 }, 5*grace, 5*time.Millisecond)
@@ -402,4 +402,71 @@ func TestAMatchUndoneAfterItsReportIsNotReportedAgain(t *testing.T) {
 	require.Never(t, func() bool { return len(sp.sent()) > 1 }, 3*grace, 5*time.Millisecond)
 	require.Equal(t, [][2]int{{9, 11}}, m.Report().Sent)
 	require.True(t, m.Report().Due.IsZero())
+}
+
+// TestAMatchWonWhileAnotherIsCreatedDoesNotDeadlock is #102. An observer runs
+// under its match's scorer lock; creating a match holds the registry lock and
+// evict takes scorer locks. A reporter that looked the won match up in the
+// registry from inside its observer took the two locks the other way round,
+// and the whole service hung.
+func TestAMatchWonWhileAnotherIsCreatedDoesNotDeadlock(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"match_id":"sp-1","status":"pending"}`))
+	}))
+	t.Cleanup(srv.Close)
+	c, err := New(Config{BaseURL: srv.URL, Token: "tok"})
+	require.NoError(t, err)
+
+	reporter := NewReporter(c, WithDelay(time.Hour))
+	t.Cleanup(func() { _ = reporter.Flush(context.Background()) })
+	won := make(chan struct{})
+	registry := match.NewRegistry(match.WithMaxRetained(1),
+		// Ahead of the reporter: it holds the won match's scorer lock long
+		// enough for the create below to reach evict and wait on that lock.
+		match.WithObserver(func(tr scorer.Transition) {
+			if tr.Kind == scorer.TransitionMatchWon {
+				close(won)
+				time.Sleep(100 * time.Millisecond)
+			}
+		}),
+		match.WithMatchObserver(reporter.Observe),
+	)
+
+	// X runs, and is first in the order evict walks.
+	x := bestOfOne(t, registry)
+
+	// Errors are collected rather than required: FailNow ends only the
+	// goroutine it is called from.
+	errs := make(chan error, 12)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for id := uint64(1); id <= 11; id++ {
+			_, err := x.Scorer.Apply(scorer.ScoreEvent{
+				MatchID: x.ID, Source: "test", EventID: id, Player: scorer.PlayerA, Delta: 1,
+			})
+			errs <- err
+		}
+	}()
+	created := make(chan struct{})
+	go func() {
+		defer close(created)
+		<-won
+		_, err := registry.Create(scorer.Config{})
+		errs <- err
+	}()
+
+	for _, ch := range []chan struct{}{done, created} {
+		select {
+		case <-ch:
+		case <-time.After(3 * time.Second):
+			t.Fatal("deadlock: the match_won observer and the new match wait on each other's lock")
+		}
+	}
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	require.False(t, x.Report().Due.IsZero(), "the reporter must still have seen the win")
 }

@@ -369,6 +369,67 @@ func TestSeveralObserversAllSeeTheTransition(t *testing.T) {
 	require.Equal(t, []string{"first", "second"}, order)
 }
 
+// The reporter needs the match a transition belongs to, and asking the
+// registry for it from inside the scorer's lock is what hung the service
+// (#102). So it is handed over, and it is the match the point was scored in.
+func TestAMatchObserverIsToldWhichMatch(t *testing.T) {
+	var mu sync.Mutex
+	told := map[string]*Match{}
+
+	r := newTestRegistry(t, WithMatchObserver(func(m *Match, tr scorer.Transition) {
+		mu.Lock()
+		defer mu.Unlock()
+		require.Equal(t, m.ID, tr.State.MatchID)
+		told[m.ID] = m
+	}))
+
+	var created []*Match
+	for range 2 {
+		m, err := r.CreateFor(scorer.Config{Players: [2]string{"Anna", "Bernd"}},
+			Handover{HomeID: "h", AwayID: "a", OperatorID: "o"})
+		require.NoError(t, err)
+		_, err = m.Scorer.Apply(scorer.ScoreEvent{
+			MatchID: m.ID, Player: scorer.PlayerA, Delta: 1, EventID: 1, Source: "test",
+		})
+		require.NoError(t, err)
+		created = append(created, m)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	for _, m := range created {
+		require.Same(t, m, told[m.ID], "the observer must be handed the match itself")
+		require.True(t, told[m.ID].Handover.Wanted(), "and all of it, the handover included")
+	}
+}
+
+// The reporter is registered before the hub, so that the result card the hub
+// renders at match_won already knows when the result goes (ADR-0007). The two
+// kinds of observer share one order, the order the options were given in.
+func TestObserversRunInTheOrderTheyWereGiven(t *testing.T) {
+	var mu sync.Mutex
+	var order []string
+	plain := func(name string) Option {
+		return WithObserver(func(scorer.Transition) { mu.Lock(); defer mu.Unlock(); order = append(order, name) })
+	}
+	withMatch := func(name string) Option {
+		return WithMatchObserver(func(*Match, scorer.Transition) { mu.Lock(); defer mu.Unlock(); order = append(order, name) })
+	}
+
+	r := newTestRegistry(t, withMatch("reporter"), plain("sink"), plain("hub"), withMatch("late"), plain("switcher"))
+
+	m, err := r.Create(scorer.Config{Players: [2]string{"Anna", "Bernd"}})
+	require.NoError(t, err)
+	_, err = m.Scorer.Apply(scorer.ScoreEvent{
+		MatchID: m.ID, Player: scorer.PlayerA, Delta: 1, EventID: 1, Source: "test",
+	})
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, []string{"reporter", "sink", "hub", "late", "switcher"}, order)
+}
+
 // A registry without observers is the local-development case and must not grow
 // a nil call on the way through Create.
 func TestARegistryWithoutObserversStillCreatesMatches(t *testing.T) {

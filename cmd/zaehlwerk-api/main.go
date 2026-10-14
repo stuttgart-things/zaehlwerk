@@ -92,25 +92,19 @@ func run() error {
 	origins := allowedOrigins(log)
 	beat, tuned := heartbeat(log)
 
-	// The reporter looks a match up by id, so it needs the registry it is an
-	// observer of. The closure closes that loop: it is registered now and
-	// assigned a moment later, and nothing can fire it in between because no
-	// match exists yet.
+	// The reporter is handed the match with each transition, so it needs no
+	// registry and is built before it (#102).
 	var reporter *schmetterpause.Reporter
 	opts := registryOptions(sink, hub, switcher)
 	if spClient != nil {
+		reporter = schmetterpause.NewReporter(spClient,
+			schmetterpause.WithLogger(log), schmetterpause.WithDelay(delay))
 		// First, ahead of the hub: the page renders the result card from the
 		// transition the hub hands it, and the card says when the result goes
 		// out, so the reporter has to have decided that already.
-		opts = append([]match.Option{match.WithObserver(func(t scorer.Transition) {
-			reporter.Observe(t)
-		})}, opts...)
+		opts = append([]match.Option{match.WithMatchObserver(reporter.Observe)}, opts...)
 	}
 	registry := match.NewRegistry(opts...)
-	if spClient != nil {
-		reporter = schmetterpause.NewReporter(spClient, registry,
-			schmetterpause.WithLogger(log), schmetterpause.WithDelay(delay))
-	}
 
 	apiOpts := []api.Option{
 		api.WithLogger(log),
