@@ -1,0 +1,33 @@
+{{define "join"}}<!DOCTYPE html>
+<html lang="de">
+<head>
+    {{template "head"}}
+    <title>Zählwerk Pong · Beitreten</title>
+    <style>
+        .code { font-family: var(--font-mono); font-size: 2.4rem; letter-spacing: 0.3em; text-align: center;
+                max-width: 12rem; }
+        .join { display: grid; gap: 1rem; justify-items: start; }
+        #join-error:empty { display: none; }
+    </style>
+</head>
+<body>
+<header>
+    <h1>Zählwerk Pong</h1>
+    <a href="/">Lobby</a>
+</header>
+<main>
+    {{/* The code goes as a form, the answer is a redirect with the guest's
+         token in the fragment, as the lobby hands the host's over. */}}
+    <form class="card join" hx-post="/ui/join" hx-target="#join-error" hx-swap="innerHTML"
+          action="/ui/join" method="post">
+        <h2>Als Gast mitspielen</h2>
+        <p class="muted" style="margin: 0">Der Code steht auf dem Gerät, auf dem das Spiel gestartet wurde. Du spielst B.</p>
+        <label>Code <input class="code" type="text" name="code" inputmode="numeric" autocomplete="off"
+                           pattern="[0-9]{4}" maxlength="4" required autofocus></label>
+        <button type="submit">Beitreten</button>
+        <div id="join-error"></div>
+    </form>
+</main>
+</body>
+</html>
+{{end}}

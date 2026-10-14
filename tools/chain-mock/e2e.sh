@@ -20,15 +20,19 @@
 #   7. a game played the way the browser plays it — presses with a token,
 #      one number each — ends with truth and zaehlwerk agreeing; a press
 #      without the token is refused and one sent twice counts once
-#   8. attract mode starts a demo on a free table after the wait, with no
+#   8. a game on two devices, a curl host and a curl guest: the guest joins
+#      with the code, its token presses nothing, its ready goes over the
+#      relay and reaches zaehlwerk only as the host's press, and truth and
+#      zaehlwerk agree at the end (ADR-0009)
+#   9. attract mode starts a demo on a free table after the wait, with no
 #      faults whatever PONG_FAULTS says; a match started on the page ends it
 #      inside zaehlwerk at once and the buttons count into that match, a
 #      demo asked for while it runs is refused and Schmetterpause hears of
 #      neither, and the next demo waits for that match to end; a game asked
 #      for takes the table from a demo (ADR-0008)
-#   9. a button check pressed as it says has no finding, and one press at the
+#   10. a button check pressed as it says has no finding, and one press at the
 #      wrong half is the one finding it reports
-#   10. a Pong match never reaches Schmetterpause
+#   11. a Pong match never reaches Schmetterpause
 #
 # Ports are off the usual ones, so it runs next to a `task run` without
 # either noticing.
@@ -254,7 +258,76 @@ games=$((games + 1))
   fail "browser game $id: truth and zaehlwerk part at $(jq -c '.divergences[0]' <<<"$game")"
 echo "   game $id: $(jq -c .state.completed_sets <<<"$game"), $((n - 1)) presses, no divergence"
 
-echo "8. attract mode: a demo on a free table, and it always gives way"
+echo "8. a game on two devices: the host reports, the guest only moves and says ready"
+# What the two pages do, without a browser. The guest's ready goes over the
+# relay as a count, and the host presses it; the relay is read the way a
+# page reads it, as SSE, in the background.
+started=$(curl -sf -X POST "$PONG/games" -H 'content-type: application/json' \
+  -d '{"driver":"browser","mode":"remote","faults":{}}') || fail "zaehlwerk-pong did not start a game on two devices"
+id=$(jq -r .id <<<"$started")
+token=$(jq -r .token <<<"$started")
+code=$(jq -r .join_code <<<"$started")
+location=$(curl -s -o /dev/null -w '%{redirect_url}' -X POST "$PONG/ui/join" --data-urlencode "code=$code")
+guest=${location##*#guest:}
+[ -n "$guest" ] && [ "$guest" != "$location" ] || fail "game $id: joining with the code gave $location"
+[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$PONG/ui/join" --data-urlencode "code=$code")" = 409 ] ||
+  fail "game $id: the code joined twice"
+[ "$(press "$guest" '{"rally":1,"kind":"ready","half":"right"}')" = 403 ] ||
+  fail "game $id: the guest's token pressed"
+curl -sN "$PONG/games/$id/relay" >"$WORK/relay.txt" &
+relay_pid=$!
+paddle() {
+  curl -s -o /dev/null -w '%{http_code}' -X POST "$PONG/games/$id/paddle" \
+    -H 'content-type: application/json' -H "X-Pong-Token: $guest" -d "$1"
+}
+frame() {
+  curl -s -o /dev/null -w '%{http_code}' -X POST "$PONG/games/$id/frames" \
+    -H 'content-type: application/json' -H "X-Pong-Token: $token" \
+    -d "{\"tick\":$1,\"ball\":{\"x\":480,\"y\":270,\"z\":10},\"resting\":null,\"paddles\":[270,270]}"
+}
+relayed() { grep -q "\"ready\":$1}" "$WORK/relay.txt"; }
+n=1
+keys=0
+game=$(curl -sf "$PONG/games/$id")
+while [ "$(jq -r .status <<<"$game")" = playing ] && [ $n -lt 400 ]; do
+  phase=$(jq -r .state.phase <<<"$game")
+  bhalf=$(jq -r 'if .state.ends[0] == "b" then "left" else "right" end' <<<"$game")
+  [ "$(frame "$n")" = 204 ] || fail "game $id: frame $n refused"
+  case $phase in
+    warmup | change_ends)
+      half=$(jq -r '.state.waiting[0]' <<<"$game")
+      if [ "$half" = "$bhalf" ]; then
+        # The guest says ready; the host presses it once it sees the count.
+        keys=$((keys + 1))
+        [ "$(paddle "{\"tick\":$n,\"y\":270,\"ready\":$keys}")" = 204 ] || fail "game $id: paddle refused"
+        wait_until 5 relayed "$keys" || fail "game $id: the guest's ready $keys did not reach the host"
+        before=$(curl -sf "$PONG/games/$id" | jq -c .state.waiting)
+        [ "$before" = "$(jq -c .state.waiting <<<"$game")" ] || fail "game $id: the guest's ready pressed by itself"
+      fi
+      body="{\"rally\":$n,\"kind\":\"ready\",\"half\":\"$half\"}" ;;
+    *)
+      [ "$(paddle "{\"tick\":$n,\"y\":$((200 + n % 100)),\"ready\":$keys}")" = 204 ] || fail "game $id: paddle refused"
+      body="{\"rally\":$n,\"kind\":\"rally\",\"half\":\"$( ((n % 3)) && echo left || echo right)\"}" ;;
+  esac
+  [ "$(press "$token" "$body")" = 200 ] || fail "game $id: press $n: $(cat "$WORK/press.json")"
+  game=$(cat "$WORK/press.json")
+  n=$((n + 1))
+done
+kill "$relay_pid" 2>/dev/null || true
+wait_until 10 game_over "$id" || fail "game $id on two devices did not finish"
+game=$(curl -sf "$PONG/games/$id")
+games=$((games + 1))
+[ "$(jq -r .status <<<"$game")" = won ] || fail "game $id: $(jq -c '{status, reason}' <<<"$game")"
+[ "$(jq '.divergences | length' <<<"$game")" = 0 ] ||
+  fail "game $id: truth and zaehlwerk part at $(jq -c '.divergences[0]' <<<"$game")"
+[ "$(jq -c .truth <<<"$game")" = "$(jq -c .zaehlwerk <<<"$game")" ] || fail "game $id: truth and zaehlwerk differ"
+frames=$(grep -c '^event: frame' "$WORK/relay.txt" || true)
+samples=$(grep -c '^event: guest' "$WORK/relay.txt" || true)
+[ "$frames" -gt 0 ] && [ "$samples" -gt 0 ] || fail "game $id: the relay carried $frames frames and $samples samples"
+echo "   game $id: $(jq -c .state.completed_sets <<<"$game"), $((n - 1)) presses by the host, $keys readies from the guest," \
+  "$frames frames and $samples samples relayed, truth $(jq -c .truth <<<"$game") = zaehlwerk"
+
+echo "9. attract mode: a demo on a free table, and it always gives way"
 # The same binary again, with attract mode on and a wait short enough for CI.
 # PONG_FAULTS is set to show it does not reach a demo.
 kill "$pong_pid"
@@ -344,7 +417,7 @@ curl -sf -X POST "$PONG/games/$game_id/end" -H "X-Pong-Token: $(jq -r .token <<<
   fail "could not end browser game $game_id"
 echo "   demo $id gave way to browser game $game_id"
 
-echo "9. a button check, pressed the way the buttons press"
+echo "10. a button check, pressed the way the buttons press"
 # The buttons are a curl each: /ingest/button with a half, a source and a
 # counter per button, as the hardware sends. The game sends nothing; this is
 # what arrives at zaehlwerk. A demo may hold the table by now, and the check
@@ -393,7 +466,7 @@ button_check 1
 jq -r .check.summary <<<"$game" | grep -q 'wrong half 1' || fail "button check $id: the summary does not say it"
 echo "   check $id: the wrong half found, $(jq -r '.check.findings[0] | "\(.want) -> \(.got)"' <<<"$game")"
 
-echo "10. a Pong match never reaches Schmetterpause"
+echo "11. a Pong match never reaches Schmetterpause"
 # Not a wait for something that should not arrive: the reporter decides at
 # match_won whether a match is reported and logs it then, before any grace
 # period, so a Pong match that was going to be reported would be counted
@@ -404,4 +477,5 @@ has_results 3 || fail "a Pong match was reported (have $(results))"
 echo "ok: 3 results, $resent resends, $duplicates duplicates, retry after refuse," \
   "an undone match point withheld," \
   "$games Pong games with no unexplained divergence, ends changed at five in the decider," \
+  "one of them on two devices," \
   "2 button checks"

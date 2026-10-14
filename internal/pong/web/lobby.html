@@ -26,8 +26,9 @@
     <section class="card">
         <h2>Gerade am Tisch</h2>
         <p>{{index .Players 0}} gegen {{index .Players 1}}
-           {{if .Attract}}als Demo, bis jemand spielen will{{else if eq .Driver "check"}}als Tasterprüfung{{else if eq .Driver "browser"}}im Browser{{else}}ohne Bildschirm (Bots){{end}}.
-           <a class="button quiet" href="/play/{{.ID}}">Zuschauen</a></p>
+           {{if .Attract}}als Demo, bis jemand spielen will{{else if eq .Driver "check"}}als Tasterprüfung{{else if eq .Mode "remote"}}auf zwei Geräten{{else if eq .Driver "browser"}}im Browser{{else}}ohne Bildschirm (Bots){{end}}.
+           <a class="button quiet" href="/play/{{.ID}}">Zuschauen</a>
+           {{if and (eq .Mode "remote") .Remote}}{{if not .Remote.Joined}}<a class="button" href="/join">Als Gast beitreten</a>{{end}}{{end}}</p>
     </section>
     {{end}}
 
@@ -41,6 +42,8 @@
                 <span>Zwei Spieler<small>an einem Gerät: W/S und ↑/↓, oder zwei Touch-Zonen</small></span></label>
             <label class="mode"><input type="radio" name="mode" value="pvc">
                 <span>Gegen den Computer<small>du spielst A, der Computer B</small></span></label>
+            <label class="mode"><input type="radio" name="mode" value="remote">
+                <span>Zwei Geräte<small>du spielst A hier, B spielt an einem zweiten Gerät mit einem Code mit</small></span></label>
             <label class="mode"><input type="radio" name="mode" value="cvc">
                 <span>Computer gegen Computer<small>zum Zuschauen</small></span></label>
             <label class="mode"><input type="radio" name="mode" value="check">

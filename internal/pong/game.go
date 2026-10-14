@@ -87,6 +87,9 @@ type View struct {
 	State       scorer.State `json:"state"`
 	// Check is a button check's prompts and findings.
 	Check *CheckView `json:"check,omitempty"`
+	// Remote is a game on two devices: whether the guest has joined, and
+	// whether the code still joins. Never the code itself.
+	Remote *RemoteView `json:"remote,omitempty"`
 }
 
 // GameConfig is one match: headless between two bots, or played in a
@@ -146,6 +149,10 @@ type Game struct {
 	// check is a button check's record, nil for every other game. Guarded
 	// by mu.
 	check *checkRun
+	// remote is a game on two devices' code, guest and relay (ADR-0009),
+	// nil for every other game. Set before the game is shared, and guarded
+	// by its own mutex.
+	remote *remote
 
 	mu          sync.Mutex
 	matchID     string
@@ -221,6 +228,14 @@ func newGame(id string, cfg GameConfig, client *Client, log *slog.Logger) *Game 
 func (g *Game) changed() {
 	close(g.wake)
 	g.wake = make(chan struct{})
+}
+
+// touch wakes every stream for a change the game's own fields do not hold: a
+// guest joining, a code locked or drawn again.
+func (g *Game) touch() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.changed()
 }
 
 // Changes is closed at the next change of the view.
@@ -839,7 +854,15 @@ func (g *Game) View() View {
 		EndsChanges: append([]EndsChange{}, g.changes...),
 		State:       g.state,
 		Check:       g.checkView(),
+		Remote:      g.remoteView(),
 	}
+}
+
+func (g *Game) remoteView() *RemoteView {
+	if g.remote == nil {
+		return nil
+	}
+	return g.remote.view()
 }
 
 func (g *Game) current() scorer.State {

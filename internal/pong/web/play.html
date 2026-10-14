@@ -20,6 +20,10 @@
         canvas { display: block; width: 100%; height: auto; border-radius: var(--radius-sm); touch-action: none; background: #0b1220; }
         .controls { display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; padding: 0.6rem 0.3rem 0.2rem; font-size: 0.85rem; }
         .controls .hint { flex: 1; color: var(--muted); }
+        .join { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; margin: 0 0.3rem 0.6rem; }
+        /* display: flex would otherwise win over the hidden attribute. */
+        .join[hidden] { display: none; }
+        .join-code { font-size: 1.8rem; letter-spacing: 0.25em; color: var(--warn); }
         .truth { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); }
         tr.expected td { color: var(--muted); }
         tr.expected .mark { color: var(--warn); }
@@ -53,6 +57,13 @@
 
     {{if .Board.Mode}}
     <section class="card stage" id="pong" data-game="{{.Board.ID}}" data-mode="{{.Board.Mode}}" data-bots="{{.Bots}}">
+        {{/* Filled by game.js on the host's page only: the code is not in the
+             page or the view, which anybody can read, but asked for with the
+             host's token. */}}
+        <p class="join" id="join" hidden>Am zweiten Gerät <b class="mono" id="join-url"></b> öffnen und
+            <b class="mono join-code" id="join-code"></b> eingeben.
+            <span class="muted" id="join-state"></span>
+            <button type="button" class="quiet" id="new-code" hidden>Neuer Code</button></p>
         <canvas width="960" height="540" aria-label="Tischtennisplatte"></canvas>
         <div class="controls">
             <span class="hint" id="hint"></span>
