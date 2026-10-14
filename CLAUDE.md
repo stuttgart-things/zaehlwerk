@@ -53,6 +53,7 @@ supersedes it, not a quiet rewrite.
 | 0006 | A game as an ingest source — zaehlwerk-pong |
 | 0007 | A grace period before reporting — an undo can still stop the result |
 | 0008 | Demo matches — a real match always wins the table |
+| 0009 | Pong on two devices — a host reports, a guest only moves a paddle |
 
 ## Terms
 
