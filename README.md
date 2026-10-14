@@ -60,9 +60,22 @@ go run ./cmd/zaehlwerk-api
 | `CATCHER_IDLE_TIMEOUT` | `20m` | Give the panel back after this long without a point |
 | `SCHMETTERPAUSE_URL` | — | Schmetterpause base URL. Unset, a match is scored and shown and reported nowhere |
 | `SCHMETTERPAUSE_TOKEN` | — | Bearer token for its `/api`; without one configured there, the routes do not exist. The scoring page names both players from `/api/players` and whoever keeps score from `/api/operators`, which adds observers: accounts that never play but may count (Schmetterpause ADR-0023). Against a Schmetterpause without that route, the players are offered instead |
+| `SCHMETTERPAUSE_REPORT_DELAY` | `15s` | Grace period between a won match and its report (ADR-0007). An undo in it withholds the report, and the result that holds when it is over is the one sent. `0` reports at once; a value that is not a duration stops the start |
 
 State is in memory and deliberately so — a match lasts twenty minutes and the
 finished result goes to Schmetterpause.
+
+**The result waits out a grace period before it goes**
+([ADR-0007](docs/adr/0007-a-grace-period-before-reporting.md)). The match
+point pressed for the wrong player and undone a second later is the mis-press
+that happens at a table, and a result sent cannot be taken back. So the report
+is sent `SCHMETTERPAUSE_REPORT_DELAY` after `match_won`, from the score as it
+stands then: an undo in that time withholds it, and a match won again sends the
+new result. The page says when the result goes and that an undo still takes it
+back, and its button sends it at once. A shutdown sends what is waiting; a
+`SIGKILL` in the grace period loses it, the loss ADR-0004 already accepts. An
+undo after the report is not reported again: the page says the result over
+there no longer holds, and it is rejected or corrected in Schmetterpause.
 
 ## API
 
@@ -480,6 +493,12 @@ A match releases the panel when it is ended, when it is won, when the process
 shuts down, or after `CATCHER_IDLE_TIMEOUT` without a point — the last of those
 because a match nobody finished would otherwise leave a dead score up until
 someone noticed.
+
+An undo that reopens a won match takes the panel back, as long as no other
+match has been started since: that one has the panel then, and keeps it. The
+release at `match_won` does not wait for the grace period the report waits
+for, because the panel can be taken back and a result cannot
+([ADR-0007](docs/adr/0007-a-grace-period-before-reporting.md)).
 
 The switch happens on match creation rather than on the first point, so the
 catcher has changed over before that point is pitched. A failed switch is
@@ -1209,6 +1228,7 @@ base whose removal can prune somebody else's panel.
 | [0004](docs/adr/0004-reporting-results-to-schmetterpause.md) | Handing the finished match to Schmetterpause |
 | [0005](docs/adr/0005-match-phases-and-table-halves.md) | Warm-up, the serve rally and the change of ends; halves instead of players |
 | [0006](docs/adr/0006-a-game-as-an-ingest-source.md) | zaehlwerk-pong: a game that scores through `/ingest/web` and is never reported |
+| [0007](docs/adr/0007-a-grace-period-before-reporting.md) | A grace period before reporting, so an undo can still take the match point back |
 
 ## Related
 

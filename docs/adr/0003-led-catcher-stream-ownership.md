@@ -3,6 +3,10 @@
 Status: Accepted
 Date: 2026-09-05
 
+> Supplemented by [ADR-0007](0007-a-grace-period-before-reporting.md): an undo
+> that reopens a won match takes the panel back, unless another match has
+> been started since.
+
 ## Context
 
 The LED matrix is a notification sink. Messages carry a display duration and are
