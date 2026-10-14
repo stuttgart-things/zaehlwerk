@@ -58,6 +58,7 @@ func NewServer(rig *Rig, zaehlwerkUI, piezoURL string, log *slog.Logger) *Server
 	s.mux.HandleFunc("GET /screens", s.screens)
 	s.mux.HandleFunc("POST /settings", s.settings)
 	s.mux.HandleFunc("POST /clear", s.clear)
+	s.mux.HandleFunc("POST /fob", s.holdFob)
 	s.mux.HandleFunc("POST /piezo", s.setPiezo)
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
@@ -77,6 +78,10 @@ type view struct {
 	Entries     []Entry
 	ZaehlwerkUI string
 	Sources     [2]string
+	// Fobs are the ones the page can hold to the reader, and FobHeld the one
+	// waiting for a press.
+	Fobs    []Fob
+	FobHeld string
 
 	// PiezoOn is whether the page has a piezo section at all. Piezo is nil
 	// when the board did not answer, and PiezoError says why.
@@ -92,6 +97,8 @@ func (s *Server) view(ctx context.Context) view {
 		Entries:     s.rig.Entries(),
 		ZaehlwerkUI: s.zaehlwerkUI,
 		Sources:     [2]string{s.rig.buttons["A"].source, s.rig.buttons["B"].source},
+		Fobs:        Fobs,
+		FobHeld:     s.rig.FobHeld(),
 	}
 	st, ok, err := s.rig.Current(ctx)
 	if err != nil {
@@ -153,6 +160,14 @@ func (s *Server) tap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, r, "screens")
+}
+
+func (s *Server) holdFob(w http.ResponseWriter, r *http.Request) {
+	if err := s.rig.HoldFob(r.PostFormValue("fob")); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.render(w, r, "live")
 }
 
 func (s *Server) screens(w http.ResponseWriter, r *http.Request) { s.render(w, r, "screens") }

@@ -163,6 +163,13 @@ type Rig struct {
 
 	// acks is what each display was last told, per half. Guarded by mu.
 	acks map[string]Ack
+
+	// fob is a fob held to the reader and waiting for a press, and hubSource
+	// and hubEvent are the hub's own place in the ingest contract for the
+	// check-ins it sends (zaehlwerk-firmware#63). Guarded by mu.
+	fob       *heldFob
+	hubSource string
+	hubEvent  uint64
 }
 
 // Ack is what the hub sends back to a display device with the radio ACK of
@@ -196,8 +203,10 @@ func New(api, sourcePrefix string, settings Settings, log *slog.Logger) *Rig {
 			"A": {side: "A", source: sourcePrefix + "-a", eventID: start},
 			"B": {side: "B", source: sourcePrefix + "-b", eventID: start},
 		},
-		seen: map[string]uint64{},
-		acks: map[string]Ack{},
+		seen:      map[string]uint64{},
+		acks:      map[string]Ack{},
+		hubSource: sourcePrefix + "-hub",
+		hubEvent:  start,
 	}
 }
 
@@ -402,6 +411,15 @@ func (r *Rig) receive(ctx context.Context, f Frame) {
 			return
 		}
 		r.seen[f.SourceID] = f.EventID
+	}
+
+	// A press while a fob waits names the half and is a check-in, not a
+	// point. A long press is still an undo: it names no half.
+	if f.Gesture == Short || f.Gesture == Point {
+		if held := r.takeFob(); held != nil {
+			r.checkIn(ctx, f, held)
+			return
+		}
 	}
 
 	switch f.Gesture {

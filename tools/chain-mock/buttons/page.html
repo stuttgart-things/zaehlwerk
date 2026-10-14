@@ -239,6 +239,16 @@
             a long press and takes the last point back, both held is <code>both_long</code>. On a phone
             both can be held at once.</p>
         {{end}}
+        {{/* The reader at the hub (zaehlwerk-firmware#63): a fob, then a
+             press within five seconds names the half, and that press is a
+             check-in rather than a point. Needs a zaehlwerk with
+             SCHMETTERPAUSE_URL, such as task chain:run. */}}
+        <div class="both">
+            {{range .Fobs}}<button class="small" hx-post="/fob" hx-vals='{"fob":"{{.Label}}"}' hx-target="#live" hx-swap="outerHTML">hold {{.Label}}</button> {{end}}
+        </div>
+        <p class="muted" style="margin-bottom:0">Hold a fob to the reader, then press the button of a half
+            within five seconds: that press checks the player in there instead of scoring. Two halves
+            checked in start the match. The UID is never written to the log below.</p>
     </section>
 
     <section class="card">
@@ -330,6 +340,9 @@
                 · match <span class="mono">{{.State.MatchID}}</span></div>
         {{else}}
             <div class="notice">No match running. <a href="{{.ZaehlwerkUI}}" target="_blank" rel="noopener">Start one on the zaehlwerk page</a> — a button never starts one.</div>
+        {{end}}
+        {{if .FobHeld}}
+            <div class="notice" style="margin-top:0.5rem">reader: <span class="badge on">{{.FobHeld}}</span> waits for a press</div>
         {{end}}
         {{if .PiezoOn}}
             <div class="notice" style="margin-top:0.5rem">piezo board:

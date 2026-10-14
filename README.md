@@ -852,6 +852,22 @@ task chain:piezo JOIN=1      # the board, with its control endpoint on :8085
 task chain:buttons PIEZO=1   # the page, with a piezo section
 ```
 
+The reader at the hub is on the page too (zaehlwerk-firmware#63). "hold Anna's
+fob", then a press on a half within five seconds, sends
+`POST /ingest/checkin` for that half instead of a point; two halves start the
+match. It needs a zaehlwerk that resolves fobs, so run it against the fake:
+
+```bash
+task chain:schmetterpause    # the fake, with its fobs
+task chain:run               # zaehlwerk with check-in on
+task chain:buttons           # then hold a fob and press
+```
+
+"a stranger's badge" is a card nobody owns. The log names fobs by their label
+and never writes a UID, as the firmware must not. "API response lost" sends
+the check-in twice with one event id, and the second answer is the first one
+repeated, with nothing resolved again.
+
 The piezo section pauses and resumes the board, and sets its pace and the
 shares of ambiguous, resent and taken-back rallies while it plays. Pausing
 happens between rallies, never inside one. Pause it to try the buttons without
