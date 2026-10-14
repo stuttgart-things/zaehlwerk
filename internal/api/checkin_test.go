@@ -302,7 +302,7 @@ func TestAMatchStartedOnThePageDropsTheClaimsMadeBeforeIt(t *testing.T) {
 		match.Handover{HomeID: "carla", AwayID: "dieter", OperatorID: "op"})
 	require.NoError(t, err)
 	_, raw := c.do(http.MethodGet, "/checkin", "")
-	require.JSONEq(t, `{"enabled":true,"timeout":"5m0s","left":null,"right":null}`, string(raw))
+	require.JSONEq(t, `{"enabled":true,"fob":true,"timeout":"5m0s","left":null,"right":null}`, string(raw))
 	c.server.EndMatch(m)
 
 	// Bernd checks in at the right half: he has the table to himself, and no

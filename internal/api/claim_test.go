@@ -122,17 +122,25 @@ func TestOneHalfByFobAndOneByPhoneStartAMatchWithBothCheckInsAndNoOperator(t *te
 
 func TestAPhoneClaimDuringARunningMatchIs409AndChangesNothing(t *testing.T) {
 	c, _, _ := claimClient(t, "")
-	c.claim(http.StatusOK, claimBody("left", claraID, checkinID(1)))
 	id := c.newMatch(`{"players":["A","B"]}`)
 
 	a := c.claim(http.StatusConflict, claimBody("right", doraID, checkinID(2)))
 	require.Equal(t, checkin.Refused, a.Outcome)
 	require.NotEmpty(t, a.Error)
-	require.Equal(t, "Clara", a.Left, "the claim from before stays")
-	require.Empty(t, a.Right)
+	require.Empty(t, a.Left)
+	require.Empty(t, a.Right, "the half was not claimed")
 
 	st := c.state(http.StatusOK, http.MethodGet, "/matches/current", "")
 	require.Equal(t, id, st.MatchID, "the running match is the running match")
+
+	// Once it is over, the same claim is refused again, not taken: a
+	// repeat of a check-in id is the first answer.
+	m, err := c.registry.Get(id)
+	require.NoError(t, err)
+	c.server.EndMatch(m)
+	again := c.claim(http.StatusConflict, claimBody("right", doraID, checkinID(2)))
+	require.True(t, again.Repeated)
+	require.Equal(t, checkin.Refused, again.Outcome)
 }
 
 func TestTheSameCheckinIDTwiceClaimsOnce(t *testing.T) {
@@ -253,4 +261,22 @@ func TestTheClaimRouteIsOffWithoutSchmetterpause(t *testing.T) {
 	require.Contains(t, out.Error, "check-in is off")
 	_, raw := c.do(http.MethodGet, "/checkin", "")
 	require.JSONEq(t, `{"enabled":false,"left":null,"right":null}`, string(raw))
+}
+
+// #114 holds for the phone path too, also on a desk that has no fob path: a
+// real match started elsewhere drops a claim made by phone before it.
+func TestAMatchStartedElsewhereDropsAPhoneClaim(t *testing.T) {
+	c, _, _ := claimClient(t, "")
+
+	c.claim(http.StatusOK, claimBody("left", claraID, checkinID(1)))
+	id := c.newMatch(`{"players":["Carla","Dieter"]}`)
+	_, raw := c.do(http.MethodGet, "/checkin", "")
+	require.Contains(t, string(raw), `"left":null`)
+
+	m, err := c.registry.Get(id)
+	require.NoError(t, err)
+	c.server.EndMatch(m)
+	a := c.claim(http.StatusOK, claimBody("right", doraID, checkinID(2)))
+	require.Equal(t, checkin.Claimed, a.Outcome, "no match in Clara's name")
+	require.Empty(t, a.Left)
 }
