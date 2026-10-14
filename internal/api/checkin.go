@@ -1,19 +1,25 @@
 package api
 
 import (
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/stuttgart-things/zaehlwerk/internal/checkin"
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 )
 
-// errCheckinOff is the answer while no Schmetterpause is configured. A 503
-// rather than a 404, like the stream without a hub: the route exists, the
-// feature does not, and a hub that gets this knows to stop holding fobs up.
-var errCheckinOff = errors.New("check-in is off: no schmetterpause is configured to resolve a fob")
+// errCheckinOff is the answer while no Schmetterpause or no CHECKIN_TOKEN is
+// configured. A 503 rather than a 404, like the stream without a hub: the
+// route exists, the feature does not, and a hub that gets this knows to stop
+// holding fobs up. It does not say which is missing; the start log does.
+var errCheckinOff = errors.New("check-in is off on this zaehlwerk")
+
+// errCheckinToken is a check-in without the hub's token, or with another.
+var errCheckinToken = errors.New("check-in needs the hub's token")
 
 // checkinRequest is POST /ingest/checkin: the ingest contract of ADR-0002, a
 // half and a UID (ADR-0010).
@@ -52,6 +58,15 @@ type checkinStatus struct {
 func (s *Server) ingestCheckin(w http.ResponseWriter, r *http.Request) {
 	if s.desk == nil {
 		s.fail(w, r, http.StatusServiceUnavailable, errCheckinOff, nil)
+		return
+	}
+	// Before the body is read: a check-in names a player to Schmetterpause,
+	// and during "Fob koppeln" pairs a UID with one, so it is taken only from
+	// the hub (#113). A fob UID is no secret, a phone reads one in a second;
+	// the token is what says the request came from the reader at the table.
+	if !s.fromTheHub(r) {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="checkin"`)
+		s.fail(w, r, http.StatusUnauthorized, errCheckinToken, nil)
 		return
 	}
 
@@ -93,6 +108,14 @@ func (s *Server) ingestCheckin(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusInternalServerError
 	}
 	writeJSON(w, status, out)
+}
+
+// fromTheHub says whether r carries the check-in token as a bearer, compared
+// in constant time so the answer's timing says nothing about how much of a
+// guess was right.
+func (s *Server) fromTheHub(r *http.Request) bool {
+	got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return ok && subtle.ConstantTimeCompare([]byte(got), []byte(s.checkinToken)) == 1
 }
 
 func (s *Server) checkinStatus(w http.ResponseWriter, _ *http.Request) {

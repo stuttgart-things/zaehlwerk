@@ -23,10 +23,23 @@ func TestCheckInIsOffWithOneLineWithoutSchmetterpause(t *testing.T) {
 	require.Contains(t, logs.String(), "check-in disabled")
 }
 
+func TestCheckInIsOffWithOneLineWithoutAToken(t *testing.T) {
+	var logs bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&logs, nil))
+	sp, err := schmetterpause.New(schmetterpause.Config{BaseURL: "http://sp.invalid"})
+	require.NoError(t, err)
+
+	t.Setenv("CHECKIN_TOKEN", "")
+	require.Nil(t, checkinDesk(log, sp))
+	require.Equal(t, 1, strings.Count(logs.String(), "\n"), logs.String())
+	require.Contains(t, logs.String(), "check-in disabled, CHECKIN_TOKEN not configured")
+}
+
 func TestTheCheckInTimeoutIsReadFromTheEnvironment(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	sp, err := schmetterpause.New(schmetterpause.Config{BaseURL: "http://sp.invalid"})
 	require.NoError(t, err)
+	t.Setenv("CHECKIN_TOKEN", "hub-secret")
 
 	t.Setenv("CHECKIN_TIMEOUT", "")
 	require.Equal(t, checkin.DefaultTimeout, checkinDesk(log, sp).Timeout())
