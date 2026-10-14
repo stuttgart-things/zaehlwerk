@@ -59,9 +59,9 @@ go run ./cmd/zaehlwerk-api
 | `CATCHER_IDLE_STREAMS` | `messages` | What it goes back to |
 | `CATCHER_IDLE_TIMEOUT` | `20m` | Give the panel back after this long without a point |
 | `SCHMETTERPAUSE_URL` | — | Schmetterpause base URL. Unset, a match is scored and shown and reported nowhere |
-| `SCHMETTERPAUSE_TOKEN` | — | Bearer token for its `/api`; without one configured there, the routes do not exist. The scoring page names both players from `/api/players` and whoever keeps score from `/api/operators`, which adds observers: accounts that never play but may count (Schmetterpause ADR-0023). Against a Schmetterpause without that route, the players are offered instead |
-| `CHECKIN_TOKEN` | — | Bearer token the hub sends on `POST /ingest/checkin`. Unset, check-in is off: a check-in names a player, so the route takes none from anybody without it (#113) |
-| `CHECKIN_TIMEOUT` | `5m` | How long a lone check-in holds its half (ADR-0010). Check-in is on only with `SCHMETTERPAUSE_URL` and `CHECKIN_TOKEN` |
+| `SCHMETTERPAUSE_TOKEN` | — | Bearer token for its `/api`; without one configured there, the routes do not exist. The scoring page names both players from `/api/players` and whoever keeps score from `/api/operators`, which adds observers: accounts that never play but may count (Schmetterpause ADR-0023). Against a Schmetterpause without that route, the players are offered instead. It is also what Schmetterpause sends back on `POST /checkin/claim`, and set together with the URL it turns on check-in by phone (ADR-0011) |
+| `CHECKIN_TOKEN` | — | Bearer token the hub sends on `POST /ingest/checkin`. Unset, check-in by fob is off: a check-in names a player, so the route takes none from anybody without it (#113). Check-in by phone does not need it |
+| `CHECKIN_TIMEOUT` | `5m` | How long a lone check-in holds its half (ADR-0010). Check-in by fob is on with `SCHMETTERPAUSE_URL` and `CHECKIN_TOKEN`, by phone with `SCHMETTERPAUSE_URL` and `SCHMETTERPAUSE_TOKEN` |
 | `CHECKIN_START` | `serve_rally` | The phase a checked-in match starts in: `serve_rally` or `warmup`. The first serve is always played for |
 | `CHECKIN_CHANGE_ENDS` | `false` | `true` has the players of a checked-in match change ends |
 | `SCHMETTERPAUSE_REPORT_DELAY` | `15s` | Grace period between a won match and its report (ADR-0007). An undo in it withholds the report, and the result that holds when it is over is the one sent. `0` reports at once; a value that is not a duration stops the start |
@@ -252,8 +252,8 @@ memory.
 A retry with the same `event_id` gets the first answer again, with
 `"repeated": true`, and Schmetterpause is not asked twice: every resolve is a
 new check-in over there. Without `SCHMETTERPAUSE_URL` or `CHECKIN_TOKEN` the
-route answers 503, `GET /checkin` says `"enabled": false`, and nothing else
-changes. A check-in without the token, or with another, is a 401 before its
+route answers 503, `GET /checkin` leaves out `"fob"` (and says
+`"enabled": false` unless check-in by phone is on), and nothing else changes. A check-in without the token, or with another, is a 401 before its
 body is read: a fob UID is no secret, a phone reads one in a second, and a
 check-in names a player, or during "Fob koppeln" pairs a UID with one. Points
 need no token, because a point names nobody.
@@ -267,6 +267,41 @@ recorded as delivered. A lone claim is released after `CHECKIN_TIMEOUT`, a real
 match started on the page or through the API releases every claim at once (a
 demo does not), and a restart forgets every claim. A match started on the page still names an
 operator, as before.
+
+#### By phone, through Schmetterpause
+
+With `SCHMETTERPAUSE_URL` and `SCHMETTERPAUSE_TOKEN` set, a player can also
+check in with their phone ([ADR-0011](docs/adr/0011-check-in-by-phone-through-schmetterpause.md)).
+They scan the QR code at a half, which opens a page on Schmetterpause, and
+confirm there. Schmetterpause records the check-in and claims the half here,
+with the token this service sends to it, in the other direction:
+
+```bash
+curl -s -X POST localhost:8080/checkin/claim \
+  -H 'content-type: application/json' -H "authorization: Bearer $SCHMETTERPAUSE_TOKEN" \
+  -d '{"half": "right", "player_id": "<uuid>", "checkin_id": "<uuid>"}'
+# {"outcome":"started","half":"right","name":"Bernd","match_id":"…","left":"","right":""}
+```
+
+From there on it is the fob's claim: the same halves, `CHECKIN_TIMEOUT`, the
+same rules for the same player, another player or the other half, and both
+halves claimed start the match, reported with both check-ins and no operator.
+One half by fob and the other by phone is the ordinary case. The display name
+comes from `/api/players`, as for a fob; nothing is checked against
+Schmetterpause beforehand, because the result is checked against the
+check-ins there anyway.
+
+The answer has `/ingest/checkin`'s body and statuses: 200 for `claimed`,
+`unchanged`, `replaced`, `moved` and `started`, 409 `refused` while a match
+runs, 400 for a half that is not `left` or `right` or an id that is not a
+UUID, 401 without Schmetterpause's token or with another, compared before the
+body is read. A claim with a `checkin_id` seen before claims nothing and gets
+the first answer with `"repeated": true`; the last 256 are remembered. Without
+`SCHMETTERPAUSE_URL` or `SCHMETTERPAUSE_TOKEN` the route answers 503, as
+`/ingest/checkin` does without `CHECKIN_TOKEN`, and one line at start says so.
+Each token opens only its own route: the hub's does not claim, and
+Schmetterpause's does not check a fob in. `GET /checkin` says which paths are
+on, as `"fob"` and `"phone"`.
 
 ## Live score
 
@@ -762,8 +797,20 @@ halves, neither is older than three hours, and a check-in that already carries
 a result is a 409. A result with an operator and check-ins is a 400.
 `curl -X POST localhost:8082/link -d player_id=<id>` opens the "Anhänger
 koppeln" window for a minute, and the next unknown fob becomes that player's.
-`GET /checkins` lists what was recorded. `SCHMETTERPAUSE_FOBS=off` leaves the
-route out, as the real one does without `SP_RFID_UID_KEY`.
+`GET /checkins` lists what was recorded, with `method` `rfid` or `phone`.
+`SCHMETTERPAUSE_FOBS=off` leaves the route out, as the real one does without
+`SP_RFID_UID_KEY`.
+
+It plays the phone path too (ADR-0011). `POST /phone` with `half` and
+`player_id` is a player confirming at the table page: the fake records a phone
+check-in and claims the half at zaehlwerk's `POST /checkin/claim` with its
+token, and answers with zaehlwerk's status and body. A `checkin_id` repeats
+the claim of that check-in. It needs `ZAEHLWERK_URL`, which
+`task chain:schmetterpause` sets:
+
+```bash
+task chain:phone HALF=right PLAYER=bernd   # Bernd checks in at the right half by phone
+```
 
 **The board** does what zaehlwerk-firmware#41 describes, and is meant as the
 reference for it:
@@ -811,7 +858,7 @@ the first rally and says so.
 | `SCHMETTERPAUSE_MODE` | `accept` | `refuse`, `hang` |
 | `SCHMETTERPAUSE_FOBS` | — | `off`: the fake has no fob resolve route |
 | `SCHMETTERPAUSE_URL` | — | where the board reads its players from. Unset, it starts a match nobody reports |
-| `ZAEHLWERK_URL` | `http://localhost:8080` | |
+| `ZAEHLWERK_URL` | `http://localhost:8080` | the board: what it scores into. The fake: where `POST /phone` claims a half; unset, it has no phone check-in |
 | `PIEZO_SOURCE` | `piezo-mock` | |
 | `PIEZO_PACE` | `1s` | between rallies |
 | `PIEZO_AMBIGUOUS`, `PIEZO_RESEND`, `PIEZO_UNDO` | `0.1`, `0.1`, `0.05` | shares of rallies |
@@ -1390,6 +1437,7 @@ base whose removal can prune somebody else's panel.
 | [0008](docs/adr/0008-demo-matches.md) | Demo matches: a real match always wins the table |
 | [0009](docs/adr/0009-pong-on-two-devices.md) | Pong on two devices: the host reports, the guest only moves a paddle |
 | [0010](docs/adr/0010-check-in-per-table-half.md) | Check-in per table half: a fob claims a half through Schmetterpause, two claims start a match reported without an operator |
+| [0011](docs/adr/0011-check-in-by-phone-through-schmetterpause.md) | Check-in by phone: Schmetterpause claims a half for a player with `POST /checkin/claim` |
 
 ## Related
 

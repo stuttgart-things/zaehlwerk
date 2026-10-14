@@ -20,13 +20,20 @@ const CheckinValidity = 3 * time.Hour
 // linkWindow is how long "Anhänger koppeln" stays open.
 const linkWindow = time.Minute
 
-// Checkin is one check-in the resolve route recorded. Every resolve records a
-// new one, as the real one does.
+// How a check-in was made, as the real one's checkins.method says.
+const (
+	MethodRFID  = "rfid"
+	MethodPhone = "phone"
+)
+
+// Checkin is one check-in the resolve route or the phone control recorded.
+// Every resolve records a new one, as the real one does.
 type Checkin struct {
 	ID        uuid.UUID `json:"id"`
 	PlayerID  uuid.UUID `json:"player_id"`
 	Player    string    `json:"player"`
 	Half      string    `json:"half"`
+	Method    string    `json:"method"`
 	CreatedAt time.Time `json:"created_at"`
 	Used      bool      `json:"used"`
 }
@@ -126,7 +133,7 @@ func (f *Server) resolveFob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p := f.Roster[owner]
-	c := &Checkin{ID: uuid.New(), PlayerID: p.ID, Player: p.DisplayName, Half: body.Half, CreatedAt: f.now()}
+	c := &Checkin{ID: uuid.New(), PlayerID: p.ID, Player: p.DisplayName, Half: body.Half, Method: MethodRFID, CreatedAt: f.now()}
 	f.checkins[c.ID] = c
 	f.log.Info("fob check-in recorded", "player", p.DisplayName, "checkin_id", c.ID, "half", c.Half)
 	writeJSON(w, http.StatusOK, struct {

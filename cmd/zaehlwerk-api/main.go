@@ -131,10 +131,14 @@ func run() error {
 	}))
 
 	// Check-in needs Schmetterpause to say who a fob is, and a match from two
-	// bare claims would have nobody to report to (ADR-0010). It needs the
-	// hub's token too, or anybody on the network could check a player in.
+	// bare claims would have nobody to report to (ADR-0010). Each way in
+	// needs its caller's token, or anybody on the network could check a
+	// player in: the hub's for a fob, Schmetterpause's for a phone
+	// (ADR-0011). Both claim the halves of one desk.
 	if desk := checkinDesk(log, spClient); desk != nil {
-		apiOpts = append(apiOpts, api.WithCheckin(desk, os.Getenv("CHECKIN_TOKEN")))
+		apiOpts = append(apiOpts,
+			api.WithCheckin(desk, os.Getenv("CHECKIN_TOKEN")),
+			api.WithPhoneCheckin(desk, os.Getenv("SCHMETTERPAUSE_TOKEN")))
 	}
 
 	if spClient != nil {
@@ -250,11 +254,15 @@ func schmetterpauseClient(log *slog.Logger) *schmetterpause.Client {
 	return client
 }
 
-// checkinDesk builds check-in per table half, or says it is off.
+// checkinDesk builds check-in per table half, or says it is off, in one line
+// for each way in.
 //
-// CHECKIN_TOKEN is what the hub sends as a bearer. Unset, check-in is off,
-// whatever else is configured: a check-in names a player to Schmetterpause,
-// and an open route would take one from anybody on the network (#113).
+// The fob path needs CHECKIN_TOKEN, what the hub sends as a bearer: a
+// check-in names a player to Schmetterpause, and an open route would take one
+// from anybody on the network (#113). The phone path needs
+// SCHMETTERPAUSE_TOKEN, what Schmetterpause sends when it claims a half for a
+// phone check-in (ADR-0011); it does not need CHECKIN_TOKEN, which is the
+// hub's. The desk exists while either is on.
 //
 // CHECKIN_TIMEOUT is how long a lone claim holds its half. CHECKIN_START is
 // the phase a checked-in match starts in, serve_rally or warmup: nobody chose
@@ -263,12 +271,23 @@ func schmetterpauseClient(log *slog.Logger) *schmetterpause.Client {
 // warning, like the other optional settings; none of them can send anything
 // that cannot be taken back.
 func checkinDesk(log *slog.Logger, sp *schmetterpause.Client) *checkin.Desk {
-	if sp == nil {
-		log.Info("check-in disabled, a fob cannot be resolved without SCHMETTERPAUSE_URL")
-		return nil
+	fob := os.Getenv("CHECKIN_TOKEN") != ""
+	phone := os.Getenv("SCHMETTERPAUSE_TOKEN") != ""
+	switch {
+	case sp == nil:
+		log.Info("fob check-in disabled, a fob cannot be resolved without SCHMETTERPAUSE_URL")
+		fob = false
+	case !fob:
+		log.Info("fob check-in disabled, CHECKIN_TOKEN not configured")
 	}
-	if os.Getenv("CHECKIN_TOKEN") == "" {
-		log.Info("check-in disabled, CHECKIN_TOKEN not configured")
+	switch {
+	case sp == nil:
+		log.Info("phone check-in disabled, POST /checkin/claim needs SCHMETTERPAUSE_URL")
+		phone = false
+	case !phone:
+		log.Info("phone check-in disabled, POST /checkin/claim needs SCHMETTERPAUSE_TOKEN")
+	}
+	if !fob && !phone {
 		return nil
 	}
 
@@ -299,7 +318,13 @@ func checkinDesk(log *slog.Logger, sp *schmetterpause.Client) *checkin.Desk {
 	opts = append(opts, checkin.WithMatch(cfg))
 
 	desk := checkin.NewDesk(sp, opts...)
-	log.Info("check-in enabled", "timeout", desk.Timeout(), "start", cfg.Start, "change_ends", cfg.ChangeEnds)
+	settings := []any{"timeout", desk.Timeout(), "start", cfg.Start, "change_ends", cfg.ChangeEnds}
+	if fob {
+		log.Info("fob check-in enabled, POST /ingest/checkin with CHECKIN_TOKEN", settings...)
+	}
+	if phone {
+		log.Info("phone check-in enabled, POST /checkin/claim with SCHMETTERPAUSE_TOKEN", settings...)
+	}
 	return desk
 }
 

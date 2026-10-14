@@ -38,6 +38,9 @@ type fakeSP struct {
 	err error
 	// gate, when set, holds every resolve until it is closed.
 	gate chan struct{}
+	// players, when set, holds every read of the player list until it is
+	// closed: the one call a phone claim makes.
+	players chan struct{}
 }
 
 func newFakeSP() *fakeSP {
@@ -70,6 +73,9 @@ func (f *fakeSP) ResolveFob(_ context.Context, uid, _ string) (schmetterpause.Fo
 }
 
 func (f *fakeSP) Players(context.Context) ([]schmetterpause.Player, error) {
+	if f.players != nil {
+		<-f.players
+	}
 	var out []schmetterpause.Player
 	for id, name := range f.names {
 		out = append(out, schmetterpause.Player{ID: id, DisplayName: name})

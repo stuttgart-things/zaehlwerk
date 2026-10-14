@@ -130,5 +130,5 @@ The route answers 503, one line at start says so, and nothing else changes
   read; unset, check-in is off with a line at start, in the shape of the
   other couplings (invariants 3 and 4). The firmware's side is
   zaehlwerk-firmware#65. Points stay without a token: they name nobody.
-- The phone path is still open. When Schmetterpause has a route for it, it ends
-  in the same claim, with Schmetterpause calling in rather than the hub.
+- The phone path ends in the same claim, with Schmetterpause calling in rather
+  than the hub: ADR-0011.

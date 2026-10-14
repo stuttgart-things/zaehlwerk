@@ -8,6 +8,10 @@
 // half claimed starts the match, with both check-ins on its handover, so the
 // result goes to Schmetterpause without an operator.
 //
+// A player with a phone checks in at Schmetterpause instead, which records the
+// check-in and claims the half here with both ids (ADR-0011). From there on it
+// is the same claim, so one half by fob and the other by phone is ordinary.
+//
 // Everything here is in memory (invariant 2): a claim lasts minutes and a
 // restart forgets it. The UID is not kept anywhere — not in a claim, not in
 // the record that makes a retried request safe, not in a log line.
@@ -163,6 +167,11 @@ type Desk struct {
 	mu      sync.Mutex
 	claims  [2]*Claim // by half index: left, right
 	sources map[string]*source
+	// phone is the attempt for each check-in id Schmetterpause claimed with,
+	// and phoneOrder the order they came in, oldest first, so that the
+	// record stays bounded (ADR-0011).
+	phone      map[string]*attempt
+	phoneOrder []string
 }
 
 // source is one sender's place in the ingest contract, for check-ins only:
@@ -218,7 +227,7 @@ func WithMatch(cfg scorer.Config) Option {
 	return func(d *Desk) { d.match = cfg }
 }
 
-// NewDesk builds a desk that resolves fobs through sp.
+// NewDesk builds a desk that resolves fobs and names players through sp.
 func NewDesk(sp Schmetterpause, opts ...Option) *Desk {
 	d := &Desk{
 		sp:      sp,
@@ -227,6 +236,7 @@ func NewDesk(sp Schmetterpause, opts ...Option) *Desk {
 		timeout: DefaultTimeout,
 		match:   scorer.Config{Start: scorer.StartServeRally},
 		sources: make(map[string]*source),
+		phone:   make(map[string]*attempt),
 	}
 	for _, opt := range opts {
 		opt(d)
@@ -272,9 +282,9 @@ func (d *Desk) CheckIn(ctx context.Context, req Request, table Table) Answer {
 		return Answer{Outcome: Duplicate, Half: req.Half, Halves: halves}
 	}
 
+	attrs := req.logAttrs()
 	if table.Occupied() {
-		a := d.finish(att, req, Answer{Outcome: Refused, Half: req.Half,
-			Err: errors.New("a match is running, check in once it is over")})
+		a := d.finish(att, attrs, Answer{Outcome: Refused, Half: req.Half, Err: errRunning})
 		d.mu.Unlock()
 		return a
 	}
@@ -298,24 +308,35 @@ func (d *Desk) CheckIn(ctx context.Context, req Request, table Table) Answer {
 
 	switch {
 	case errors.Is(err, schmetterpause.ErrUnknownFob):
-		return d.finish(att, req, Answer{Outcome: Unknown, Half: req.Half,
+		return d.finish(att, attrs, Answer{Outcome: Unknown, Half: req.Half,
 			Err: errors.New("unknown fob")})
 	case errors.Is(err, schmetterpause.ErrNoFobRoute):
-		return d.finish(att, req, Answer{Outcome: Unavailable, Half: req.Half, Err: err})
+		return d.finish(att, attrs, Answer{Outcome: Unavailable, Half: req.Half, Err: err})
 	case err != nil:
-		return d.finish(att, req, Answer{Outcome: Unavailable, Half: req.Half,
+		return d.finish(att, attrs, Answer{Outcome: Unavailable, Half: req.Half,
 			Err: fmt.Errorf("resolving the fob: %w", err)})
 	}
 
+	return d.settle(att, attrs, req.Half,
+		Claim{PlayerID: got.PlayerID, CheckinID: got.CheckinID, Name: name, At: now}, table)
+}
+
+// errRunning is the reason a claim is refused while a real match runs.
+var errRunning = errors.New("a match is running, check in once it is over")
+
+// settle applies a claim whose player and check-in are known, by either path,
+// and starts the match when it takes the second half. Must be called with the
+// lock held, after expire.
+func (d *Desk) settle(att *attempt, attrs []any, half scorer.Half, c Claim, table Table) Answer {
 	// Asked again: a match may have started while Schmetterpause answered.
 	// The check-in over there stays unused and expires.
 	if table.Occupied() {
-		return d.finish(att, req, Answer{Outcome: Refused, Half: req.Half, Name: name,
-			Err: errors.New("a match is running, check in once it is over")})
+		return d.finish(att, attrs, Answer{Outcome: Refused, Half: half, Name: c.Name, Err: errRunning})
 	}
 
-	outcome := d.claim(req.Half, Claim{PlayerID: got.PlayerID, CheckinID: got.CheckinID, Name: name, At: now})
-	a := Answer{Outcome: outcome, Half: req.Half, Name: name}
+	name := c.Name
+	outcome := d.claim(half, c)
+	a := Answer{Outcome: outcome, Half: half, Name: name}
 
 	left, right := d.claims[0], d.claims[1]
 	if left != nil && right != nil {
@@ -327,7 +348,7 @@ func (d *Desk) CheckIn(ctx context.Context, req Request, table Table) Answer {
 			// Both claims stay: a match that could not be created is ours to
 			// fix, and taking the halves away would make the players check in
 			// again for it.
-			return d.finish(att, req, Answer{Outcome: Failed, Half: req.Half, Name: name,
+			return d.finish(att, attrs, Answer{Outcome: Failed, Half: half, Name: name,
 				Err: fmt.Errorf("starting the checked-in match: %w", err)})
 		}
 		d.claims = [2]*Claim{}
@@ -336,7 +357,13 @@ func (d *Desk) CheckIn(ctx context.Context, req Request, table Table) Answer {
 		d.log.Info("both halves checked in, match started", "match_id", m.ID,
 			"left", left.Name, "right", right.Name)
 	}
-	return d.finish(att, req, a)
+	return d.finish(att, attrs, a)
+}
+
+// logAttrs is how a fob check-in is named in the log: by the hub's contract
+// and the half, never the UID.
+func (r Request) logAttrs() []any {
+	return []any{"via", "fob", "source", r.Source, "event_id", r.EventID, "half", r.Half}
 }
 
 // Drop releases every claim, because a real match started somewhere else: on
@@ -426,15 +453,15 @@ func (d *Desk) forgetQuietestSource() {
 
 // finish records the answer for retries, logs it and returns it. Must be
 // called with the lock held.
-func (d *Desk) finish(att *attempt, req Request, a Answer) Answer {
+func (d *Desk) finish(att *attempt, attrs []any, a Answer) Answer {
 	a.Halves = d.halves()
 	att.answer = a
 	close(att.done)
 
-	// The UID is not in this line or any other: the outcome, the half and
-	// who it turned out to be are what a fob that did not check in is
-	// debugged by (ADR-0010).
-	attrs := []any{"source", req.Source, "event_id", req.EventID, "half", req.Half, "outcome", a.Outcome}
+	// The UID is not in this line or any other, and neither are the ids:
+	// the outcome, the half and who it turned out to be are what a check-in
+	// that did not take is debugged by (ADR-0010, ADR-0011).
+	attrs = append(attrs[:len(attrs):len(attrs)], "outcome", a.Outcome)
 	if a.Name != "" {
 		attrs = append(attrs, "name", a.Name)
 	}
