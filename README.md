@@ -736,8 +736,8 @@ task chain:piezo            # a board plays a best of three to the end
 task chain:results          # what arrived at the other end
 ```
 
-**The fake Schmetterpause** answers `/api/players`, `/api/operators` and
-`/api/results` with the refusals the real one gives. Those are a 401 without the
+**The fake Schmetterpause** answers `/api/players`, `/api/operators`,
+`/api/results` and the fob resolve route with the refusals the real one gives. Those are a 401 without the
 token, and a 400 or 422 for a result it would not store: an operator who is
 playing, an observer as a side, an unknown id, a set won by one. Its roster is
 fixed: Anna, Bernd and Clara play, Olga only watches. A contract test drives it
@@ -745,6 +745,18 @@ with this service's own client, so it cannot quietly speak a different API.
 `task chain:mode MODE=refuse` or `MODE=hang` loses the next result on purpose,
 and the page then offers the retry that ADR-0004 promises. `MODE=accept` lets
 that retry through.
+
+It also answers `POST /api/identities/rfid/resolve` for check-in (ADR-0010).
+Anna's fob is `04:A3:1B:22`, Bernd's `04:5C:7E:91`, Clara's
+`04:11:22:33:44:55:66`; `DE:AD:BE:EF` belongs to nobody and is an empty 404.
+Every resolve records a check-in, and a result proven by two of them is checked
+the way the real one checks it: each belongs to its side, they are at different
+halves, neither is older than three hours, and a check-in that already carries
+a result is a 409. A result with an operator and check-ins is a 400.
+`curl -X POST localhost:8082/link -d player_id=<id>` opens the "Anhänger
+koppeln" window for a minute, and the next unknown fob becomes that player's.
+`GET /checkins` lists what was recorded. `SCHMETTERPAUSE_FOBS=off` leaves the
+route out, as the real one does without `SP_RFID_UID_KEY`.
 
 **The board** does what zaehlwerk-firmware#41 describes, and is meant as the
 reference for it:
@@ -790,6 +802,7 @@ the first rally and says so.
 | `SCHMETTERPAUSE_ADDR` | `:8082` | where the fake listens (`ZW_SCHMETTERPAUSE_PORT` in `.env`) |
 | `SCHMETTERPAUSE_TOKEN` | — | the fake: unset, `/api` does not exist, as with the real one. The board: the bearer token it sends |
 | `SCHMETTERPAUSE_MODE` | `accept` | `refuse`, `hang` |
+| `SCHMETTERPAUSE_FOBS` | — | `off`: the fake has no fob resolve route |
 | `SCHMETTERPAUSE_URL` | — | where the board reads its players from. Unset, it starts a match nobody reports |
 | `ZAEHLWERK_URL` | `http://localhost:8080` | |
 | `PIEZO_SOURCE` | `piezo-mock` | |
