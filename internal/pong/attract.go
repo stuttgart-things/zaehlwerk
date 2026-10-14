@@ -16,7 +16,9 @@ import (
 //     only once that match is over, and after a demo is won there is a whole
 //     wait before the next one. Demo and free table take turns.
 //   - A match somebody left running is never ended. It blocks the demo, and
-//     says so once.
+//     says so once. The one exception is a demo that is not ours, left behind
+//     by a pod that is gone (ADR-0008): once it has been quiet for the whole
+//     wait it is ended, and the wait starts again at the no_match after it.
 //   - A game somebody asks for always wins: start ends a running demo before
 //     it starts the new game, under the same lock every start takes.
 
@@ -25,11 +27,11 @@ var errYielded = errors.New("gave the table to a new game")
 
 // errIntruded is a demo ended because zaehlwerk's score parted from the truth.
 // A demo has no faults, so nothing the game did explains that: somebody else is
-// counting into its match — buttons pressed during a demo, or a real match
-// started in the instant between the demo seeing a free table and creating its
-// own, which left the demo's match current and the buttons scoring into it.
-// Ending the demo's match makes the newest running match current again, or the
-// table free.
+// counting into its match — buttons pressed during a demo. The other case it
+// was written for, a real match started in the instant between the demo seeing
+// a free table and creating its own, zaehlwerk closes itself since ADR-0008 by
+// refusing the demo. Ending the demo's match makes the newest running match
+// current again, or the table free.
 var errIntruded = errors.New("somebody else is counting into the demo")
 
 // AttractStatus is where attract mode stands, for the lobby.
@@ -123,22 +125,24 @@ func (s *Server) watchTable(ctx context.Context) {
 // followTable acts on one connection to /live/stream until it closes.
 func (s *Server) followTable(ctx context.Context, table <-chan TableEvent) {
 	after := s.cfg.AttractAfter
-	// demo fires when the table has been free for long enough; quiet when the
+	// wait fires when the table has been free for long enough; quiet when the
 	// current match has had no event for as long.
-	demo := time.NewTimer(time.Hour)
+	wait := time.NewTimer(time.Hour)
 	quiet := time.NewTimer(time.Hour)
-	demo.Stop()
+	wait.Stop()
 	quiet.Stop()
-	defer demo.Stop()
+	defer wait.Stop()
 	defer quiet.Stop()
 
 	arm := func() {
-		demo.Reset(after)
+		wait.Reset(after)
 		s.setAttract(time.Now().Add(after), false)
 	}
-	// current is the match the table shows; told is the last stale one the
-	// log has named, so a match left running for a day is one line.
+	// current is the match the table shows, and demo whether it is one; told
+	// is the last stale one the log has named, so a match left running for a
+	// day is one line.
 	var current, told string
+	var demo bool
 
 	for {
 		select {
@@ -160,16 +164,31 @@ func (s *Server) followTable(ctx context.Context, table <-chan TableEvent) {
 			}
 			// Any match current is a table that is not free: the demo's own,
 			// a browser game's, or somebody's.
-			demo.Stop()
+			wait.Stop()
 			s.setAttract(time.Time{}, false)
-			current = ev.State.MatchID
+			current, demo = ev.State.MatchID, ev.Demo
 			quiet.Reset(after)
 
-		case <-demo.C:
+		case <-wait.C:
 			s.startDemo(arm)
 
 		case <-quiet.C:
 			if current == "" || current == told || s.ownsMatch(current) {
+				continue
+			}
+			if demo {
+				// A demo is nobody's result, and one quiet for the whole wait
+				// has nobody playing it: a pod that is gone left it, or
+				// another instance whose game nobody plays. Ended, the table
+				// sends no_match, and the wait starts again from there.
+				if _, err := s.client.EndMatch(ctx, current); err != nil {
+					s.log.Warn("could not end a quiet demo that is not ours, trying again after the next wait",
+						"match_id", current, "error", err)
+					quiet.Reset(after)
+					continue
+				}
+				s.log.Info("a demo that is not ours was quiet for the whole wait, ended it",
+					"match_id", current, "quiet", after.String())
 				continue
 			}
 			// Never ended, whatever it is: a match nobody scores any more

@@ -388,17 +388,20 @@ func (s *Server) launch(g *Game) (*Game, error) {
 	// somebody's: a reported one is a real match between real players, and
 	// an unreported one is still a person scoring on the page, whose buttons
 	// and page would land in the game's match the moment it became current.
-	var first TableEvent
-	select {
-	case ev, ok := <-table:
-		if !ok {
-			cancel(nil)
-			return nil, errors.New("reading the table from zaehlwerk: the stream closed at once")
-		}
-		first = ev
-	case <-time.After(5 * time.Second):
+	// The one exception is a demo that is not ours (ADR-0008): left behind by
+	// a pod that is gone, or another instance's. A game somebody asks for
+	// ends it, as yield ends our own; a demo does not, it waits for a quiet
+	// one in attract mode.
+	first, err := nextTableEvent(table)
+	if err != nil {
 		cancel(nil)
-		return nil, errors.New("reading the table from zaehlwerk: no answer on /live/stream")
+		return nil, err
+	}
+	if first.Demo && first.State != nil && !g.cfg.Attract && !s.ownsMatch(first.State.MatchID) {
+		if first, err = s.endForeignDemo(ctx, first.State.MatchID, table); err != nil {
+			cancel(nil)
+			return nil, err
+		}
 	}
 	if first.Kind != kindNoMatch {
 		cancel(nil)
@@ -490,4 +493,38 @@ func fail(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, struct {
 		Error string `json:"error"`
 	}{err.Error()})
+}
+
+// nextTableEvent waits for the next event on /live/stream, bounded, because a
+// start must answer rather than hang on a zaehlwerk that does not.
+func nextTableEvent(table <-chan TableEvent) (TableEvent, error) {
+	select {
+	case ev, ok := <-table:
+		if !ok {
+			return TableEvent{}, errors.New("reading the table from zaehlwerk: the stream closed")
+		}
+		return ev, nil
+	case <-time.After(5 * time.Second):
+		return TableEvent{}, errors.New("reading the table from zaehlwerk: no answer on /live/stream")
+	}
+}
+
+// endForeignDemo ends a demo that is not the service's own and returns what
+// the table shows once it has gone: no_match, or whatever match is current
+// after it. The demo's own ended event on the way is skipped.
+func (s *Server) endForeignDemo(ctx context.Context, matchID string, table <-chan TableEvent) (TableEvent, error) {
+	if _, err := s.client.EndMatch(ctx, matchID); err != nil {
+		return TableEvent{}, fmt.Errorf("ending demo %s, which is not ours: %w", matchID, err)
+	}
+	s.log.Info("a demo that is not ours held the table, ended it for a new game", "match_id", matchID)
+	for {
+		ev, err := nextTableEvent(table)
+		if err != nil {
+			return TableEvent{}, err
+		}
+		if ev.State != nil && ev.State.MatchID == matchID {
+			continue
+		}
+		return ev, nil
+	}
 }

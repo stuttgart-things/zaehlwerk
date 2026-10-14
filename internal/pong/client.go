@@ -68,11 +68,17 @@ func NewClient(base string, log *slog.Logger) *Client {
 // createBody is POST /matches as the game sends it. There is deliberately no
 // field for a player id or an operator: a match started through the JSON API
 // has no handover and is never reported to Schmetterpause (ADR-0004, ADR-0006).
+//
+// Demo is always true. Every match the game creates is no result and gives way
+// to one, demo, browser game and button check alike (ADR-0008), and zaehlwerk
+// decides that under its own lock, where a real match created at the same
+// moment cannot slip in between.
 type createBody struct {
 	Players    [2]string `json:"players"`
 	BestOf     int       `json:"best_of"`
 	Start      string    `json:"start"`
 	ChangeEnds bool      `json:"change_ends"`
+	Demo       bool      `json:"demo"`
 }
 
 // CreateMatch starts a match the way it starts at the table: a warm-up, the
@@ -84,9 +90,16 @@ func (c *Client) CreateMatch(ctx context.Context, players [2]string, bestOf int)
 		BestOf:     bestOf,
 		Start:      string(scorer.StartWarmup),
 		ChangeEnds: true,
+		Demo:       true,
 	})
 	if err != nil {
 		return st, err
+	}
+	if status == http.StatusConflict {
+		// A real match is running, and zaehlwerk refuses a demo next to it:
+		// the table is taken, as it is when the stream shows a current match.
+		// The answer's state is that match.
+		return st, fmt.Errorf("%w: POST /matches: match %s is running at the table", errBusy, st.MatchID)
 	}
 	if status != http.StatusCreated {
 		return st, fmt.Errorf("POST /matches: %d", status)
@@ -175,6 +188,8 @@ type TableEvent struct {
 	// when the match is being reported.
 	HomeID string `json:"home_id"`
 	AwayID string `json:"away_id"`
+	// Demo is a match that is no result and gives way to one (ADR-0008).
+	Demo bool `json:"demo"`
 }
 
 // Reported says the match is a real one, played by people and reported to
