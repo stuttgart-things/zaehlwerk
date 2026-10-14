@@ -131,7 +131,11 @@ today, for every browser game. **SSE plus POST is chosen.**
     guesses therefore has five chances in 10,000 for each code the host
     draws.
   - **A new code.** In both cases the host's page offers a new code ("Neuer
-    Code"), which only the host's token can ask for.
+    Code"), which only the host's token can ask for. The same request
+    returns the current code while it still joins, which is how the host's
+    page gets the code to show: it is in neither the page nor
+    `GET /games/{id}`, which say only whether a guest has joined and whether
+    the code is locked or when it expires.
 
   The limits are constants, like the rates (section 6). The route is still the
   access control (`kcl/pong.k`), as before.
@@ -164,7 +168,9 @@ interpret the contents. Physics and rules stay on the host.
 - **`ready`.** `ready` counts the guest's presses of the ready key and only goes
   up. A sample that is replaced before it is sent therefore cannot lose a
   press. When the host sees the count rise, it sends `ready` for the guest's
-  half through its own `/presses`. The guest's ready reaches zaehlwerk only
+  half through its own `/presses`. Outside the warm-up and a change of ends
+  the same key serves when the guest's side holds the ball, as it does on one
+  device; the host serves for it. The guest's ready reaches zaehlwerk only
   through the host, and so the host remains the only reporter, with the press
   numbering ADR-0006 already has.
 - **`say` and `fx`.** These carry the host's message ("NETZ", "AUS") and the
@@ -222,9 +228,9 @@ by the hop back. **The guest's sample carries the tick it was drawing. The host
 judges the guest's contact against the guest's paddle at that tick, not at the
 moment the sample arrives.**
 
-The host keeps the last 10 ticks of ball positions, about a third of a second.
-When the ball crosses the guest's paddle line at tick N, the host does not
-decide yet. It waits for a guest sample with a tick of N or later, and then
+When the ball crosses the guest's paddle line at tick N, the host keeps where
+it crossed, which is all of the ball's history the judgement needs, and does
+not decide yet. It waits for a guest sample with a tick of N or later, and then
 judges the contact with that sample's `y` against the ball at tick N. Today's
 code already has a window of this kind: a missed ball is called only once it
 is 60 px past the paddle (`b.passed && … > 60` in `game.js`). That is 115 ms

@@ -860,11 +860,12 @@ which is what the mocks above cannot know.
 It is its own binary, `cmd/zaehlwerk-pong`, and its own image,
 `ghcr.io/stuttgart-things/zaehlwerk-pong`, built and tagged like the others
 and released with zaehlwerk. It plays in the browser — two people at one
-device, a person against the computer, or two computers to watch — and headless,
+device, a person against the computer, two people on two devices, or two
+computers to watch — and headless,
 two bots whose rallies are drawn by skill, with faults injected on purpose if
 asked, and by itself in attract mode when the table has been free for a while.
 And it checks the real buttons: it says which one to press and compares what
-arrives. Two devices for one game are #99.
+arrives.
 
 ```bash
 task chain:pong        # zaehlwerk and zaehlwerk-pong side by side
@@ -894,8 +895,8 @@ faults as they are injected.
 | Serve, ready | `D` | `←` |
 | Touch | drag on the left half, tap to serve or confirm | the same on the right |
 
-Against the computer either set of keys works, and `Space` serves. In the
-warm-up both sides play freely and confirm with their key; in a change of ends
+Against the computer and on two devices either set of keys works, and `Space`
+serves. In the warm-up both sides play freely and confirm with their key; in a change of ends
 the paddles and names swap once both have pressed at their new half.
 
 The page decides rallies and nothing else. Every rally won and every ready key
@@ -915,6 +916,35 @@ without it is a 403. Another tab, or another device, opens the same page and
 watches the board. `POST /games/{id}/end` with the token ends the game and its
 match; a browser game nobody presses in for ten minutes (`PONG_BROWSER_IDLE`)
 ends itself the same way, so a closed tab does not keep the panel.
+
+**On two devices** ([ADR-0009](docs/adr/0009-pong-on-two-devices.md)). The
+lobby's mode "Zwei Geräte" (`"mode": "remote"`) makes the page that starts it
+the host: it plays A, runs the ball and is the only page that reports, with
+the token as above. It shows a four-digit code and `<host>/join`. The guest
+enters the code there and is sent to the same `/play/{id}` with a token of its
+own in the fragment; it plays B, sends its paddle and its key, and draws what
+the host sends. The code is used up by the first join, expires after five
+minutes and is locked after five wrong tries; the host's page then offers a new
+one (`POST /games/{id}/code`, host token only). The guest's token is refused on
+`/presses` and `/end`: its ready key reaches zaehlwerk only as the host's
+press.
+
+| Route | Token | What |
+| ----- | ----- | ---- |
+| `GET /join`, `POST /ui/join` | — | the code, answered with `/play/{id}#guest:<token>` |
+| `POST /games/{id}/code` | host | the code that still joins, or a new one |
+| `POST /games/{id}/frames` | host | `{"tick", "ball": {"x","y","z"} \| null, "resting", "paddles": [l, r], "say"?, "fx"?}`, 30/s |
+| `POST /games/{id}/paddle` | guest | `{"tick", "y", "ready"}`: the host tick it drew, its paddle, its key as a count |
+| `GET /games/{id}/relay` | — | SSE: the latest `frame` and the latest `guest`, each once |
+
+The service keeps only the latest message each way, caps a body at 512 bytes,
+refuses fields it does not know and reads nothing else in it. The host judges a
+guest's contact against the guest's paddle at the tick the guest saw, at most
+120 ms late, so a slow WLAN costs the guest less than its latency. Two seconds
+without the other device is "Gast getrennt" on the host — the game pauses, and
+a ball in flight is not reported — or "Gastgeber getrennt" on the guest; the
+game still ends by `PONG_BROWSER_IDLE` or by the host's button. `GET /games/{id}`
+says `"remote": {"joined", "locked", "expires_at"}` and never the code.
 
 **How it scores.** A game starts its own match with `POST /matches`: free-text
 names (`Pong A`, `Pong B`), `start: "warmup"`, `change_ends: true` and
@@ -1083,7 +1113,10 @@ and fails on the first rally where truth and zaehlwerk part, on a deciding set
 without its change of ends at five, and on a Pong result arriving at the fake
 Schmetterpause. Then it plays one game with every fault above zero and fails on
 any unexplained divergence, or if the seed no longer injects every fault. That
-game waits out one counter reset, so the e2e takes a minute longer. Last, it
+game waits out one counter reset, so the e2e takes a minute longer. A game on
+two devices is played with a curl host and a curl guest: the code must join
+once, the guest's token must not press, the guest's ready must reach zaehlwerk
+only through the host's press, and truth and zaehlwerk must agree. Last, it
 starts the service again in attract mode with a two-second wait and fails if no
 demo starts on the free table, if a demo carries faults, if one does not give
 way to a match started at the table or to a game started through the API, or if
@@ -1261,6 +1294,7 @@ base whose removal can prune somebody else's panel.
 | [0006](docs/adr/0006-a-game-as-an-ingest-source.md) | zaehlwerk-pong: a game that scores through `/ingest/web` and is never reported |
 | [0007](docs/adr/0007-a-grace-period-before-reporting.md) | A grace period before reporting, so an undo can still take the match point back |
 | [0008](docs/adr/0008-demo-matches.md) | Demo matches: a real match always wins the table |
+| [0009](docs/adr/0009-pong-on-two-devices.md) | Pong on two devices: the host reports, the guest only moves a paddle |
 
 ## Related
 
