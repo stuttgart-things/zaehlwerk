@@ -68,6 +68,12 @@ for points.
   keeps, which is the newer one, and its timeout, which starts again. Another player at that half replaces the
   claim. The same player at the other half moves there.
 - A lone claim is released after `CHECKIN_TIMEOUT` (5 minutes by default).
+- A real match started on the page or through the API releases every claim
+  at once (#114). The table is that match's, and a claim made before it no
+  longer says who stands at the table: without this, a lone claim could wait
+  out a short match and pair with whoever checks in after it. A demo leaves
+  the claims. The desk is told after the registry's lock is free, because it
+  takes the registry's inside its own when it starts a match (#102).
 - A restart forgets every claim. Something that expires in minutes is not
   worth an exception to invariant 2.
 

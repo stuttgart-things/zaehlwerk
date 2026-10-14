@@ -263,8 +263,9 @@ Both halves claimed creates the match: the left half is `a` and home, the right
 Schmetterpause with `home_checkin_id` and `away_checkin_id` and no
 `operator_id` (Schmetterpause ADR-0024). A 409 for it means a check-in already
 carries the result, which is the answer to a retry of one that arrived, and is
-recorded as delivered. A lone claim is released after `CHECKIN_TIMEOUT`, and a
-restart forgets every claim. A match started on the page still names an
+recorded as delivered. A lone claim is released after `CHECKIN_TIMEOUT`, a real
+match started on the page or through the API releases every claim at once (a
+demo does not), and a restart forgets every claim. A match started on the page still names an
 operator, as before.
 
 ## Live score

@@ -175,7 +175,29 @@ func (s *Server) StartMatch(cfg scorer.Config, handover match.Handover) (*match.
 
 // start is StartMatch with the whole setup. Only the JSON API starts demos,
 // so only it needs more than the handover.
+//
+// A real match started here, on the page or through the API, releases every
+// check-in claim: the table is that match's, and a lone claim made before it
+// would otherwise wait it out and pair with whoever checks in after it (#114).
+// The desk is told once the registry's lock is free again, so the two locks
+// are never taken in the order the desk takes them in, desk then registry
+// (#102). A demo leaves the claims: a checked-in match takes the table from
+// it (ADR-0008).
 func (s *Server) start(cfg scorer.Config, setup match.Setup) (*match.Match, error) {
+	m, err := s.create(cfg, setup)
+	if err != nil {
+		return nil, err
+	}
+	if s.desk != nil && !m.Demo {
+		s.desk.Drop(m.ID)
+	}
+	return m, nil
+}
+
+// create makes the match and hands it the panel. The desk starts its matches
+// through this rather than start: it holds its own lock while it does, and
+// ends its claims itself.
+func (s *Server) create(cfg scorer.Config, setup match.Setup) (*match.Match, error) {
 	if cfg.SetOpener == "" {
 		cfg.SetOpener = s.setOpener
 	}

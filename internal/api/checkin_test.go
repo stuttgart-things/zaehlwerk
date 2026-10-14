@@ -288,3 +288,54 @@ func TestCheckInIsOffWithoutAToken(t *testing.T) {
 	require.JSONEq(t, `{"enabled":false,"left":null,"right":null}`, string(raw))
 	require.Zero(t, sp.calls())
 }
+
+func TestAMatchStartedOnThePageDropsTheClaimsMadeBeforeIt(t *testing.T) {
+	c, _, _ := checkinClient(t)
+
+	// Anna checks in at the left half and walks away.
+	require.Equal(t, checkin.Claimed, c.checkIn(http.StatusOK, checkinBody(1, "left", "04:a3:1b:22")).Outcome)
+
+	// Somebody plays a short match from the page, the way internal/ui starts
+	// one, and it is over well inside the timeout.
+	m, err := c.server.StartMatch(scorer.Config{Players: [2]string{"Carla", "Dieter"}},
+		match.Handover{HomeID: "carla", AwayID: "dieter", OperatorID: "op"})
+	require.NoError(t, err)
+	_, raw := c.do(http.MethodGet, "/checkin", "")
+	require.JSONEq(t, `{"enabled":true,"timeout":"5m0s","left":null,"right":null}`, string(raw))
+	c.server.EndMatch(m)
+
+	// Bernd checks in at the right half: he has the table to himself, and no
+	// match is started in Anna's name.
+	a := c.checkIn(http.StatusOK, checkinBody(2, "right", "04-5C-7E-91"))
+	require.Equal(t, checkin.Claimed, a.Outcome)
+	require.Empty(t, a.Left)
+	require.Equal(t, "Bernd", a.Right)
+	require.Empty(t, a.MatchID)
+	_, running := c.registry.Occupied()
+	require.False(t, running, "no match between Anna and Bernd")
+}
+
+func TestAMatchStartedThroughTheAPIDropsTheClaims(t *testing.T) {
+	c, _, _ := checkinClient(t)
+
+	c.checkIn(http.StatusOK, checkinBody(1, "left", "04:a3:1b:22"))
+	c.newMatch(`{"players":["Carla","Dieter"]}`)
+
+	_, raw := c.do(http.MethodGet, "/checkin", "")
+	require.Contains(t, string(raw), `"left":null`)
+}
+
+func TestADemoLeavesTheClaims(t *testing.T) {
+	c, _, _ := checkinClient(t)
+
+	c.checkIn(http.StatusOK, checkinBody(1, "left", "04:a3:1b:22"))
+	demo := c.newMatch(`{"players":["Pong A","Pong B"],"demo":true}`)
+
+	// The demo is no reason to forget Anna: Bernd's check-in starts the
+	// match, which takes the table from the demo (ADR-0008).
+	a := c.checkIn(http.StatusOK, checkinBody(2, "right", "04-5C-7E-91"))
+	require.Equal(t, checkin.Started, a.Outcome)
+	m, err := c.registry.Get(demo)
+	require.NoError(t, err)
+	require.False(t, m.Running(), "the checked-in match ended the demo")
+}

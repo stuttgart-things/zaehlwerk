@@ -339,6 +339,27 @@ func (d *Desk) CheckIn(ctx context.Context, req Request, table Table) Answer {
 	return d.finish(att, req, a)
 }
 
+// Drop releases every claim, because a real match started somewhere else: on
+// the page or through the API. The table is that match's now (ADR-0008), and
+// a claim made before it no longer says who stands at the table once it is
+// over (#114). The desk's own matches end their claims themselves.
+//
+// It takes the desk's lock, so it must not be called with the registry's
+// held, or from inside [Table]: the desk holds its lock while it starts a
+// match, and the registry's is taken inside that (#102).
+func (d *Desk) Drop(matchID string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if d.claims == [2]*Claim{} {
+		return
+	}
+	h := d.halves()
+	d.claims = [2]*Claim{}
+	d.log.Info("check-ins dropped, a match started elsewhere took the table", "match_id", matchID,
+		"left", h[0], "right", h[1])
+}
+
 // Claims shows the halves, left then right, nil where a half is free.
 func (d *Desk) Claims() [2]*View {
 	d.mu.Lock()

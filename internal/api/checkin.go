@@ -140,7 +140,9 @@ func (t table) Occupied() bool {
 }
 
 func (t table) StartMatch(cfg scorer.Config, h match.Handover) (*match.Match, error) {
-	m, err := t.s.StartMatch(cfg, h)
+	// Not StartMatch: that tells the desk, which is the caller and holds its
+	// lock.
+	m, err := t.s.create(cfg, match.Setup{Handover: h})
 	if err != nil {
 		return nil, fmt.Errorf("starting a match: %w", err)
 	}
