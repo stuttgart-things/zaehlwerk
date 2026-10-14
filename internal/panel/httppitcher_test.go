@@ -118,9 +118,10 @@ func (o *omniPitcher) reportStream(s string) {
 
 func testMessage() homerun.Message {
 	return Message(
-		scorer.Transition{Kind: scorer.TransitionPoint, State: state([2]int{7, 5}, [2]int{1, 0})},
-		DefaultSystem, DefaultAuthor, time.Now(),
-	)
+		scorer.Transition{Kind: scorer.TransitionPoint, State: state([2]int{7, 5}, [2]int{1, 0})}, false,
+
+		DefaultSystem, DefaultAuthor, time.Now())
+
 }
 
 func TestAPitchArrivesAsTheMessageWeBuilt(t *testing.T) {
@@ -157,9 +158,10 @@ func TestEveryTransitionSendsATitleAndAMessage(t *testing.T) {
 		scorer.TransitionSetWon, scorer.TransitionMatchWon,
 	} {
 		msg := Message(
-			scorer.Transition{Kind: kind, State: state([2]int{0, 0}, [2]int{0, 0})},
-			DefaultSystem, DefaultAuthor, time.Now(),
-		)
+			scorer.Transition{Kind: kind, State: state([2]int{0, 0}, [2]int{0, 0})}, false,
+
+			DefaultSystem, DefaultAuthor, time.Now())
+
 		_, _, err := p.Enqueue(context.Background(), msg)
 		require.NoError(t, err, "kind %s was rejected", kind)
 	}

@@ -188,7 +188,7 @@ func TestMessageCarriesTheFieldsTheCatcherRoutesOn(t *testing.T) {
 	st := state([2]int{3, 5}, [2]int{1, 0})
 	at := time.Date(2026, 9, 5, 18, 30, 0, 0, time.UTC)
 
-	msg := Message(scorer.Transition{Kind: scorer.TransitionPoint, State: st}, "tabletennis", "zaehlwerk", at)
+	msg := Message(scorer.Transition{Kind: scorer.TransitionPoint, State: st}, false, "tabletennis", "zaehlwerk", at)
 
 	require.Equal(t, "tabletennis", msg.System)
 	require.Equal(t, "INFO", msg.Severity)
@@ -234,7 +234,7 @@ func TestTagsSayWhatHappenedAndWhichSideItWentTo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, routing(Message(tt.tr, "tabletennis", "zaehlwerk", time.Now()).Tags))
+			require.Equal(t, tt.want, routing(Message(tt.tr, false, "tabletennis", "zaehlwerk", time.Now()).Tags))
 		})
 	}
 }
@@ -247,7 +247,7 @@ func TestTheNewTagsDoNotDisturbTheOnesRulesAlreadyMatch(t *testing.T) {
 		scorer.TransitionSetWon, scorer.TransitionMatchWon,
 	} {
 		for _, side := range []scorer.Player{"", scorer.PlayerA, scorer.PlayerB} {
-			tags := Tags(scorer.Transition{Kind: kind, Side: side, State: state([2]int{0, 0}, [2]int{1, 0})})
+			tags := Tags(scorer.Transition{Kind: kind, Side: side, State: state([2]int{0, 0}, [2]int{1, 0})}, false)
 
 			require.True(t, strings.HasPrefix(tags, "match=m1,set=2,"), "kind=%s side=%q: %q", kind, side, tags)
 			require.NotContains(t, strings.Split(tags, ","), "side=", "an empty side is left out, not sent blank")
@@ -264,7 +264,7 @@ func TestASetWonByACorrectionIsTaggedWithTheSideThatTookIt(t *testing.T) {
 
 	var tags []string
 	sc.Observe(func(tr scorer.Transition) {
-		tags = append(tags, routing(Message(tr, DefaultSystem, DefaultAuthor, time.Now()).Tags))
+		tags = append(tags, routing(Message(tr, false, DefaultSystem, DefaultAuthor, time.Now()).Tags))
 	})
 
 	id := uint64(0)
@@ -301,9 +301,9 @@ func TestMessageLeavesNoRoutingFieldEmpty(t *testing.T) {
 	} {
 		t.Run(string(kind), func(t *testing.T) {
 			msg := Message(
-				scorer.Transition{Kind: kind, State: state([2]int{0, 0}, [2]int{0, 0})},
-				"tabletennis", "zaehlwerk", time.Now(),
-			)
+				scorer.Transition{Kind: kind, State: state([2]int{0, 0}, [2]int{0, 0})}, false,
+
+				"tabletennis", "zaehlwerk", time.Now())
 
 			require.NotEmpty(t, msg.System)
 			require.NotEmpty(t, msg.Severity)
@@ -337,7 +337,7 @@ func TestTheTagsCarryTheWholeBoardAfterTheRoutingTags(t *testing.T) {
 	st.Serving = scorer.PlayerB
 	st.CompletedSets = [][2]int{{11, 8}, {9, 11}}
 
-	tags := Tags(scorer.Transition{Kind: scorer.TransitionPoint, Side: scorer.PlayerB, State: st})
+	tags := Tags(scorer.Transition{Kind: scorer.TransitionPoint, Side: scorer.PlayerB, State: st}, false)
 
 	require.Equal(t,
 		"match=m1,set=3,transition=point,side=b,"+
@@ -350,7 +350,7 @@ func TestNobodyServesOnceTheMatchIsWon(t *testing.T) {
 	st.Serving = scorer.PlayerA
 	st.Complete, st.Winner = true, scorer.PlayerA
 
-	tags := Tags(scorer.Transition{Kind: scorer.TransitionMatchWon, Side: scorer.PlayerA, State: st})
+	tags := Tags(scorer.Transition{Kind: scorer.TransitionMatchWon, Side: scorer.PlayerA, State: st}, false)
 
 	require.NotContains(t, tags, "serve=")
 	require.Contains(t, tags, "points=11:9,sets=3:1,winner=a")
@@ -363,7 +363,7 @@ func TestANameCannotSplitTheTags(t *testing.T) {
 	st := state([2]int{0, 0}, [2]int{0, 0})
 	st.Players = [2]string{"Doe, Jane", "Max;Muster"}
 
-	tags := strings.Split(Tags(scorer.Transition{Kind: scorer.TransitionPoint, State: st}), ",")
+	tags := strings.Split(Tags(scorer.Transition{Kind: scorer.TransitionPoint, State: st}, false), ",")
 
 	require.Contains(t, tags, "player_a=Doe  Jane")
 	require.Contains(t, tags, "player_b=Max Muster")
@@ -380,7 +380,7 @@ func TestTheServeTagFollowsTheScorer(t *testing.T) {
 
 	var serves []string
 	sc.Observe(func(tr scorer.Transition) {
-		for _, tag := range strings.Split(Tags(tr), ",") {
+		for _, tag := range strings.Split(Tags(tr, false), ",") {
 			if v, ok := strings.CutPrefix(tag, "serve="); ok {
 				serves = append(serves, v)
 			}
@@ -416,7 +416,7 @@ func TestAWonSetAndAWonMatchCarryABannerNamingTheWinner(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Contains(t, strings.Split(Tags(tt.tr), ","), tt.want)
+			require.Contains(t, strings.Split(Tags(tt.tr, false), ","), tt.want)
 		})
 	}
 }
@@ -425,7 +425,7 @@ func TestAWonSetAndAWonMatchCarryABannerNamingTheWinner(t *testing.T) {
 // announce, and the next point after a won set clears the one before.
 func TestOnlyASetOrMatchWinHasABanner(t *testing.T) {
 	for _, kind := range []scorer.TransitionKind{scorer.TransitionPoint, scorer.TransitionUndo} {
-		tags := Tags(scorer.Transition{Kind: kind, Side: scorer.PlayerA, State: state([2]int{3, 2}, [2]int{0, 0})})
+		tags := Tags(scorer.Transition{Kind: kind, Side: scorer.PlayerA, State: state([2]int{3, 2}, [2]int{0, 0})}, false)
 		require.NotContains(t, tags, "banner=", "kind=%s", kind)
 	}
 }
@@ -436,7 +436,7 @@ func TestTheBannerCutsALongNameWhereTheBoardDoes(t *testing.T) {
 	st := state([2]int{0, 0}, [2]int{1, 0})
 	st.Players = [2]string{"Müllermeister", "Bernd"}
 
-	tags := strings.Split(Tags(scorer.Transition{Kind: scorer.TransitionSetWon, Side: scorer.PlayerA, State: st}), ",")
+	tags := strings.Split(Tags(scorer.Transition{Kind: scorer.TransitionSetWon, Side: scorer.PlayerA, State: st}, false), ",")
 
 	require.Contains(t, tags, "banner=SATZ Müller")
 }
@@ -446,7 +446,7 @@ func TestThePhaseAndTheEndsGoLast(t *testing.T) {
 	st.Phase = scorer.PhaseChangeEnds
 	st.Ends = [2]scorer.Player{scorer.PlayerB, scorer.PlayerA}
 
-	tags := Tags(scorer.Transition{Kind: scorer.TransitionConfirmed, Side: scorer.PlayerB, State: st})
+	tags := Tags(scorer.Transition{Kind: scorer.TransitionConfirmed, Side: scorer.PlayerB, State: st}, false)
 
 	require.True(t, strings.HasSuffix(tags, ",phase=change_ends,ends=b:a"), tags)
 }
@@ -465,7 +465,7 @@ func TestAPhaseWithSomethingToDoHasItsInstructionAsTheBanner(t *testing.T) {
 			st := state([2]int{0, 0}, [2]int{0, 0})
 			st.Phase = tt.phase
 
-			tags := Tags(scorer.Transition{Kind: scorer.TransitionConfirmed, State: st})
+			tags := Tags(scorer.Transition{Kind: scorer.TransitionConfirmed, State: st}, false)
 
 			require.Contains(t, strings.Split(tags, ","), tt.want)
 		})
@@ -476,7 +476,7 @@ func TestTheServeRallyAnnouncesWhoServes(t *testing.T) {
 	st := state([2]int{0, 0}, [2]int{0, 0})
 	st.Phase = scorer.PhasePlaying
 
-	tags := Tags(scorer.Transition{Kind: scorer.TransitionServeDecided, Side: scorer.PlayerB, State: st})
+	tags := Tags(scorer.Transition{Kind: scorer.TransitionServeDecided, Side: scorer.PlayerB, State: st}, false)
 
 	require.Contains(t, strings.Split(tags, ","), "banner=ANGABE Bernd")
 }
@@ -486,7 +486,19 @@ func TestASetWonBeforeAChangeOfEndsKeepsItsBanner(t *testing.T) {
 	st := state([2]int{0, 0}, [2]int{1, 0})
 	st.Phase = scorer.PhaseChangeEnds
 
-	tags := Tags(scorer.Transition{Kind: scorer.TransitionSetWon, Side: scorer.PlayerA, State: st})
+	tags := Tags(scorer.Transition{Kind: scorer.TransitionSetWon, Side: scorer.PlayerA, State: st}, false)
 
 	require.Contains(t, strings.Split(tags, ","), "banner=SATZ Anna")
+}
+
+func TestADemoIsTaggedAfterEverythingElse(t *testing.T) {
+	st := state([2]int{0, 0}, [2]int{1, 0})
+	st.Phase = scorer.PhaseChangeEnds
+	st.Ends = [2]scorer.Player{scorer.PlayerB, scorer.PlayerA}
+	tr := scorer.Transition{Kind: scorer.TransitionConfirmed, Side: scorer.PlayerB, State: st}
+
+	require.True(t, strings.HasSuffix(Tags(tr, true), ",ends=b:a,demo=1"), Tags(tr, true))
+	require.Equal(t, Tags(tr, false)+",demo=1", Tags(tr, true),
+		"a catcher that never heard of demos sees the tags it always saw, and one more")
+	require.NotContains(t, Tags(tr, false), "demo", "a real match carries no demo=0")
 }

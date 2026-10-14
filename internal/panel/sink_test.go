@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	homerun "github.com/stuttgart-things/homerun-library/v4"
 
+	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 )
 
@@ -105,7 +107,7 @@ func newScorer(t *testing.T, s *Sink) *scorer.Scorer {
 	t.Helper()
 	sc, err := scorer.New(scorer.Config{MatchID: "m1", Players: [2]string{"Anna", "Bernd"}})
 	require.NoError(t, err)
-	sc.Observe(s.Observe)
+	sc.Observe(func(tr scorer.Transition) { s.Observe(nil, tr) })
 	return sc
 }
 
@@ -371,4 +373,30 @@ func TestConfigKeepsWhatWasSet(t *testing.T) {
 	require.Equal(t, 7, cfg.QueueSize)
 	require.Equal(t, time.Second, cfg.PitchTimeout)
 	require.Equal(t, 2*time.Second, cfg.DrainTimeout)
+}
+
+// The sink is a match observer so that it can tell a demo by its match
+// (ADR-0008); the registry hands the match over, and the sink never looks it
+// up.
+func TestThePanelTagsADemo(t *testing.T) {
+	rec := newRecorder()
+	sink := New(rec, Config{Logger: quiet()})
+	defer func() { require.NoError(t, sink.Close()) }()
+	registry := match.NewRegistry(match.WithMatchObserver(sink.Observe))
+
+	demo, _, err := registry.CreateFor(scorer.Config{Players: [2]string{"Pong A", "Pong B"}}, match.Setup{Demo: true})
+	require.NoError(t, err)
+	_, err = demo.Scorer.Apply(scorer.ScoreEvent{MatchID: demo.ID, Player: scorer.PlayerA, Delta: 1, EventID: 1, Source: "test"})
+	require.NoError(t, err)
+
+	real, err := registry.Create(scorer.Config{Players: [2]string{"Anna", "Bernd"}})
+	require.NoError(t, err)
+	_, err = real.Scorer.Apply(scorer.ScoreEvent{MatchID: real.ID, Player: scorer.PlayerA, Delta: 1, EventID: 1, Source: "test"})
+	require.NoError(t, err)
+
+	waitFor(t, "both points", func() bool { return len(rec.titles()) == 2 })
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	require.True(t, strings.HasSuffix(rec.msgs[0].Tags, ",demo=1"), rec.msgs[0].Tags)
+	require.NotContains(t, rec.msgs[1].Tags, "demo", rec.msgs[1].Tags)
 }

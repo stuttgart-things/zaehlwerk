@@ -153,9 +153,9 @@ func TestAgainstRedisAWholeMatchArrivesInOrder(t *testing.T) {
 
 	var expected []homerun.Message
 	sc.Observe(func(tr scorer.Transition) {
-		expected = append(expected, Message(tr, DefaultSystem, DefaultAuthor, time.Now()))
+		expected = append(expected, Message(tr, false, DefaultSystem, DefaultAuthor, time.Now()))
 	})
-	sc.Observe(sink.Observe)
+	sc.Observe(func(tr scorer.Transition) { sink.Observe(nil, tr) })
 
 	for i := uint64(1); !sc.State().Complete; i++ {
 		_, err := sc.Apply(scorer.ScoreEvent{
