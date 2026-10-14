@@ -83,14 +83,21 @@ type Operator struct {
 // exactly this handover: the caller passes its own field through rather than
 // rebuilding it, so there is no transformation in which home and away could be
 // swapped.
+//
+// It carries one of two proofs: OperatorID, whoever kept score on the page, or
+// the two check-ins the players made at the table (ADR-0010, Schmetterpause
+// ADR-0024). Schmetterpause refuses both at once and refuses one check-in
+// alone, so the empty ones are left off the wire rather than sent blank.
 type Result struct {
-	HomeID      string     `json:"home_id"`
-	AwayID      string     `json:"away_id"`
-	OperatorID  string     `json:"operator_id"`
-	Sets        [][2]int   `json:"sets"`
-	BestOf      int        `json:"best_of"`
-	PointsToWin int        `json:"points_to_win"`
-	PlayedAt    *time.Time `json:"played_at,omitempty"`
+	HomeID        string     `json:"home_id"`
+	AwayID        string     `json:"away_id"`
+	OperatorID    string     `json:"operator_id,omitempty"`
+	HomeCheckinID string     `json:"home_checkin_id,omitempty"`
+	AwayCheckinID string     `json:"away_checkin_id,omitempty"`
+	Sets          [][2]int   `json:"sets"`
+	BestOf        int        `json:"best_of"`
+	PointsToWin   int        `json:"points_to_win"`
+	PlayedAt      *time.Time `json:"played_at,omitempty"`
 }
 
 // Accepted is what Schmetterpause says about a result it stored.
@@ -107,6 +114,11 @@ type Accepted struct {
 // ErrNotConfigured is returned by New when there is no base URL. It is not a
 // failure: it is the shape of "this coupling is off".
 var ErrNotConfigured = errors.New("schmetterpause: no base URL configured")
+
+// ErrAlreadyReported is a 409 on a result: a check-in it names already carries
+// one. For this service that is a retry of a result that did arrive, whose
+// answer got lost, so the caller records it as delivered (ADR-0010).
+var ErrAlreadyReported = errors.New("schmetterpause: a check-in already carries a result")
 
 // New builds a client, or reports that the coupling is off.
 func New(cfg Config) (*Client, error) {
@@ -224,6 +236,9 @@ func (c *Client) Report(ctx context.Context, result Result) (Accepted, error) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	if resp.StatusCode == http.StatusConflict {
+		return Accepted{}, fmt.Errorf("%w: %w", ErrAlreadyReported, statusError(resp))
+	}
 	if resp.StatusCode != http.StatusCreated {
 		return Accepted{}, fmt.Errorf("schmetterpause: reporting the result: %w", statusError(resp))
 	}

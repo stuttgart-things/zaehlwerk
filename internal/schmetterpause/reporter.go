@@ -2,6 +2,7 @@ package schmetterpause
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -322,16 +323,35 @@ func (r *Reporter) send(ctx context.Context, m *match.Match) error {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	accepted, err := r.client.Report(ctx, Result{
-		HomeID:     m.Handover.HomeID,
-		AwayID:     m.Handover.AwayID,
-		OperatorID: m.Handover.OperatorID,
+	result := Result{
+		HomeID: m.Handover.HomeID,
+		AwayID: m.Handover.AwayID,
 		// Passed through rather than rebuilt: the field exists for this.
 		Sets:        st.CompletedSets,
 		BestOf:      bestOf,
 		PointsToWin: pointsPerSet,
 		PlayedAt:    &playedAt,
-	})
+	}
+	// One proof, never both: Schmetterpause refuses a result with an
+	// operator and check-ins (ADR-0010).
+	if m.Handover.CheckedIn() {
+		result.HomeCheckinID = m.Handover.HomeCheckinID
+		result.AwayCheckinID = m.Handover.AwayCheckinID
+	} else {
+		result.OperatorID = m.Handover.OperatorID
+	}
+
+	accepted, err := r.client.Report(ctx, result)
+	if errors.Is(err, ErrAlreadyReported) && m.Handover.CheckedIn() {
+		// A check-in already carries a result. Each one was made for this
+		// match and nothing else here sends it, so the result that carries it
+		// is this one: an earlier attempt arrived and its answer did not.
+		// Recorded as delivered, without an id, because the 409 names none.
+		m.Reported("", st.CompletedSets)
+		r.log.Info("result already at schmetterpause, a retry of one that arrived",
+			"match_id", m.ID, "error", err)
+		return nil
+	}
 	if err != nil {
 		m.ReportFailed(err)
 		// Loudly, per ADR-0004. The message carries Schmetterpause's own
