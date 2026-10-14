@@ -272,6 +272,12 @@ var errDisplaced = errors.New("another match became current at the table")
 // treated like a displacement; reconnecting is not done yet.
 var errTableLost = errors.New("lost sight of the table")
 
+// errMatchEnded is zaehlwerk ending the game's match while it plays: on the
+// scoring page, or through POST /matches/{id}/end. Without it a browser game
+// would play on until PONG_BROWSER_IDLE, because nothing it reports is refused
+// while nobody presses.
+var errMatchEnded = errors.New("zaehlwerk ended the match")
+
 // errStopped is a browser game ended by its own page.
 var errStopped = errors.New("ended in the browser")
 
@@ -309,6 +315,10 @@ func (g *Game) run(ctx context.Context, table <-chan TableEvent) {
 	case errors.Is(err, ErrMatchOver):
 		g.finish(StatusEnded, "zaehlwerk says the match is over")
 		return
+	case errors.Is(err, errMatchEnded):
+		// Already ended, so there is nothing to end.
+		g.finish(StatusEnded, err.Error())
+		return
 	case errors.Is(err, errDisplaced), errors.Is(err, errTableLost), errors.Is(err, errStopped),
 		errors.Is(err, errIdle), errors.Is(err, errYielded), errors.Is(err, errIntruded),
 		errors.Is(err, errNobodyPresses), ctx.Err() != nil:
@@ -333,28 +343,51 @@ func (g *Game) run(ctx context.Context, table <-chan TableEvent) {
 }
 
 // watch reads the table while the game plays. A snapshot of another match
-// means that match is now current: somebody started it, and it is theirs. A
-// stream that closes leaves the game blind to that, so it ends the game too.
+// means that match is now current: somebody started it, and it is theirs. Its
+// own match ending on zaehlwerk ends the game, and a stream that closes leaves
+// the game blind to both, so it ends the game too.
+//
+// The end of its own match is a match_ended with its id, and zaehlwerk follows
+// that at once with what is current next: no_match, or the snapshot of the
+// real match that ended a demo. watch waits for that next event, so a demo
+// made way for a real match ends displaced, as it always has. A won match
+// sends no match_ended but also a no_match after its last point; watch stops
+// at the point, which play has as its answer, so a won game stays won.
 func (g *Game) watch(ctx context.Context, cancel context.CancelCauseFunc, table <-chan TableEvent) {
+	ended := false
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case ev, ok := <-table:
-			if !ok {
+			switch {
+			case !ok:
 				// Also closed when ctx ends. Only the first cause counts, and
 				// a game that won or is stopping is not one that got lost.
 				if ctx.Err() == nil {
+					if ended {
+						cancel(errMatchEnded)
+						return
+					}
 					g.log.Warn("/live/stream closed, ending our match")
 					cancel(errTableLost)
 				}
 				return
-			}
-			if ev.Kind == kindSnapshot && ev.State != nil && ev.State.MatchID != g.matchIDNow() {
+			case ev.Kind == kindNoMatch:
+				g.log.Info("zaehlwerk ended our match", "match_id", g.matchIDNow())
+				cancel(errMatchEnded)
+				return
+			case ev.State == nil:
+			case ev.Kind == kindSnapshot && ev.State.MatchID != g.matchIDNow():
 				g.log.Info("another match is current, ending ours",
 					"other", ev.State.MatchID, "reported", ev.Reported())
 				cancel(errDisplaced)
 				return
+			case ev.State.MatchID != g.matchIDNow():
+			case ev.State.Complete:
+				return
+			case ev.Kind == kindMatchEnded:
+				ended = true
 			}
 		}
 	}

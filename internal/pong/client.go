@@ -28,8 +28,10 @@ import (
 // registry, and the game takes nothing from there. The tests run the game
 // against the real handlers, so a renamed kind fails there and not at a fair.
 const (
-	kindSnapshot = "snapshot"
-	kindNoMatch  = "no_match"
+	kindSnapshot     = "snapshot"
+	kindNoMatch      = "no_match"
+	kindMatchStarted = "match_started"
+	kindMatchEnded   = "match_ended"
 )
 
 // ingestAttempts is how often a report is sent before the game gives up. A

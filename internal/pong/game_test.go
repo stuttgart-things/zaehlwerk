@@ -563,3 +563,62 @@ func TestPOSTGamesRefusesFaultsItCannotRun(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, resp.StatusCode, body)
 	}
 }
+
+func TestAHeadlessGameEndsWhenZaehlwerkEndsItsMatch(t *testing.T) {
+	tbl := newTable(t)
+	p := newPong(t, tbl.url, 1)
+
+	// A pace this long means no report is refused in time: only the table
+	// can tell the game its match is over.
+	status, v, raw := p.start("1m")
+	require.Equal(t, http.StatusCreated, status, raw)
+	m, err := tbl.registry.Get(v.MatchID)
+	require.NoError(t, err)
+	tbl.zaehlwerk.EndMatch(m)
+
+	v = p.finished(v.ID)
+	require.Equal(t, StatusEnded, v.Status)
+	require.Equal(t, errMatchEnded.Error(), v.Reason)
+}
+
+// slowWin holds back zaehlwerk's answer to the point that wins the match, so
+// the table's no_match after the win reaches the game before play has its
+// answer.
+type slowWin struct {
+	next http.Handler
+	held atomic.Bool
+}
+
+func (s *slowWin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/ingest/web" {
+		s.next.ServeHTTP(w, r)
+		return
+	}
+	rec := httptest.NewRecorder()
+	s.next.ServeHTTP(rec, r)
+	if bytes.Contains(rec.Body.Bytes(), []byte(`"complete":true`)) {
+		s.held.Store(true)
+		time.Sleep(200 * time.Millisecond)
+	}
+	for k, vs := range rec.Header() {
+		w.Header()[k] = vs
+	}
+	w.WriteHeader(rec.Code)
+	_, _ = w.Write(rec.Body.Bytes())
+}
+
+func TestAWonGameStaysWon(t *testing.T) {
+	tbl := newTable(t)
+	proxy := &slowWin{next: tbl.zaehlwerk}
+	srv := httptest.NewServer(proxy)
+	t.Cleanup(srv.Close)
+	p := newPong(t, srv.URL, 1)
+
+	status, v, raw := p.start("0s")
+	require.Equal(t, http.StatusCreated, status, raw)
+
+	v = p.finished(v.ID)
+	require.True(t, proxy.held.Load(), "the winning answer was held back")
+	require.Equal(t, StatusWon, v.Status, v.Reason)
+	require.True(t, v.State.Complete)
+}

@@ -915,7 +915,9 @@ URL fragment, which no server sees; the page keeps it in that tab. A press
 without it is a 403. Another tab, or another device, opens the same page and
 watches the board. `POST /games/{id}/end` with the token ends the game and its
 match; a browser game nobody presses in for ten minutes (`PONG_BROWSER_IDLE`)
-ends itself the same way, so a closed tab does not keep the panel.
+ends itself the same way, so a closed tab does not keep the panel. A game
+whose match zaehlwerk ends, on the scoring page or through
+`POST /matches/{id}/end`, ends at once.
 
 **On two devices** ([ADR-0009](docs/adr/0009-pong-on-two-devices.md)). The
 lobby's mode "Zwei Geräte" (`"mode": "remote"`) makes the page that starts it

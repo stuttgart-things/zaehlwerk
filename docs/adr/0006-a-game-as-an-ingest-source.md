@@ -109,6 +109,13 @@ different image.
 - A game that loses `/live/stream` ends its match, as if displaced: it can no
   longer see another match become current, and playing on blind would put a
   match that is not the table's on the panel. Reconnecting is left for later.
+- A game whose match zaehlwerk ends — on the scoring page, or through
+  `POST /matches/{id}/end` — ends at once, from the `match_ended` and the
+  `no_match` after it on `/live/stream`, rather than when its next report is
+  refused. A browser game reports only when somebody presses, so it would
+  otherwise play on until `PONG_BROWSER_IDLE`. A won match also sends a
+  `no_match`, after its last point; the game stops watching at that point, so
+  a won game stays won (#108).
 - Faults sit between the truth and the ingest and never touch the truth. The
   game keeps what each injected fault should do to zaehlwerk's score, and a
   divergence it explains is expected; any other is a finding. A run with

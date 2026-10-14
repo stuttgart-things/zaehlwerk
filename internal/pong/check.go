@@ -276,7 +276,7 @@ func (g *Game) runCheck(ctx context.Context, table <-chan TableEvent) error {
 				return false, errDisplaced
 			}
 			return false, nil
-		case ev.Kind == matchEnded:
+		case ev.Kind == kindMatchEnded:
 			return false, ErrMatchOver
 		}
 		return true, nil
@@ -329,7 +329,7 @@ func (g *Game) runCheck(ctx context.Context, table <-chan TableEvent) error {
 				before := st
 				st = *ev.State
 				g.setState(st)
-				if ev.Kind == kindSnapshot || ev.Kind == matchStarted {
+				if ev.Kind == kindSnapshot || ev.Kind == kindMatchStarted {
 					continue
 				}
 				half, known := pressedHalf(ev.Kind, before, st)
@@ -382,7 +382,7 @@ func (g *Game) runCheck(ctx context.Context, table <-chan TableEvent) error {
 				before := st
 				st = *ev.State
 				g.setState(st)
-				if ev.Kind == kindSnapshot || ev.Kind == matchStarted {
+				if ev.Kind == kindSnapshot || ev.Kind == kindMatchStarted {
 					continue
 				}
 				half, known := pressedHalf(ev.Kind, before, st)
@@ -398,13 +398,6 @@ func (g *Game) runCheck(ctx context.Context, table <-chan TableEvent) error {
 		}
 	}
 }
-
-// The table kinds a check reads besides transitions, spelled out like the
-// others in client.go.
-const (
-	matchStarted = "match_started"
-	matchEnded   = "match_ended"
-)
 
 // ask shows a prompt, numbered and timed here; a zero prompt is the gap.
 func (g *Game) ask(p Prompt) Prompt {
