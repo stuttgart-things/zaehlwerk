@@ -52,6 +52,7 @@ supersedes it, not a quiet rewrite.
 | 0005 | Match phases and table halves |
 | 0006 | A game as an ingest source — zaehlwerk-pong |
 | 0007 | A grace period before reporting — an undo can still stop the result |
+| 0008 | Demo matches — a real match always wins the table (proposed) |
 
 ## Terms
 
