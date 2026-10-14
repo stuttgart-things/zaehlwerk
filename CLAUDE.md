@@ -55,6 +55,7 @@ supersedes it, not a quiet rewrite.
 | 0008 | Demo matches — a real match always wins the table |
 | 0009 | Pong on two devices — a host reports, a guest only moves a paddle |
 | 0010 | Check-in per table half — a fob claims a half, two claims start the match |
+| 0011 | Check-in by phone — Schmetterpause claims a half for a player |
 
 ## Terms
 
