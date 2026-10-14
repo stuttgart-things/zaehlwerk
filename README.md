@@ -1297,6 +1297,7 @@ base whose removal can prune somebody else's panel.
 | [0007](docs/adr/0007-a-grace-period-before-reporting.md) | A grace period before reporting, so an undo can still take the match point back |
 | [0008](docs/adr/0008-demo-matches.md) | Demo matches: a real match always wins the table |
 | [0009](docs/adr/0009-pong-on-two-devices.md) | Pong on two devices: the host reports, the guest only moves a paddle |
+| [0010](docs/adr/0010-check-in-per-table-half.md) | Check-in per table half: a fob claims a half through Schmetterpause, two claims start a match reported without an operator |
 
 ## Related
 
