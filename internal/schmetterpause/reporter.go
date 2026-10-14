@@ -2,7 +2,9 @@ package schmetterpause
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
@@ -23,6 +25,12 @@ import (
 // persistence, and asked in exchange that the loss be visible — so this
 // records the outcome on the match, and the page offers a retry for as long as
 // retention holds it.
+//
+// It waits a grace period after match_won before it sends (ADR-0007). The
+// match point pressed for the wrong player and undone a second later is the
+// mis-press that really happens at a table, and a result already sent cannot
+// be taken back: Schmetterpause has no route for it. So the undo has to come
+// first, and the grace period is the time it has.
 type Reporter struct {
 	client   *Client
 	registry *match.Registry
@@ -32,9 +40,33 @@ type Reporter struct {
 	// runs in its own goroutine, because observers are called from inside the
 	// scorer's lock and must not block (see scorer.Observe).
 	timeout time.Duration
+	// delay is the grace period. Zero sends at match_won, as before ADR-0007.
+	delay time.Duration
 	// done is closed-over only by tests, which need to wait for the goroutine
 	// the observer starts.
 	done func()
+
+	// sending lets one handover through at a time, so a retry pressed while
+	// the timer fires finds the match already reported instead of entering
+	// it twice.
+	sending sync.Mutex
+
+	mu sync.Mutex
+	// waiting is the matches won and not sent yet, by id.
+	waiting map[string]*waiting
+	// closed is set at shutdown: from then on nothing waits.
+	closed bool
+	// inflight counts the handovers that are waiting or under way, so that
+	// shutdown can wait for them.
+	inflight sync.WaitGroup
+}
+
+// waiting is one match in its grace period. Compared by pointer: a timer that
+// fires after its match was won a second time is not that match's timer any
+// more, and must not send.
+type waiting struct {
+	match *match.Match
+	timer *time.Timer
 }
 
 // ReporterOption configures a Reporter.
@@ -58,6 +90,17 @@ func WithClock(now func() time.Time) ReporterOption {
 	}
 }
 
+// DefaultDelay is the grace period: long enough to notice the match point went
+// to the wrong player and undo it, short enough that the result is over there
+// before the players have left the table.
+const DefaultDelay = 15 * time.Second
+
+// WithDelay sets the grace period between match_won and the report. Zero, or
+// less, sends at once.
+func WithDelay(d time.Duration) ReporterOption {
+	return func(r *Reporter) { r.delay = max(d, 0) }
+}
+
 // withDone is called after each handover attempt. Tests only.
 func withDone(fn func()) ReporterOption {
 	return func(r *Reporter) { r.done = fn }
@@ -71,7 +114,9 @@ func NewReporter(client *Client, registry *match.Registry, opts ...ReporterOptio
 		log:      slog.Default(),
 		now:      time.Now,
 		timeout:  DefaultTimeout,
+		delay:    DefaultDelay,
 		done:     func() {},
+		waiting:  make(map[string]*waiting),
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -81,20 +126,26 @@ func NewReporter(client *Client, registry *match.Registry, opts ...ReporterOptio
 
 // Observe is the scorer observer. Register it with (*match.Registry).Observe.
 //
-// It returns immediately. Everything after the filter happens in a goroutine,
-// because this is called while the scorer holds its lock and a blocking
-// observer would stall the next point.
+// It returns immediately. The timer and the handover run outside, because this
+// is called while the scorer holds its lock and a blocking observer would stall
+// the next point.
 func (r *Reporter) Observe(t scorer.Transition) {
-	if t.Kind != scorer.TransitionMatchWon {
-		return
+	switch {
+	case t.Kind == scorer.TransitionMatchWon:
+		r.won(t.State.MatchID)
+	case t.Kind == scorer.TransitionUndo && !t.State.Complete:
+		r.reopened(t.State.MatchID)
 	}
+}
 
-	m, err := r.registry.Get(t.State.MatchID)
+// won starts the grace period, or the handover itself when there is none.
+func (r *Reporter) won(matchID string) {
+	m, err := r.registry.Get(matchID)
 	if err != nil {
 		// The match won a moment ago, so this should not happen. It is logged
 		// rather than ignored because the only way it can is a bug.
 		r.log.Error("a won match is not in the registry",
-			"match_id", t.State.MatchID, "error", err)
+			"match_id", matchID, "error", err)
 		return
 	}
 
@@ -105,34 +156,168 @@ func (r *Reporter) Observe(t scorer.Transition) {
 		return
 	}
 
-	go func() {
-		defer r.done()
-		// The error is already recorded on the match and logged by Send, and
-		// there is nobody here to return it to: this runs after the last point,
-		// with no request waiting on it. The page reads the outcome off the
-		// match and offers the retry.
-		_ = r.Send(context.Background(), m)
-	}()
+	if m.Report().Done {
+		// Undone after the grace period and won again. The result over there
+		// is the first one, and there is no route to change it (ADR-0007);
+		// the page says so.
+		r.log.Warn("the match was won again after its result was sent, schmetterpause keeps the first result",
+			"match_id", m.ID)
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.delay == 0 || r.closed {
+		r.inflight.Add(1)
+		go func() {
+			defer r.inflight.Done()
+			defer r.done()
+			// The error is already recorded on the match and logged by send,
+			// and there is nobody here to return it to: this runs after the
+			// last point, with no request waiting on it. The page reads the
+			// outcome off the match and offers the retry.
+			_ = r.send(context.Background(), m)
+		}()
+		return
+	}
+
+	// Won a second time, after an undo the first timer did not see stopped:
+	// the clock starts again from this win.
+	r.withdrawLocked(m.ID)
+
+	due := r.now().Add(r.delay)
+	w := &waiting{match: m}
+	r.inflight.Add(1)
+	w.timer = time.AfterFunc(r.delay, func() { r.fire(w) })
+	r.waiting[m.ID] = w
+	m.ReportDue(due)
+	r.log.Info("report scheduled", "match_id", m.ID, "due", due, "grace_period", r.delay)
 }
 
-// Send performs one handover attempt and records what became of it.
+// reopened stops the grace period of a match an undo has opened again. What
+// is sent is what holds once the match is won again.
+func (r *Reporter) reopened(matchID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	w := r.withdrawLocked(matchID)
+	if w == nil {
+		return
+	}
+	w.match.ReportDue(time.Time{})
+	r.log.Info("report withheld, the match was reopened", "match_id", matchID)
+}
+
+// withdrawLocked takes a match out of its grace period and returns it, or nil
+// when it was not waiting. Must be called with r.mu held.
+func (r *Reporter) withdrawLocked(matchID string) *waiting {
+	w, ok := r.waiting[matchID]
+	if !ok {
+		return nil
+	}
+	delete(r.waiting, matchID)
+	// A timer that has already fired finds itself gone from waiting and
+	// counts itself out of inflight. One that has not is counted out here.
+	if w.timer.Stop() {
+		r.inflight.Done()
+	}
+	return w
+}
+
+// fire is the end of a grace period.
+func (r *Reporter) fire(w *waiting) {
+	defer r.inflight.Done()
+
+	r.mu.Lock()
+	mine := r.waiting[w.match.ID] == w
+	if mine {
+		delete(r.waiting, w.match.ID)
+	}
+	r.mu.Unlock()
+	if !mine {
+		return
+	}
+
+	defer r.done()
+	// send looks at the score as it stands now, so what goes out is what
+	// holds after the grace period.
+	_ = r.send(context.Background(), w.match)
+}
+
+// Flush sends every result still in its grace period, at once, and waits for
+// the handovers under way, bounded by ctx. It is the shutdown: a SIGTERM must
+// not lose a result that was only waiting. From here on a won match is sent
+// straight away.
+func (r *Reporter) Flush(ctx context.Context) error {
+	r.mu.Lock()
+	r.closed = true
+	var flush []*match.Match
+	for id := range r.waiting {
+		w := r.waiting[id]
+		delete(r.waiting, id)
+		if !w.timer.Stop() {
+			// Fired already, and it will find itself gone, send nothing and
+			// count itself out. So it is sent from here, and counted again.
+			r.inflight.Add(1)
+		}
+		flush = append(flush, w.match)
+	}
+	r.mu.Unlock()
+
+	for _, m := range flush {
+		r.log.Info("shutting down, sending a report that was waiting", "match_id", m.ID)
+		_ = r.send(ctx, m)
+		r.inflight.Done()
+	}
+
+	idle := make(chan struct{})
+	go func() {
+		r.inflight.Wait()
+		close(idle)
+	}()
+	select {
+	case <-idle:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("waiting for the reports under way: %w", ctx.Err())
+	}
+}
+
+// Send performs one handover attempt now and records what became of it.
 //
 // Exported because the retry from the page is the same attempt, not a second
-// implementation of it. Idempotent in the only way it can be here: a match
-// already reported is left alone, so pressing retry after a late success does
-// not enter the result twice.
+// implementation of it. A match in its grace period is taken out of it: who
+// presses the button gives up the rest of it on purpose. Idempotent in the
+// only way it can be here: a match already reported is left alone, so pressing
+// retry after a late success does not enter the result twice.
 func (r *Reporter) Send(ctx context.Context, m *match.Match) error {
+	r.mu.Lock()
+	if r.withdrawLocked(m.ID) != nil {
+		r.log.Info("report sent before the grace period was over", "match_id", m.ID)
+	}
+	r.mu.Unlock()
+
+	return r.send(ctx, m)
+}
+
+func (r *Reporter) send(ctx context.Context, m *match.Match) error {
+	r.sending.Lock()
+	defer r.sending.Unlock()
+
 	if m.Report().Done {
 		return nil
 	}
 
 	st := m.Scorer.State()
 	if !st.Complete {
-		// Retrying a match that is still running would report a score nobody
-		// has finished playing.
-		err := errMatchNotComplete
-		m.ReportFailed(err)
-		return err
+		// A match an undo has reopened, or a retry of one still running:
+		// reporting it would send a score nobody has finished playing. Not
+		// recorded as a failure, because nothing was sent; the match is
+		// reported when it is won.
+		m.ReportDue(time.Time{})
+		r.log.Info("report withheld, the match was reopened", "match_id", m.ID)
+		return errMatchNotComplete
 	}
 
 	bestOf, pointsPerSet := m.Scorer.Rules()
@@ -161,7 +346,7 @@ func (r *Reporter) Send(ctx context.Context, m *match.Match) error {
 		return err
 	}
 
-	m.Reported(accepted.MatchID)
+	m.Reported(accepted.MatchID, st.CompletedSets)
 	r.log.Info("result reported to schmetterpause",
 		"match_id", m.ID, "schmetterpause_match_id", accepted.MatchID,
 		// Pending is the expected answer during the test phase, and saying it

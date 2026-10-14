@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -71,6 +72,15 @@ type Report struct {
 	// Attempts counts tries, so a page can say "tried twice" rather than
 	// implying nothing happened.
 	Attempts int
+	// Due is when the result goes out, while it waits out the grace period
+	// after match_won (ADR-0007), and zero otherwise. The page says it, so
+	// that whoever pressed the match point wrong knows an undo still takes it
+	// back.
+	Due time.Time
+	// Sent is the sets as Schmetterpause got them. An undo after the report
+	// is not reported again, and the page compares this with the score to say
+	// that the result over there no longer holds.
+	Sent [][2]int
 }
 
 // Match is one match: the scorer that owns its state, plus the lifecycle around
@@ -96,19 +106,30 @@ func (m *Match) Report() Report {
 	return m.report
 }
 
-// Reported records a successful handover. Idempotent: the first success wins,
-// so a retry that races a late success does not undo it.
-func (m *Match) Reported(schmetterpauseID string) {
+// Reported records a successful handover of these sets. Idempotent: the first
+// success wins, so a retry that races a late success does not undo it.
+func (m *Match) Reported(schmetterpauseID string, sets [][2]int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.report.Attempts++
+	m.report.Due = time.Time{}
 	if m.report.Done {
 		return
 	}
 	m.report.Done = true
 	m.report.MatchID = schmetterpauseID
 	m.report.Err = nil
+	m.report.Sent = slices.Clone(sets)
+}
+
+// ReportDue records when the result goes out, or with a zero time that it no
+// longer waits: sent, withheld or sent early.
+func (m *Match) ReportDue(at time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.report.Due = at
 }
 
 // ReportFailed records a failed handover, unless one has already succeeded.
@@ -117,6 +138,7 @@ func (m *Match) ReportFailed(err error) {
 	defer m.mu.Unlock()
 
 	m.report.Attempts++
+	m.report.Due = time.Time{}
 	if m.report.Done {
 		return
 	}
