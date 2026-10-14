@@ -31,11 +31,15 @@ import (
 // mis-press that really happens at a table, and a result already sent cannot
 // be taken back: Schmetterpause has no route for it. So the undo has to come
 // first, and the grace period is the time it has.
+//
+// It is handed the match with each transition and holds no registry: looking
+// the match up from inside the scorer's lock could deadlock against a match
+// being created (#102), and without a registry there is nothing to look it up
+// in.
 type Reporter struct {
-	client   *Client
-	registry *match.Registry
-	log      *slog.Logger
-	now      func() time.Time
+	client *Client
+	log    *slog.Logger
+	now    func() time.Time
 	// timeout bounds one handover. The observer does not wait for it: the post
 	// runs in its own goroutine, because observers are called from inside the
 	// scorer's lock and must not block (see scorer.Observe).
@@ -107,16 +111,15 @@ func withDone(fn func()) ReporterOption {
 }
 
 // NewReporter builds a Reporter around a Client.
-func NewReporter(client *Client, registry *match.Registry, opts ...ReporterOption) *Reporter {
+func NewReporter(client *Client, opts ...ReporterOption) *Reporter {
 	r := &Reporter{
-		client:   client,
-		registry: registry,
-		log:      slog.Default(),
-		now:      time.Now,
-		timeout:  DefaultTimeout,
-		delay:    DefaultDelay,
-		done:     func() {},
-		waiting:  make(map[string]*waiting),
+		client:  client,
+		log:     slog.Default(),
+		now:     time.Now,
+		timeout: DefaultTimeout,
+		delay:   DefaultDelay,
+		done:    func() {},
+		waiting: make(map[string]*waiting),
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -124,31 +127,24 @@ func NewReporter(client *Client, registry *match.Registry, opts ...ReporterOptio
 	return r
 }
 
-// Observe is the scorer observer. Register it with (*match.Registry).Observe.
+// Observe is the scorer observer. Register it with [match.WithMatchObserver],
+// ahead of the live hub: the result card the hub renders at match_won says when
+// the result goes, so that has to be decided first (ADR-0007).
 //
 // It returns immediately. The timer and the handover run outside, because this
 // is called while the scorer holds its lock and a blocking observer would stall
 // the next point.
-func (r *Reporter) Observe(t scorer.Transition) {
+func (r *Reporter) Observe(m *match.Match, t scorer.Transition) {
 	switch {
 	case t.Kind == scorer.TransitionMatchWon:
-		r.won(t.State.MatchID)
+		r.won(m)
 	case t.Kind == scorer.TransitionUndo && !t.State.Complete:
-		r.reopened(t.State.MatchID)
+		r.reopened(m.ID)
 	}
 }
 
 // won starts the grace period, or the handover itself when there is none.
-func (r *Reporter) won(matchID string) {
-	m, err := r.registry.Get(matchID)
-	if err != nil {
-		// The match won a moment ago, so this should not happen. It is logged
-		// rather than ignored because the only way it can is a bug.
-		r.log.Error("a won match is not in the registry",
-			"match_id", matchID, "error", err)
-		return
-	}
-
+func (r *Reporter) won(m *match.Match) {
 	// A match played without choosing players is scored and shown like any
 	// other and reported nowhere (ADR-0004). Not a failure, and not logged as
 	// one: it is the ordinary case at a table with nothing else set up.
