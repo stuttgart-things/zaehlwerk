@@ -181,10 +181,18 @@ func (m *Match) Running() bool {
 // Lock ordering: the registry lock may be taken before a scorer lock, never
 // after. Nothing in the scorer reaches back into the registry, and an observer
 // must not either — it is called while the scorer holds its own lock.
+// CreateFor holds the registry lock while evict asks matches whether they are
+// running, which takes their scorer locks; an observer calling Get or Current
+// at the same moment holds one of those and waits for the registry, and the
+// service hangs (#102). An observer that needs the match takes
+// WithMatchObserver, which hands it over, and never looks it up.
+// WithObserver stays for observers that do not need it.
 type Registry struct {
 	newID       func() (string, error)
 	maxRetained int
-	observers   []func(scorer.Transition)
+	// observers are both kinds, in the order the options gave them: the
+	// reporter has to run before the hub renders the result card (ADR-0007).
+	observers []observer
 
 	mu    sync.Mutex
 	byID  map[string]*Match
@@ -211,8 +219,25 @@ func WithMaxRetained(n int) Option {
 // The scorer calls observers from inside its lock, so fn must not block — see
 // (*scorer.Scorer).Observe.
 func WithObserver(fn func(scorer.Transition)) Option {
-	return func(r *Registry) { r.observers = append(r.observers, fn) }
+	return func(r *Registry) {
+		r.observers = append(r.observers, func(*Match) func(scorer.Transition) { return fn })
+	}
 }
+
+// WithMatchObserver is WithObserver for an observer that needs the match the
+// transition belongs to, as the Schmetterpause reporter does: it is handed
+// over, so the observer never has to ask the registry for it from inside the
+// scorer's lock (see [Registry]).
+func WithMatchObserver(fn func(*Match, scorer.Transition)) Option {
+	return func(r *Registry) {
+		r.observers = append(r.observers, func(m *Match) func(scorer.Transition) {
+			return func(t scorer.Transition) { fn(m, t) }
+		})
+	}
+}
+
+// observer builds the scorer observer for one match.
+type observer func(*Match) func(scorer.Transition)
 
 func NewRegistry(opts ...Option) *Registry {
 	r := &Registry{
@@ -249,11 +274,16 @@ func (r *Registry) CreateFor(cfg scorer.Config, handover Handover) (*Match, erro
 		return nil, err
 	}
 
-	for _, fn := range r.observers {
-		s.Observe(fn)
+	// The match is built whole before any observer is attached, and no
+	// transition can come before it is returned: the scorer emits only from
+	// Apply and Undo, never from New, and nobody holds it until CreateFor
+	// returns or the registry lock is let go. So an observer handed m never
+	// sees half of it.
+	m := &Match{ID: id, Scorer: s, Created: time.Now(), Handover: handover}
+	for _, build := range r.observers {
+		s.Observe(build(m))
 	}
 
-	m := &Match{ID: id, Scorer: s, Created: time.Now(), Handover: handover}
 	r.byID[id] = m
 	r.order = append(r.order, m)
 	r.evict()
