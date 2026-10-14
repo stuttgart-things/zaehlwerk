@@ -10,12 +10,17 @@
 // through the service, on /games/{id}/events and in the answer to every press,
 // and the canvas draws what they say. Every rally is reported with its number;
 // the service keeps the truth and injects the faults (#86) on the way on.
+//
+// On two devices (ADR-0009) the host's page is this game as it always was,
+// with player b's paddle coming from the guest. The guest's page decides
+// nothing: it sends its paddle and its key, and draws the host's frames.
 (() => {
   'use strict';
   const root = document.getElementById('pong');
   if (!root) return;
   const id = root.dataset.game;
-  const mode = root.dataset.mode; // pvp, pvc or cvc
+  const mode = root.dataset.mode; // pvp, pvc, cvc or remote
+  const remote = mode === 'remote';
   const bots = JSON.parse(root.dataset.bots || 'null') || [null, null]; // player a, b
   const canvas = root.querySelector('canvas');
   const g = canvas.getContext('2d');
@@ -23,7 +28,8 @@
   const HALVES = ['left', 'right'];
 
   // The token comes once, in the fragment of the lobby's redirect, and stays in
-  // this tab. A second tab has none and watches: one reporter per game.
+  // this tab. A second tab has none and watches: one reporter per game. The
+  // guest's comes from /join, marked, and reports nothing either.
   let token = '';
   try {
     const key = 'pong-token-' + id;
@@ -33,7 +39,9 @@
     }
     token = sessionStorage.getItem(key) || '';
   } catch (e) { /* no storage: this tab watches */ }
-  let reporter = token !== '';
+  let guest = token.startsWith('guest:');
+  if (guest) token = token.slice('guest:'.length);
+  let reporter = token !== '' && !guest;
 
   // The table from above: its length across the screen, the net down the
   // middle, a player behind each end.
@@ -47,6 +55,12 @@
   const SPEEDUP = 1.06;      // per hit, so a rally gets faster
   const LET = 0.05;          // a serve that touches the net and lands in
   const HUMAN_SPEED = 560;
+  // Two devices (ADR-0009): thirty messages a second each way, one request
+  // in flight; the guest at rest sends twice a second, which is its heartbeat,
+  // so two seconds without a message is a device gone. The guest draws the
+  // host's table 50 ms behind to have two frames to draw between, and its
+  // contact is judged against the tick it saw, at most 120 ms late.
+  const SEND_MS = 33, REST_MS = 500, SILENCE_MS = 2000, INTERP_MS = 50, JUDGE_MS = 120;
 
   let view = null, st = null;
   let shownEnds = ['a', 'b']; // who is drawn left and right; lags zaehlwerk through a change of ends
@@ -62,7 +76,7 @@
   const idx = (p) => (p === 'b' ? 1 : 0);
   const halfOf = (p, ends) => (ends[0] === p ? 0 : 1);
   const botAt = (h) => bots[idx(shownEnds[h])];
-  const human = () => (mode === 'pvc' ? 'a' : null);
+  const human = () => (mode === 'pvc' ? 'a' : remote && guest ? 'b' : remote && reporter ? 'a' : null);
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const say = (text, ms = 1400) => { message = text; messageUntil = performance.now() + ms; };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -82,6 +96,7 @@
   if (muteButton) muteButton.addEventListener('click', toggleMute);
   showMute();
   function tock(freq) {
+    if (remote && reporter) fx.push(freq);
     if (muted) return;
     try {
       audio = audio || new AudioContext();
@@ -115,10 +130,12 @@
       ball = null;
       resting = null;
       reporter = false;
+      guest = false;
       messageUntil = 0;
       if (endButton) endButton.hidden = true;
     }
     hint();
+    showJoin();
   }
 
   // Presses go out one at a time, in order. A press whose answer is lost is sent
@@ -202,7 +219,7 @@
     send('rally', HALVES[winner]).finally(() => { awaiting = false; });
   }
 
-  function step(dt) {
+  function step(dt, now) {
     const b = ball;
     const px = b.x;
     b.x += b.vx * dt;
@@ -225,6 +242,13 @@
     }
     b.z = height(b);
     const r = 1 - b.hitter;
+    if (!b.passed && b.next === b.bounces.length && (b.x - PADDLE_X[r]) * Math.sign(b.vx) >= 0 && remote && r === guestHalf()) {
+      // The guest saw this crossing late: judged once its paddle at this
+      // tick has arrived, and the ball flies on until then.
+      b.passed = true;
+      b.cross = { tick: tick, y: b.y, at: now, speed: Math.abs(b.vx) };
+    }
+    if (b.cross && judge(b, r, now)) return;
     if (!b.passed && b.next === b.bounces.length && (b.x - PADDLE_X[r]) * Math.sign(b.vx) >= 0) {
       const p = paddles[r];
       if (Math.abs(b.y - p.y) <= PADDLE_HALF + BALL_R) {
@@ -234,7 +258,22 @@
       }
       b.passed = true;
     }
-    if (b.passed && Math.abs(b.x - PADDLE_X[r]) > 60) end(b.hitter, '');
+    if (b.passed && !b.cross && Math.abs(b.x - PADDLE_X[r]) > 60) end(b.hitter, '');
+  }
+
+  // The guest's contact, judged with its paddle where it had it at the tick
+  // the ball crossed, or where it last had it once the wait is over. A hit is
+  // played back from the crossing: a short jump on the host's screen, none on
+  // the guest's, which drew the hit where it happened.
+  function judge(b, r, now) {
+    const c = b.cross;
+    if (!(guestLast && guestLast.tick >= c.tick) && now - c.at < JUDGE_MS) return false;
+    b.cross = null;
+    const y = guestLast ? guestLast.y : paddles[r].y;
+    if (Math.abs(c.y - y) > PADDLE_HALF + BALL_R) return false;
+    tock(700);
+    shot(r, c.y, Math.min(MAX_SPEED, c.speed * SPEEDUP), clamp((c.y - y) / PADDLE_HALF, -1, 1), paddles[r].vy, false);
+    return true;
   }
 
   // Height along the flight: a parabola from the paddle to each bounce and on
@@ -284,7 +323,7 @@
   const held = new Set();
   const MOVE = [{ w: -1, W: -1, s: 1, S: 1 }, { ArrowUp: -1, ArrowDown: 1 }];
   const ACTION = [{ d: 1, D: 1 }, { ArrowLeft: 1 }];
-  function controlled(h) { return mode === 'pvp' || (mode === 'pvc' && shownEnds[h] === human()); }
+  function controlled(h) { return mode === 'pvp' || (human() !== null && shownEnds[h] === human()); }
   addEventListener('keydown', (e) => {
     if (e.target.closest && e.target.closest('input, select, textarea')) return;
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', ' '].includes(e.key)) e.preventDefault();
@@ -292,7 +331,7 @@
     held.add(e.key);
     if (e.key === 'm' || e.key === 'M') toggleMute();
     for (const h of [0, 1]) {
-      const any = mode === 'pvc' && (ACTION[0][e.key] || ACTION[1][e.key] || e.key === ' ' || e.key === 'Enter');
+      const any = (mode === 'pvc' || remote) && (ACTION[0][e.key] || ACTION[1][e.key] || e.key === ' ' || e.key === 'Enter');
       if ((mode === 'pvp' && ACTION[h][e.key]) || (any && controlled(h))) action(h);
     }
   });
@@ -303,9 +342,9 @@
     const r = canvas.getBoundingClientRect();
     return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height };
   };
-  const touchHalf = (x) => (mode === 'pvc' ? (controlled(0) ? 0 : 1) : x < W / 2 ? 0 : 1);
+  const touchHalf = (x) => (mode === 'pvc' || remote ? (controlled(0) ? 0 : 1) : x < W / 2 ? 0 : 1);
   canvas.addEventListener('pointerdown', (e) => {
-    if (mode === 'cvc') return;
+    if (mode === 'cvc' || (remote && human() === null)) return;
     const c = toCanvas(e);
     touches.set(e.pointerId, { h: touchHalf(c.x), x: c.x, y: c.y, t: performance.now() });
     canvas.setPointerCapture(e.pointerId);
@@ -326,11 +365,13 @@
   // The key for half h: ready in the warm-up and a change of ends, otherwise
   // the serve when that side holds the ball.
   function action(h) {
+    // The guest's key goes to the host as a count, and the host presses.
+    if (guest) { keys++; return; }
     if (!st || !reporter) return;
     if (st.phase === 'warmup' || st.phase === 'change_ends') {
       // Ready is pressed at the half the player is walking to, which is where
       // zaehlwerk already has them.
-      const half = mode === 'pvc' ? halfOf(human(), st.ends) : h;
+      const half = human() ? halfOf(human(), st.ends) : h;
       return ready(half);
     }
     if (resting === h && !botAt(h)) serve(h);
@@ -342,6 +383,9 @@
   }
 
   function update(dt, now) {
+    tick++;
+    if (remote && !reporter) follow(now);
+    if (remote && reporter) guestPaddle(now);
     for (const h of [0, 1]) {
       const p = paddles[h];
       const params = botAt(h);
@@ -354,7 +398,14 @@
         else p.vy = 0;
       }
     }
+    if (guest && view && view.status === 'playing') sample(now);
     if (!st || !reporter || view.status !== 'playing') return;
+    if (remote) {
+      sendFrame(now);
+      // Without the guest there is no game: a ball in flight goes, nothing
+      // is reported, and the same side serves again when it is back.
+      if (!guestHere(now)) { ball = null; resting = null; return; }
+    }
 
     const phase = st.phase;
     if (phase === 'warmup' || phase === 'change_ends') {
@@ -375,7 +426,7 @@
       }
       if (resting !== null && botAt(resting) && now - restingSince > 700) serve(resting);
     }
-    if (ball) step(dt);
+    if (ball) step(dt, now);
   }
 
   function draw(now) {
@@ -433,7 +484,9 @@
     let centre = '';
     if (view && view.status !== 'playing') centre = view.status === 'won' && st.winner ? 'SIEG ' + st.players[idx(st.winner)] : 'SPIEL BEENDET';
     else if (now < messageUntil) centre = message;
-    else if (!reporter && view) centre = 'Zuschauen';
+    else if (remote && reporter && view && view.status === 'playing' && !guestHere(now)) centre = guestAt ? 'Gast getrennt – warten' : 'Warten auf den Gast';
+    else if (remote && !reporter && view && view.status === 'playing' && !(now - frameAt < SILENCE_MS)) centre = 'Gastgeber getrennt';
+    else if (!reporter && !guest && view) centre = 'Zuschauen';
     else if (st && st.phase === 'change_ends') centre = 'SEITENWECHSEL';
     if (centre) g.fillText(centre, W / 2, H / 2 + 10);
   }
@@ -441,7 +494,7 @@
   function hint() {
     const el = document.getElementById('hint');
     if (!el) return;
-    if (!reporter) {
+    if (!reporter && !guest) {
       el.textContent = view && view.status === 'playing'
         ? 'Zuschauen: gespielt und gemeldet wird im Tab, der das Spiel gestartet hat.' : '';
       return;
@@ -450,6 +503,7 @@
       pvp: 'Links: W/S bewegen, D Aufschlag/Bereit · Rechts: ↑/↓ bewegen, ← Aufschlag/Bereit · Touch: ziehen bewegt, tippen schlägt auf · M Ton',
       pvc: 'W/S oder ↑/↓ bewegen, Leertaste Aufschlag/Bereit · Touch: ziehen bewegt, tippen schlägt auf · M Ton',
       cvc: 'Die Computer spielen. M Ton',
+      remote: (guest ? 'Du spielst B. ' : 'Du spielst A. ') + 'W/S oder ↑/↓ bewegen, Leertaste Aufschlag/Bereit · Touch: ziehen bewegt, tippen schlägt auf · M Ton',
     }[mode] || '';
   }
 
@@ -459,6 +513,139 @@
       await fetch('/games/' + id + '/end', { method: 'POST', headers: { 'X-Pong-Token': token } }).catch(() => {});
       location.href = '/';
     });
+  }
+
+  // Two devices: the relay, the guest's paddle on the host, the host's
+  // frames on the guest, and the code the host shows.
+  let tick = 0, shownTick = 0, keys = 0, fx = [];
+  let guestLast = null, guestPrev = null, guestAt = 0, guestKeys = null;
+  let frames = [], frameAt = 0, sentY = null, sentKeys = 0, sentAt = 0;
+  const guestHalf = () => halfOf('b', shownEnds);
+  const guestHere = (now) => guestAt > 0 && now - guestAt < SILENCE_MS;
+
+  // At most one request in flight and one per `every` ms. The body is made
+  // when it goes, so whatever waited is replaced by the latest.
+  function sender(path, every) {
+    let busy = false, last = 0;
+    return (now, body) => {
+      if (busy || now - last < every) return;
+      busy = true;
+      last = now;
+      fetch('/games/' + id + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Pong-Token': token },
+        body: JSON.stringify(body()),
+      }).catch(() => {}).finally(() => { busy = false; });
+    };
+  }
+  const postFrame = sender('/frames', SEND_MS), postSample = sender('/paddle', SEND_MS);
+
+  function sendFrame(now) {
+    postFrame(now, () => {
+      const f = { tick: tick, ball: ball ? { x: ball.x, y: ball.y, z: ball.z } : null, resting: resting,
+        paddles: [paddles[0].y, paddles[1].y] };
+      if (now < messageUntil) f.say = message;
+      if (fx.length) f.fx = fx.splice(0);
+      return f;
+    });
+  }
+
+  function sample(now) {
+    const y = paddles[guestHalf()].y;
+    if (y === sentY && keys === sentKeys && now - sentAt < REST_MS) return;
+    postSample(now, () => {
+      sentY = y; sentKeys = keys; sentAt = now;
+      return { tick: Math.floor(shownTick), y: y, ready: keys };
+    });
+  }
+
+  function onGuest(g) {
+    if (!reporter) return;
+    guestPrev = guestLast;
+    guestLast = { y: g.y, tick: g.tick, at: performance.now() };
+    guestAt = guestLast.at;
+    // The first count after a reload is where the guest stands, not a press.
+    if (guestKeys === null) guestKeys = g.ready;
+    if (g.ready <= guestKeys || !st) return;
+    guestKeys = g.ready;
+    const h = guestHalf();
+    if (st.phase === 'warmup' || st.phase === 'change_ends') ready(halfOf('b', st.ends));
+    else if (resting === h && guestHere(guestAt)) serve(h);
+  }
+
+  // The guest's paddle on the host: between its last two samples.
+  function guestPaddle(now) {
+    if (!guestLast) return;
+    const p = paddles[guestHalf()];
+    const from = guestPrev ? guestPrev.y : guestLast.y;
+    const y = from + (guestLast.y - from) * clamp((now - guestLast.at) / SEND_MS, 0, 1);
+    p.vy = (y - p.y) * 60;
+    p.y = y;
+  }
+
+  function onFrame(f) {
+    if (reporter) return;
+    frameAt = performance.now();
+    frames.push({ f: f, at: frameAt });
+    if (frames.length > 4) frames.shift();
+    for (const freq of f.fx || []) tock(freq);
+    if (f.say) say(f.say, 300);
+  }
+
+  // The host's table as it was INTERP_MS ago, between the two frames around
+  // that moment.
+  function follow(now) {
+    if (!frames.length || !(now - frameAt < SILENCE_MS)) { ball = null; resting = null; return; }
+    const t = now - INTERP_MS;
+    let a = frames[0], b = frames[frames.length - 1];
+    for (let i = 0; i < frames.length - 1; i++) if (frames[i].at <= t && frames[i + 1].at >= t) { a = frames[i]; b = frames[i + 1]; }
+    const u = b.at > a.at ? clamp((t - a.at) / (b.at - a.at), 0, 1) : 1;
+    const lerp = (x, y) => x + (y - x) * u;
+    const fa = a.f, fb = b.f;
+    shownTick = lerp(fa.tick, fb.tick);
+    ball = fa.ball && fb.ball ? { x: lerp(fa.ball.x, fb.ball.x), y: lerp(fa.ball.y, fb.ball.y), z: lerp(fa.ball.z, fb.ball.z) }
+      : (u < 0.5 ? fa : fb).ball;
+    resting = (u < 0.5 ? fa : fb).resting;
+    for (const h of [0, 1]) if (!controlled(h)) paddles[h].y = lerp(fa.paddles[h], fb.paddles[h]);
+    // A ball the guest's paddle meets stays at the paddle until the host's
+    // answer comes back, so the guest does not see it pass and jump back.
+    const h = guestHalf();
+    if (guest && ball && fa.ball && fb.ball && Math.sign(fb.ball.x - fa.ball.x) === (h === 0 ? -1 : 1)
+        && (ball.x - PADDLE_X[h]) * (h === 0 ? -1 : 1) > 0 && Math.abs(ball.y - paddles[h].y) <= PADDLE_HALF + BALL_R) {
+      ball.x = PADDLE_X[h];
+    }
+  }
+
+  // The code is the host's to show: not in the view, which anybody can read,
+  // but asked for with the host's token.
+  const join = document.getElementById('join');
+  let code = null;
+  async function fetchCode() {
+    const res = await fetch('/games/' + id + '/code', { method: 'POST', headers: { 'X-Pong-Token': token } }).catch(() => null);
+    if (res && res.ok) code = await res.json();
+    showJoin();
+  }
+  function showJoin() {
+    if (!join) return;
+    const r = view && view.remote;
+    join.hidden = !(remote && reporter && r && !r.joined);
+    if (join.hidden) return;
+    const dead = r.locked || (r.expires_at && Date.parse(r.expires_at) <= Date.now());
+    document.getElementById('join-url').textContent = location.host + '/join';
+    document.getElementById('join-code').textContent = code && !dead ? code.code : '––––';
+    document.getElementById('join-state').textContent = r.locked ? 'Gesperrt nach zu vielen falschen Versuchen.' : dead ? 'Abgelaufen.' : '';
+    document.getElementById('new-code').hidden = !dead;
+  }
+  if (remote) {
+    const relay = new EventSource('/games/' + id + '/relay');
+    relay.addEventListener('frame', (e) => onFrame(JSON.parse(e.data)));
+    relay.addEventListener('guest', (e) => onGuest(JSON.parse(e.data)));
+    if (reporter) {
+      fetchCode();
+      setInterval(showJoin, 1000);
+      const again = document.getElementById('new-code');
+      if (again) again.addEventListener('click', fetchCode);
+    }
   }
 
   const events = new EventSource('/games/' + id + '/events');
