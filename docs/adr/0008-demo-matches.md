@@ -1,6 +1,6 @@
 # 8. Demo matches
 
-Status: Proposed
+Status: Accepted
 Date: 2026-10-14
 
 ## Context
@@ -193,6 +193,13 @@ that is not marked.
   and it behaves as today. A newer Pong against an older zaehlwerk has its
   `demo` ignored, because unknown fields are not refused, and gets today's
   behaviour too. The two are released under one tag anyway.
+- Two Pong instances against one zaehlwerk — `task chain:pong` on a laptop
+  against the cluster's zaehlwerk, say — each take the other's demos for left
+  behind. Attract mode does no harm there: it ends only a demo quiet for a
+  whole wait, and a game somebody plays is never quiet that long. A game asked
+  for in one lobby does end the other instance's running game or check at
+  once, as a real match would. Two instances on one table are a development
+  setup, and that is accepted.
 - Schmetterpause's start page follows `/live/stream` and could hide demos, or
   label them, using the new field. That is a change in Schmetterpause and is
   not part of this decision.
