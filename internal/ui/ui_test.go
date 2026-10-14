@@ -36,7 +36,7 @@ func (l *lifecycle) StartMatch(cfg scorer.Config, handover match.Handover) (*mat
 		return nil, l.err
 	}
 	l.handover = handover
-	m, err := l.registry.CreateFor(cfg, handover)
+	m, _, err := l.registry.CreateFor(cfg, match.Setup{Handover: handover})
 	if err != nil {
 		return nil, err
 	}

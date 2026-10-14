@@ -266,8 +266,8 @@ func TestAFailingOperatorListOffersThePlayers(t *testing.T) {
 func (f *fixture) reported(aWins bool) *match.Match {
 	f.t.Helper()
 
-	m, err := f.registry.CreateFor(scorer.Config{BestOf: 1, PointsPerSet: 11},
-		match.Handover{HomeID: "id-anna", AwayID: "id-bernd", OperatorID: "id-cem"})
+	m, _, err := f.registry.CreateFor(scorer.Config{BestOf: 1, PointsPerSet: 11},
+		match.Setup{Handover: match.Handover{HomeID: "id-anna", AwayID: "id-bernd", OperatorID: "id-cem"}})
 	require.NoError(f.t, err)
 
 	score := func(p scorer.Player, n int) {

@@ -271,7 +271,7 @@ func registryOptions(sink *panel.Sink, hub *live.Hub, switcher *panel.Switcher) 
 		}
 	}
 	if sink != nil {
-		opts = append(opts, match.WithObserver(sink.Observe))
+		opts = append(opts, match.WithMatchObserver(sink.Observe))
 	}
 	if hub != nil {
 		opts = append(opts, match.WithObserver(hub.Observe))

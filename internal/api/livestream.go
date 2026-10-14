@@ -18,14 +18,15 @@ const KindNoMatch = "no_match"
 
 // tableEvent is one event on the table stream. State is absent from a
 // no_match event; the ids are present exactly when the match is being
-// reported to Schmetterpause (its Handover is wanted), and added here, at the
-// API layer -- the scorer stays rule-only and knows players by name
-// (invariant 5).
+// reported to Schmetterpause (its Handover is wanted), and demo exactly when
+// the match is one (ADR-0008). Both are added here, at the API layer -- the
+// scorer stays rule-only and knows players by name (invariant 5).
 type tableEvent struct {
 	Kind   string        `json:"kind"`
 	State  *scorer.State `json:"state,omitempty"`
 	HomeID string        `json:"home_id,omitempty"`
 	AwayID string        `json:"away_id,omitempty"`
+	Demo   bool          `json:"demo,omitempty"`
 }
 
 // liveStream serves the table rather than one match, as Server-Sent Events.
@@ -141,11 +142,14 @@ func (s *Server) tableTransition(rc *http.ResponseController, w http.ResponseWri
 }
 
 // withIDs builds a table event, adding the players' Schmetterpause ids when the
-// match is being reported. m may be nil.
+// match is being reported, and that it is a demo when it is one. m may be nil.
 func (s *Server) withIDs(m *match.Match, kind string, st scorer.State) tableEvent {
 	ev := tableEvent{Kind: kind, State: &st}
 	if m != nil && m.Handover.Wanted() {
 		ev.HomeID, ev.AwayID = m.Handover.HomeID, m.Handover.AwayID
+	}
+	if m != nil {
+		ev.Demo = m.Demo
 	}
 	return ev
 }

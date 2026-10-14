@@ -109,6 +109,17 @@ curl -s -X POST localhost:8080/matches/{id}/end          # idempotent
 `POST /matches` takes `players`, `best_of`, `points_per_set` and `first_server`,
 all optional — the defaults are a best of five to eleven with `a` serving. `best_of` is any odd number; the scoring page offers 1 (a single game, one set decides), 3, 5 and 7.
 
+`"demo": true` marks a match that is no result and gives way to one, as every
+zaehlwerk-pong match is (ADR-0008). A real match always wins the table:
+
+- Creating a real match ends every running demo at once, the way
+  `POST /matches/{id}/end` would, and the table stream announces it ended.
+- A demo asked for while a real match runs is refused with 409, and the answer
+  carries that match's state.
+- A demo is never reported; one with a player or operator id is a 400.
+
+Without the field a match is real, so nothing that never heard of it changes.
+
 ### Phases and ends
 
 A match can also start the way it starts at the table
@@ -252,6 +263,9 @@ data: {"kind":"point","state":{"match_id":"a1b2c3d4","points":[1,0],…},"home_i
 - `home_id` / `away_id` are the players' Schmetterpause ids, present exactly
   when the match is being reported. They are added at the API layer; the scorer
   knows players by name only. A match nobody reports has none.
+- `demo: true` is on every event of a demo match (ADR-0008) and absent on a
+  real one, added at the same layer. A page that follows the table can label
+  a demo, or leave it out.
 
 Same guarantees as the per-match stream: `ALLOWED_ORIGINS`, heartbeat, a write
 deadline, slow clients dropped rather than waited for. One table, one current
@@ -420,6 +434,7 @@ needs to draw the whole match instead of the title alone:
 | `played` | finished sets, space-separated: `11-8 9-11` — absent before the first |
 | `phase` | `warmup`, `serve_rally`, `playing`, `change_ends`, `complete` (ADR-0005) |
 | `ends` | who stands at the left and the right half, `b:a` after a change of ends |
+| `demo` | `1` on a demo match, always the last tag (ADR-0008) — absent on a real one, so a display rule can label or hide a demo without learning any table tennis |
 
 ```
 match=36c17b30,set=3,transition=point,side=b,points=5:10,sets=1:1,serve=b,player_a=Anna,player_b=Bernd,played=11-8 9-11,phase=playing,ends=a:b
@@ -902,11 +917,17 @@ match; a browser game nobody presses in for ten minutes (`PONG_BROWSER_IDLE`)
 ends itself the same way, so a closed tab does not keep the panel.
 
 **How it scores.** A game starts its own match with `POST /matches`: free-text
-names (`Pong A`, `Pong B`), `start: "warmup"`, `change_ends: true`. It never
-sends a player id or an operator, so a Pong match is never reported to
-Schmetterpause, and it never joins a match: while `/live/stream` shows one as
-current, it does not start, because that match belongs to somebody — and one
-carrying `home_id`/`away_id` is a real match between real players. Every press
+names (`Pong A`, `Pong B`), `start: "warmup"`, `change_ends: true` and
+`demo: true` — every Pong match is a demo, whether attract mode, a browser game
+or a button check started it (ADR-0008). It never sends a player id or an
+operator, so a Pong match is never reported to Schmetterpause, and it never
+joins a match: while `/live/stream` shows one as current, it does not start,
+because that match belongs to somebody — and one carrying `home_id`/`away_id`
+is a real match between real players. A 409 from `POST /matches`, zaehlwerk
+refusing a demo next to a real match, is the same busy table. The one current
+match a game asked for does not wait for is a demo that is not the service's
+own, left behind by a pod that is gone or run by another instance: it is ended,
+and the game starts. Every press
 goes to `POST /ingest/web` with the `match_id`, the `half` the bot stands at,
 and `delta: 1`, under the source `pong-<game id>` and the game's own counter as
 `event_id`, so a rally's number is its event id — until a `counter_reset` fault
@@ -957,20 +978,25 @@ stream says: the wait starts at a `no_match` and at nothing else.
 
 It always gives way, and never takes the table from anybody:
 
-- A match started at the table displaces the demo, which ends its own match.
-  The wait then starts again only at the next `no_match`, once that match is
-  over.
+- A match started at the table ends the demo inside zaehlwerk, at once, and
+  the demo stops when it sees the new match current. The wait then starts
+  again only at the next `no_match`, once that match is over. A demo that
+  would start in the instant after a real match is refused by zaehlwerk
+  (ADR-0008).
 - A game somebody starts, in the lobby or with `POST /games`, ends a running
   demo and takes the table. Every start holds one lock from looking at the
   table to the new game running, so the demo cannot start again in between.
 - Anybody counting into the demo ends it. A demo has no faults, so any
   divergence from zaehlwerk means another source scored into its match —
-  buttons pressed during a demo, or a real match started in the instant before
-  the demo's own. The demo ends its match, leaving the table to the real one or
+  buttons pressed during a demo. The demo ends its match, leaving the table
   free. A ready press in the warm-up or at a change of ends changes no score
-  and does not end it; a real match started at the table displaces it anyway.
+  and does not end it.
 - A match somebody left running is never ended. It blocks the demo, and the
   log names it once, after it has been quiet for the whole wait.
+- The exception is a demo that is not the service's own — left behind by a
+  pod that was killed mid-demo, or another instance's. Once it has been quiet
+  for the whole wait, it is ended, and the wait starts again at the `no_match`
+  after it. A demo somebody plays is never quiet that long.
 - A won demo is followed by a whole wait before the next, so demo and free
   table take turns rather than match following match.
 
@@ -1061,7 +1087,10 @@ game waits out one counter reset, so the e2e takes a minute longer. Last, it
 starts the service again in attract mode with a two-second wait and fails if no
 demo starts on the free table, if a demo carries faults, if one does not give
 way to a match started at the table or to a game started through the API, or if
-a demo starts while that match is still current. Then two button checks, with
+a demo starts while that match is still current. The match that ends the demo
+is started on the page: zaehlwerk must end the demo at once, the buttons must
+count into the page's match, a demo asked for next to it must be refused, and
+Schmetterpause must hear of neither. Then two button checks, with
 a curl per button posting to `/ingest/button` with a half the way the hardware
 does: one pressed as told must end without a finding, one with a press at the
 wrong half must report exactly that.
@@ -1231,6 +1260,7 @@ base whose removal can prune somebody else's panel.
 | [0005](docs/adr/0005-match-phases-and-table-halves.md) | Warm-up, the serve rally and the change of ends; halves instead of players |
 | [0006](docs/adr/0006-a-game-as-an-ingest-source.md) | zaehlwerk-pong: a game that scores through `/ingest/web` and is never reported |
 | [0007](docs/adr/0007-a-grace-period-before-reporting.md) | A grace period before reporting, so an undo can still take the match point back |
+| [0008](docs/adr/0008-demo-matches.md) | Demo matches: a real match always wins the table |
 
 ## Related
 

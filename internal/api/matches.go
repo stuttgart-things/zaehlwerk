@@ -25,6 +25,10 @@ type createRequest struct {
 	// SetOpener is "alternate" or "loser". Empty takes the server's
 	// SET_OPENER.
 	SetOpener string `json:"set_opener"`
+	// Demo marks a match that is no result and gives way to one, as
+	// zaehlwerk-pong's are (ADR-0008). Absent is a real match, which is what
+	// every caller that never heard of the field keeps getting.
+	Demo bool `json:"demo"`
 }
 
 // firstServerRally is the first_server value that asks for a serve rally,
@@ -77,15 +81,23 @@ func (s *Server) createMatch(w http.ResponseWriter, r *http.Request) {
 	// is reported nowhere. Choosing from the real player list is something the
 	// page does, because it is the only caller that can show a list to pick
 	// from (ADR-0004).
-	m, err := s.StartMatch(cfg, match.Handover{})
-	if err != nil {
-		// The scorer rejects an even best-of or an unknown first server, which
-		// is the caller's doing. A failed id draw is ours.
-		status := http.StatusBadRequest
-		if errors.Is(err, match.ErrIDGeneration) {
-			status = http.StatusInternalServerError
-		}
-		s.fail(w, r, status, err, nil)
+	m, err := s.start(cfg, match.Setup{Demo: req.Demo})
+	var taken *match.TableTakenError
+	switch {
+	case errors.As(err, &taken):
+		// The demo waits; the answer says for what, the way an ingest into a
+		// match that is over answers with where it stands.
+		st := taken.Running.Scorer.State()
+		s.fail(w, r, http.StatusConflict, err, &st)
+		return
+	case errors.Is(err, match.ErrIDGeneration):
+		s.fail(w, r, http.StatusInternalServerError, err, nil)
+		return
+	case err != nil:
+		// The scorer rejects an even best-of or an unknown first server, and
+		// the registry a demo with ids: the caller's doing. A failed id draw,
+		// above, is ours.
+		s.fail(w, r, http.StatusBadRequest, err, nil)
 		return
 	}
 
@@ -158,10 +170,16 @@ func (s *Server) endMatch(w http.ResponseWriter, r *http.Request) {
 // the panel changes hands is ADR-0003's decision rather than a detail of one
 // handler — one caller of the switcher, not two.
 func (s *Server) StartMatch(cfg scorer.Config, handover match.Handover) (*match.Match, error) {
+	return s.start(cfg, match.Setup{Handover: handover})
+}
+
+// start is StartMatch with the whole setup. Only the JSON API starts demos,
+// so only it needs more than the handover.
+func (s *Server) start(cfg scorer.Config, setup match.Setup) (*match.Match, error) {
 	if cfg.SetOpener == "" {
 		cfg.SetOpener = s.setOpener
 	}
-	m, err := s.registry.CreateFor(cfg, handover)
+	m, ended, err := s.registry.CreateFor(cfg, setup)
 	if err != nil {
 		return nil, err
 	}
@@ -170,10 +188,25 @@ func (s *Server) StartMatch(cfg scorer.Config, handover match.Handover) (*match.
 		s.switcher.Start(m.ID)
 	}
 
+	// The demos a real match ended inside the registry (ADR-0008), with what
+	// EndMatch does around an end, now that the registry lock is free. The
+	// panel went to the new match first: a release after that finds it held
+	// by another match and leaves it, so the idle streams never flash up in
+	// between (ADR-0003).
+	for _, d := range ended {
+		if s.hub != nil {
+			s.hub.Announce(live.Event{Kind: live.KindEnded, State: d.Scorer.State()})
+		}
+		if s.switcher != nil {
+			s.switcher.Release(d.ID)
+		}
+		s.log.Info("demo ended, a real match took the table", "match_id", d.ID, "by", m.ID)
+	}
+
 	if s.hub != nil {
 		s.hub.Announce(live.Event{Kind: live.KindStarted, State: m.Scorer.State()})
 	}
-	s.log.Info("match created", "match_id", m.ID)
+	s.log.Info("match created", "match_id", m.ID, "demo", m.Demo)
 	return m, nil
 }
 

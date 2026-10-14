@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -377,4 +378,109 @@ func lobbyPage(t *testing.T, url string) string {
 	_, err = buf.ReadFrom(resp.Body)
 	require.NoError(t, err)
 	return buf.String()
+}
+
+// foreignDemo is a demo the service did not start: left behind by a pod that
+// is gone, or another instance's. It is created the way any Pong creates one.
+func foreignDemo(t *testing.T, tbl *table) *match.Match {
+	t.Helper()
+	resp, err := http.Post(tbl.url+"/matches", "application/json",
+		strings.NewReader(`{"players":["Pong A","Pong B"],"demo":true}`))
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	m, err := tbl.registry.Current()
+	require.NoError(t, err)
+	require.True(t, m.Demo)
+	return m
+}
+
+func TestAttractEndsAQuietDemoThatIsNotItsOwn(t *testing.T) {
+	tbl := newTable(t)
+	left := foreignDemo(t, tbl)
+	p, log := newAttract(t, tbl.url, nil)
+
+	require.Eventually(t, func() bool {
+		return !left.Running() && log.count("a demo that is not ours was quiet for the whole wait, ended it") == 1
+	}, 5*time.Second, 5*time.Millisecond)
+	require.Zero(t, log.count("a match has been quiet at the table"), "a demo is not reported as somebody's match")
+
+	// The no_match after it starts the wait, and a demo of its own follows.
+	v := p.demo()
+	require.NotEqual(t, left.ID, v.MatchID)
+}
+
+// A demo somebody plays is never quiet for a whole wait, so attract mode
+// leaves it be.
+func TestAttractLeavesADemoThatIsPlayedAlone(t *testing.T) {
+	tbl := newTable(t)
+	other := foreignDemo(t, tbl)
+	_, log := newAttract(t, tbl.url, nil)
+
+	for id := uint64(1); id <= 8; id++ {
+		body := `{"match_id":"` + other.ID + `","source":"other-pong","event_id":` + strconv.FormatUint(id, 10) + `,"player":"a","delta":1}`
+		resp, err := http.Post(tbl.url+"/ingest/web", "application/json", strings.NewReader(body))
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		time.Sleep(testAttractAfter / 2)
+	}
+	require.True(t, other.Running())
+	require.Zero(t, log.count("ended it"))
+}
+
+func TestALobbyGameEndsAForeignDemoAtOnce(t *testing.T) {
+	tbl := newTable(t)
+	left := foreignDemo(t, tbl)
+	p := newPong(t, tbl.url, 1)
+
+	status, game, raw := p.start("0s")
+	require.Equal(t, http.StatusCreated, status, raw)
+	require.False(t, left.Running(), "ended before the game's match was created")
+	require.NotEqual(t, left.ID, game.MatchID)
+	require.Equal(t, StatusWon, p.finished(game.ID).Status)
+}
+
+// The rule ADR-0006 gave stays for everything that is not marked: a match
+// nobody scores any more looks exactly like one paused between two points.
+func TestAnUnmarkedQuietMatchIsStillLeftAlone(t *testing.T) {
+	tbl := newTable(t)
+	stale, err := tbl.zaehlwerk.StartMatch(scorer.Config{}, match.Handover{})
+	require.NoError(t, err)
+	p, log := newAttract(t, tbl.url, nil)
+
+	require.Eventually(t, func() bool {
+		return log.count("a match has been quiet at the table for the whole wait") == 1
+	}, 5*time.Second, 5*time.Millisecond)
+	status, _, raw := p.start("0s")
+	require.Equal(t, http.StatusConflict, status, raw)
+
+	time.Sleep(3 * testAttractAfter)
+	require.True(t, stale.Running(), "neither attract mode nor a game asked for ends it")
+	require.Zero(t, p.demos())
+}
+
+// The stream said the table was free, and zaehlwerk refuses the demo all the
+// same: a real match was created in between (ADR-0008). That is a busy table,
+// not a failure.
+func TestA409OnCreateIsABusyTable(t *testing.T) {
+	tbl := newTable(t)
+	real, err := tbl.zaehlwerk.StartMatch(scorer.Config{}, match.Handover{})
+	require.NoError(t, err)
+	p := newPong(t, tbl.url, 1)
+
+	st, err := p.pong.client.CreateMatch(context.Background(), BotNames, 3)
+	require.ErrorIs(t, err, errBusy)
+	require.Equal(t, real.ID, st.MatchID, "the answer names the match that has the table")
+	require.True(t, real.Running())
+}
+
+func TestEveryMatchTheGameCreatesIsADemo(t *testing.T) {
+	tbl := newTable(t)
+	p := newPong(t, tbl.url, 1)
+
+	status, game, raw := p.start("50ms")
+	require.Equal(t, http.StatusCreated, status, raw)
+	m, err := tbl.registry.Get(game.MatchID)
+	require.NoError(t, err)
+	require.True(t, m.Demo)
 }

@@ -17,6 +17,7 @@ import (
 
 	homerun "github.com/stuttgart-things/homerun-library/v4"
 
+	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 )
 
@@ -105,7 +106,7 @@ type Sink struct {
 	pitcher Pitcher
 	cfg     Config
 
-	queue chan scorer.Transition
+	queue chan pitch
 	stop  chan struct{}
 	done  chan struct{}
 
@@ -122,7 +123,7 @@ func New(p Pitcher, cfg Config) *Sink {
 	s := &Sink{
 		pitcher: p,
 		cfg:     cfg,
-		queue:   make(chan scorer.Transition, cfg.QueueSize),
+		queue:   make(chan pitch, cfg.QueueSize),
 		stop:    make(chan struct{}),
 		done:    make(chan struct{}),
 	}
@@ -130,11 +131,21 @@ func New(p Pitcher, cfg Config) *Sink {
 	return s
 }
 
-// Observe is the scorer observer. Register it with (*scorer.Scorer).Observe.
+// pitch is one transition on its way to the panel, with what the panel says
+// about its match beyond the score.
+type pitch struct {
+	t    scorer.Transition
+	demo bool
+}
+
+// Observe is the scorer observer. Register it with [match.WithMatchObserver]:
+// it is handed the match to read whether it is a demo (ADR-0008), and never
+// looks it up, because it is called inside the scorer's lock (#102). m may be
+// nil for a transition that belongs to no match the registry made.
 //
 // The queue holds transitions rather than finished messages so that formatting
 // happens on the worker, not under the scorer's lock.
-func (s *Sink) Observe(t scorer.Transition) {
+func (s *Sink) Observe(m *match.Match, t scorer.Transition) {
 	select {
 	case <-s.stop:
 		// Counted rather than quietly ignored. A transition arriving after
@@ -145,8 +156,11 @@ func (s *Sink) Observe(t scorer.Transition) {
 	default:
 	}
 
+	// Demo is fixed when the match is created, so it is read here without a
+	// lock and travels with the transition.
+	p := pitch{t: t, demo: m != nil && m.Demo}
 	select {
-	case s.queue <- t:
+	case s.queue <- p:
 	default:
 		// Deliberately counted, not logged: this runs under the scorer's lock,
 		// and a Redis outage would otherwise write a log line per point from
@@ -182,8 +196,8 @@ func (s *Sink) run() {
 	defer close(s.done)
 	for {
 		select {
-		case t := <-s.queue:
-			s.pitch(t)
+		case p := <-s.queue:
+			s.pitch(p)
 		case <-s.stop:
 			s.drain()
 			return
@@ -199,23 +213,24 @@ func (s *Sink) drain() {
 	deadline := s.cfg.Now().Add(s.cfg.DrainTimeout)
 	for range len(s.queue) {
 		select {
-		case t := <-s.queue:
+		case p := <-s.queue:
 			if !s.cfg.Now().Before(deadline) {
 				s.dropped.Add(1)
 				continue
 			}
-			s.pitch(t)
+			s.pitch(p)
 		default:
 			return
 		}
 	}
 }
 
-func (s *Sink) pitch(t scorer.Transition) {
+func (s *Sink) pitch(p pitch) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.PitchTimeout)
 	defer cancel()
 
-	msg := Message(t, s.cfg.System, s.cfg.Author, s.cfg.Now())
+	t := p.t
+	msg := Message(t, p.demo, s.cfg.System, s.cfg.Author, s.cfg.Now())
 	if _, _, err := s.pitcher.Enqueue(ctx, msg, s.cfg.Stream); err != nil {
 		s.failed.Add(1)
 		s.cfg.Logger.Warn("panel pitch failed, point not shown",
@@ -231,18 +246,19 @@ func (s *Sink) pitch(t scorer.Transition) {
 		"stream", s.cfg.Stream, "match", t.State.MatchID, "title", msg.Title)
 }
 
-// Message renders a transition as a homerun message.
+// Message renders a transition as a homerun message. demo is whether its match
+// is a demo (ADR-0008).
 //
 // It is exported and pure so that the panel wording can be checked, and
 // changed, without a Redis anywhere near it.
-func Message(t scorer.Transition, system, author string, now time.Time) homerun.Message {
+func Message(t scorer.Transition, demo bool, system, author string, now time.Time) homerun.Message {
 	return homerun.Message{
 		System:    system,
 		Severity:  Severity(t.Kind),
 		Title:     Title(t),
 		Message:   Summary(t),
 		Author:    author,
-		Tags:      Tags(t),
+		Tags:      Tags(t, demo),
 		Timestamp: now.Format(time.RFC3339),
 	}
 }
@@ -270,7 +286,12 @@ func Message(t scorer.Transition, system, author string, now time.Time) homerun.
 // says who stands at the left and the right half, which is what a change of
 // ends has to show. Both are left out of a state that has no phase, so a
 // catcher that never heard of them sees the tags it always saw.
-func Tags(t scorer.Transition) string {
+//
+// `demo=1` is the very last, on a demo match only (ADR-0008): a catcher can
+// label or hide a demo from a display rule without learning anything about
+// table tennis (invariant 7). It is absent from a real match, not `demo=0`, for
+// the same reason as the phase.
+func Tags(t scorer.Transition, demo bool) string {
 	st := t.State
 	tags := fmt.Sprintf("match=%s,set=%d,transition=%s", st.MatchID, st.SetNumber, t.Kind)
 	if t.Side != "" {
@@ -300,6 +321,9 @@ func Tags(t scorer.Transition) string {
 	}
 	if st.Ends[0] != "" && st.Ends[1] != "" {
 		tags += ",ends=" + string(st.Ends[0]) + ":" + string(st.Ends[1])
+	}
+	if demo {
+		tags += ",demo=1"
 	}
 	return tags
 }

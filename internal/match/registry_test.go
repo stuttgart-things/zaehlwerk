@@ -385,8 +385,8 @@ func TestAMatchObserverIsToldWhichMatch(t *testing.T) {
 
 	var created []*Match
 	for range 2 {
-		m, err := r.CreateFor(scorer.Config{Players: [2]string{"Anna", "Bernd"}},
-			Handover{HomeID: "h", AwayID: "a", OperatorID: "o"})
+		m, _, err := r.CreateFor(scorer.Config{Players: [2]string{"Anna", "Bernd"}},
+			Setup{Handover: Handover{HomeID: "h", AwayID: "a", OperatorID: "o"}})
 		require.NoError(t, err)
 		_, err = m.Scorer.Apply(scorer.ScoreEvent{
 			MatchID: m.ID, Player: scorer.PlayerA, Delta: 1, EventID: 1, Source: "test",
@@ -442,4 +442,151 @@ func TestARegistryWithoutObserversStillCreatesMatches(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, m.Scorer.State().Points[0])
+}
+
+func demo(t *testing.T, r *Registry) *Match {
+	t.Helper()
+	m, ended, err := r.CreateFor(scorer.Config{Players: [2]string{"Pong A", "Pong B"}}, Setup{Demo: true})
+	require.NoError(t, err)
+	require.Empty(t, ended, "a demo ends nothing")
+	require.True(t, m.Demo)
+	return m
+}
+
+// ADR-0008 (a): whatever a demo held, the real match has the table from its
+// first press, and the caller is handed the demo to announce as ended.
+func TestARealMatchEndsTheRunningDemo(t *testing.T) {
+	r := newTestRegistry(t)
+	d := demo(t, r)
+
+	real, ended, err := r.CreateFor(scorer.Config{Players: [2]string{"Anna", "Bernd"}}, Setup{})
+	require.NoError(t, err)
+	require.False(t, real.Demo)
+	require.Equal(t, []*Match{d}, ended)
+	require.False(t, d.Running(), "ended the way POST /matches/{id}/end ends it")
+	_, byHand := d.EndedAt()
+	require.True(t, byHand)
+
+	current, err := r.Current()
+	require.NoError(t, err)
+	require.Same(t, real, current)
+}
+
+// A demo that is already over is nothing to end, and nothing to announce
+// twice.
+func TestADemoThatIsOverIsNotEndedAgain(t *testing.T) {
+	r := newTestRegistry(t)
+	d := demo(t, r)
+	win(t, d, scorer.PlayerA)
+
+	_, ended, err := r.CreateFor(scorer.Config{}, Setup{})
+	require.NoError(t, err)
+	require.Empty(t, ended)
+	_, byHand := d.EndedAt()
+	require.False(t, byHand, "won on court stays won on court")
+}
+
+// ADR-0008 (c): the race where the real match was created first. The demo
+// never comes into existence.
+func TestADemoIsRefusedWhileARealMatchRuns(t *testing.T) {
+	r := newTestRegistry(t)
+	real, err := r.Create(scorer.Config{Players: [2]string{"Anna", "Bernd"}})
+	require.NoError(t, err)
+
+	_, _, err = r.CreateFor(scorer.Config{}, Setup{Demo: true})
+	require.ErrorIs(t, err, ErrTableTaken)
+	var taken *TableTakenError
+	require.ErrorAs(t, err, &taken)
+	require.Same(t, real, taken.Running, "the error names the match holding the table")
+
+	current, err := r.Current()
+	require.NoError(t, err)
+	require.Same(t, real, current)
+
+	// Once the real match is over, the table is free for a demo again.
+	real.End(time.Now())
+	demo(t, r)
+}
+
+func TestADemoWithPlayerIDsIsRefused(t *testing.T) {
+	r := newTestRegistry(t)
+
+	for _, h := range []Handover{
+		{HomeID: "h", AwayID: "a", OperatorID: "o"},
+		{HomeID: "h"},
+		{OperatorID: "o"},
+	} {
+		_, _, err := r.CreateFor(scorer.Config{}, Setup{Handover: h, Demo: true})
+		require.ErrorIs(t, err, ErrDemoReported, "%+v", h)
+	}
+	_, err := r.Current()
+	require.ErrorIs(t, err, ErrNotFound, "nothing was created")
+}
+
+// Only a real match ends demos. A demo created next to another one takes over
+// as the newer running match, as any match did before ADR-0008.
+func TestAnotherDemoMayStartWhileADemoRuns(t *testing.T) {
+	r := newTestRegistry(t)
+	first := demo(t, r)
+	second := demo(t, r)
+
+	require.True(t, first.Running())
+	current, err := r.Current()
+	require.NoError(t, err)
+	require.Same(t, second, current)
+}
+
+// #102 with ADR-0008 (a) in it: creating a real match asks every demo whether
+// it is running, which takes the demo's scorer lock under the registry lock.
+// A demo won at that moment holds its scorer lock while its observers run, and
+// they touch the match, as the reporter does. Ending demos must not take the
+// two the other way round.
+func TestCreatingARealMatchWhileADemoIsWonDoesNotDeadlock(t *testing.T) {
+	won := make(chan struct{})
+	r := newTestRegistry(t, WithMatchObserver(func(m *Match, tr scorer.Transition) {
+		if tr.Kind == scorer.TransitionMatchWon && m.Demo {
+			close(won)
+			// Long enough for the create below to reach the demo and wait
+			// on its scorer lock, then touch the match under that lock.
+			time.Sleep(100 * time.Millisecond)
+			m.ReportDue(time.Time{})
+			_, _ = m.EndedAt()
+		}
+	}))
+	d, _, err := r.CreateFor(scorer.Config{BestOf: 1}, Setup{Demo: true})
+	require.NoError(t, err)
+
+	errs := make(chan error, 12)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for id := uint64(1); id <= 11; id++ {
+			_, err := d.Scorer.Apply(scorer.ScoreEvent{
+				MatchID: d.ID, Source: "test", EventID: id, Player: scorer.PlayerA, Delta: 1,
+			})
+			errs <- err
+		}
+	}()
+	var ended []*Match
+	created := make(chan struct{})
+	go func() {
+		defer close(created)
+		<-won
+		var err error
+		_, ended, err = r.CreateFor(scorer.Config{}, Setup{})
+		errs <- err
+	}()
+
+	for _, ch := range []chan struct{}{done, created} {
+		select {
+		case <-ch:
+		case <-time.After(3 * time.Second):
+			t.Fatal("deadlock: the demo's match_won observer and the real match wait on each other's lock")
+		}
+	}
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	require.Empty(t, ended, "the demo was won before it was asked, so there was nothing to end")
 }
