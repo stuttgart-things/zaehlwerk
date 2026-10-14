@@ -827,7 +827,8 @@ and released with zaehlwerk. It plays in the browser — two people at one
 device, a person against the computer, or two computers to watch — and headless,
 two bots whose rallies are drawn by skill, with faults injected on purpose if
 asked, and by itself in attract mode when the table has been free for a while.
-The button check comes next.
+And it checks the real buttons: it says which one to press and compares what
+arrives. Two devices for one game are #99.
 
 ```bash
 task chain:pong        # zaehlwerk and zaehlwerk-pong side by side
@@ -961,6 +962,39 @@ task chain:pong:game ATTRACT=1m        # from source, against task run
 docker compose -f deploy/panel/compose.yaml --profile pong up -d   # the image, with the simulated panel
 ```
 
+**Button check.** "Taster prüfen" in the lobby, or `POST /games` with
+`{"driver": "check"}`, tests the buttons, the hub and the radio against a known
+truth. It starts a match like every game — warm-up, change of ends, no ids, so
+never reported — and sends nothing itself. The page says what to press, big
+enough to read from the table: "Bereit: LINKS" in the warm-up and at a change of
+ends, "RECHTS drücken" for the rally for the serve and for a point, with the
+player it counts for. The prompts are drawn from the seed and from where
+zaehlwerk has the match, so a run with the same seed asks for the same thing.
+They cover both ready presses, the rally for the serve, points on both halves,
+a change of ends, and after it both halves again — the same button now
+counting for the other player. That is about twenty presses.
+
+The game reads `/live/stream` and judges every transition of its match against
+the prompt: the right half, the right phase, one transition for one prompt. A
+prompt waits up to `PONG_CHECK_TIMEOUT` for its press, and the next comes a
+second after it is answered. Each ends as one of:
+
+| Outcome | What it means |
+| ------- | ------------- |
+| `ok` | the press arrived at the half asked for |
+| `wrong_half` | it arrived at the other half |
+| `double` | the same button again in the second after the press: a bounce, or a hub sending twice |
+| `missing` | nothing arrived before the timeout; on a ready prompt it may also be a press at the wrong half, which zaehlwerk ignores |
+| `unexpected` | a press in the second between two prompts that is not a bounce, or a transition no press makes |
+
+The page and `GET /games/{id}` (`check`) keep the counts, the first findings
+with their time, and a summary as text to paste into a firmware issue. Three
+prompts in a row with nothing pressed end the check and its match. Two limits
+follow from what the stream says, which is a state and not who pressed: a
+ready press at a half that has already pressed is ignored by zaehlwerk, so a
+wrong half on the second ready shows as `missing`, and a bounce on a ready is
+not seen at all. A demo gives the table to a check like to any game.
+
 **Faults.** Between the truth and the ingest, a game can send what a real table
 sends when something goes wrong. The truth is never touched; every fault is
 logged with its rally number and listed under `faults`, with the `effect` it
@@ -1006,7 +1040,10 @@ game waits out one counter reset, so the e2e takes a minute longer. Last, it
 starts the service again in attract mode with a two-second wait and fails if no
 demo starts on the free table, if a demo carries faults, if one does not give
 way to a match started at the table or to a game started through the API, or if
-a demo starts while that match is still current.
+a demo starts while that match is still current. Then two button checks, with
+a curl per button posting to `/ingest/button` with a half the way the hardware
+does: one pressed as told must end without a finding, one with a press at the
+wrong half must report exactly that.
 
 | Variable | Default | |
 | -------- | ------- | - |
@@ -1020,6 +1057,7 @@ a demo starts while that match is still current.
 | `PONG_ATTRACT_AFTER` | none | Attract mode: how long the table must be free before a demo starts, e.g. `10m`. Unset is off |
 | `PONG_ATTRACT_PACE` | `1s` | The demo's pause between two reports |
 | `PONG_BROWSER_IDLE` | `10m` | How long a browser game waits for a press before it ends itself and its match |
+| `PONG_CHECK_TIMEOUT` | `10s` | How long a button check's prompt waits for its press before it counts as missing |
 
 Every duration is a Go duration and must be above zero; anything else stops
 the service at startup.

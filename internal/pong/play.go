@@ -38,8 +38,14 @@ type pressed struct {
 // page starts its next rally from what zaehlwerk says. A press number seen
 // before is answered without being pressed again.
 func (s *Server) press(w http.ResponseWriter, r *http.Request) {
-	g, b, ok := s.browserGame(w, r)
+	g, ok := s.tokenGame(w, r)
 	if !ok {
+		return
+	}
+	b, isBrowser := g.driver.(*browser)
+	if !isBrowser {
+		// A check presses nothing: the buttons do, through zaehlwerk.
+		fail(w, http.StatusConflict, errors.New("a button check takes no presses, the buttons at the table make them"))
 		return
 	}
 
@@ -71,10 +77,10 @@ func (s *Server) press(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// endGame is POST /games/{id}/end: the page that plays a browser game ends it,
-// and its match with it.
+// endGame is POST /games/{id}/end: the page that plays a browser game or runs a
+// button check ends it, and its match with it.
 func (s *Server) endGame(w http.ResponseWriter, r *http.Request) {
-	g, _, ok := s.browserGame(w, r)
+	g, ok := s.tokenGame(w, r)
 	if !ok {
 		return
 	}
@@ -90,26 +96,25 @@ func (s *Server) endGame(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, g.View())
 }
 
-// browserGame finds the game in the path and checks that the request may play
-// it: a browser game, and the token it was started with. Another tab may watch
-// the same game; it does not get to press.
-func (s *Server) browserGame(w http.ResponseWriter, r *http.Request) (*Game, *browser, bool) {
+// tokenGame finds the game in the path and checks that the request may play
+// it: a game with a page, and the token it was started with. Another tab may
+// watch the same game; it does not get to press or end it.
+func (s *Server) tokenGame(w http.ResponseWriter, r *http.Request) (*Game, bool) {
 	g, ok := s.game(r.PathValue("id"))
 	if !ok {
 		fail(w, http.StatusNotFound, fmt.Errorf("no game %q", r.PathValue("id")))
-		return nil, nil, false
+		return nil, false
 	}
-	b, isBrowser := g.driver.(*browser)
-	if !isBrowser {
+	if g.token == "" {
 		fail(w, http.StatusConflict, errors.New("a headless game plays itself"))
-		return nil, nil, false
+		return nil, false
 	}
 	token := r.Header.Get(TokenHeader)
-	if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(g.token)) != 1 {
+	if subtle.ConstantTimeCompare([]byte(token), []byte(g.token)) != 1 {
 		fail(w, http.StatusForbidden, errors.New("only the page that started the game reports for it"))
-		return nil, nil, false
+		return nil, false
 	}
-	return g, b, true
+	return g, true
 }
 
 func (s *Server) game(id string) (*Game, bool) {

@@ -19,9 +19,10 @@ import (
 // The page around the game is htmx and SSE, the way zaehlwerk's scoring page
 // is: the lobby is a form, the banner, the score and truth against zaehlwerk
 // are partials the service renders and swaps in. Only the game itself, the
-// canvas, is JavaScript (web/game.js, ADR-0006).
+// canvas, is JavaScript (web/game.js, ADR-0006), and on a button check's page
+// the few lines that hold its token (web/check.js).
 //
-//go:embed web/*.html web/game.js
+//go:embed web/*.html web/*.js
 var web embed.FS
 
 // Parsed once at startup: a broken template is a build mistake, and
@@ -38,7 +39,7 @@ func (s *Server) routeUI() {
 	s.mux.HandleFunc("POST /ui/games", s.startFromLobby)
 	s.mux.HandleFunc("GET /play/{id}", s.playPage)
 	s.mux.HandleFunc("GET /ui/games/{id}/stream", s.boardStream)
-	s.mux.HandleFunc("GET /static/game.js", s.gameJS)
+	s.mux.HandleFunc("GET /static/{file}", s.script)
 }
 
 // lobbyView is the start page.
@@ -215,6 +216,11 @@ func (s *Server) startFromLobby(w http.ResponseWriter, r *http.Request) {
 func lobbyForm(r *http.Request) (GameConfig, Faults, error) {
 	var bots [2]*BotParams
 	mode := r.FormValue("mode")
+	if mode == ModeCheck {
+		// Names, bots and faults are on the form for the other modes; a
+		// check has its own names, no bots and the hardware's faults.
+		return checkGame(), Faults{}, nil
+	}
 	for i, side := range []string{"a", "b"} {
 		// Only the bots the mode has: the lobby always shows both blocks.
 		isBot := mode == ModeCvC || (mode == ModePvC && side == "b")
@@ -278,7 +284,8 @@ func (s *Server) playPage(w http.ResponseWriter, r *http.Request) {
 	}
 	v := g.View()
 	if v.Driver != DriverBrowser {
-		// A headless game has no canvas to draw; its page is the board alone.
+		// A headless game and a button check have no canvas to draw; their
+		// page is the board alone.
 		v.Mode = ""
 	}
 	bots, err := json.Marshal(v.Bots)
@@ -299,7 +306,11 @@ func (s *Server) boardStream(w http.ResponseWriter, r *http.Request) {
 	s.follow(w, r, g, func(v View) ([]sseEvent, error) {
 		b := newBoardView(v)
 		var events []sseEvent
-		for _, name := range []string{"score", "truth"} {
+		names := []string{"score", "truth"}
+		if b.Check != nil {
+			names = []string{"score", "check"}
+		}
+		for _, name := range names {
 			html, err := partial(name, b)
 			if err != nil {
 				return nil, err
@@ -310,8 +321,13 @@ func (s *Server) boardStream(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) gameJS(w http.ResponseWriter, _ *http.Request) {
-	js, err := web.ReadFile("web/game.js")
+func (s *Server) script(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("file")
+	if name != "game.js" && name != "check.js" {
+		http.NotFound(w, r)
+		return
+	}
+	js, err := web.ReadFile("web/" + name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -334,6 +350,60 @@ type boardView struct {
 	Rows        []divergenceRow
 	FaultRows   []faultRow
 	Findings    int
+	// Check is a button check's prompt and findings, nil for a game.
+	Check *checkBoard
+}
+
+// checkBoard is a button check on its page.
+type checkBoard struct {
+	CheckView
+	// Prompt is the prompt as the table reads it: "LINKS drücken".
+	Prompt string
+	For    string
+	Ready  bool
+	Rows   []checkRow
+	Counts []checkCount
+}
+
+type checkRow struct {
+	CheckFinding
+	At, Label string
+}
+
+type checkCount struct {
+	Label string
+	N     int
+	Bad   bool
+}
+
+// checkPageLabels are the outcomes as the page says them.
+var checkPageLabels = map[CheckOutcome]string{
+	CheckOK:         "richtig",
+	CheckWrongHalf:  "falsche Hälfte",
+	CheckDouble:     "doppelt (Prellen)",
+	CheckMissing:    "fehlt",
+	CheckUnexpected: "ohne Ansage",
+}
+
+var halfLabels = map[scorer.Half]string{scorer.HalfLeft: "LINKS", scorer.HalfRight: "RECHTS"}
+
+func newCheckBoard(c *CheckView) *checkBoard {
+	b := &checkBoard{CheckView: *c}
+	if p := c.Prompt; p != nil {
+		b.For, b.Ready = p.For, p.Kind == PressReady
+		if b.Ready {
+			b.Prompt = "Bereit: " + halfLabels[p.Half]
+		} else {
+			b.Prompt = halfLabels[p.Half] + " drücken"
+		}
+	}
+	for _, o := range checkOutcomes {
+		b.Counts = append(b.Counts, checkCount{Label: checkPageLabels[o], N: c.Counts[o], Bad: o != CheckOK && c.Counts[o] > 0})
+	}
+	for _, f := range c.Findings {
+		b.Rows = append(b.Rows, checkRow{CheckFinding: f, At: f.At.Format("15:04:05.000"), Label: checkPageLabels[f.Outcome]})
+	}
+	return b
 }
 
 type sideView struct {
@@ -383,6 +453,9 @@ const maxFaultRows = 12
 func newBoardView(v View) boardView {
 	st := v.State
 	b := boardView{View: v, Over: v.Status != StatusPlaying, Banner: banner(v)}
+	if v.Check != nil {
+		b.Check = newCheckBoard(v.Check)
+	}
 
 	name := func(p scorer.Player) string {
 		if p == "" {
@@ -430,6 +503,8 @@ func newBoardView(v View) boardView {
 func banner(v View) string {
 	st := v.State
 	switch v.Status {
+	case StatusChecked:
+		return "TASTER GEPRÜFT"
 	case StatusEnded:
 		return "SPIEL BEENDET"
 	case StatusFailed:

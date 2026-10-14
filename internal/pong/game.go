@@ -36,6 +36,9 @@ const (
 	// shutting down.
 	StatusEnded  Status = "ended"
 	StatusFailed Status = "failed"
+	// StatusChecked is a button check that asked for everything it set out
+	// to; its findings say how the buttons answered.
+	StatusChecked Status = "checked"
 )
 
 // EndsChange is a change of ends as zaehlwerk called it: the set and the score
@@ -54,7 +57,8 @@ type View struct {
 	Reason  string    `json:"reason,omitempty"`
 	Seed    int64     `json:"seed"`
 	Players [2]string `json:"players"`
-	// Driver is who decides the rallies: "bots" headless, or "browser".
+	// Driver is who decides the rallies: "bots" headless, "browser", or
+	// "check" for the buttons at the table.
 	Driver string `json:"driver"`
 	// Attract is a demo started by attract mode rather than by anybody.
 	Attract bool `json:"attract,omitempty"`
@@ -81,6 +85,8 @@ type View struct {
 	Faults      []Fault      `json:"faults"`
 	EndsChanges []EndsChange `json:"ends_changes"`
 	State       scorer.State `json:"state"`
+	// Check is a button check's prompts and findings.
+	Check *CheckView `json:"check,omitempty"`
 }
 
 // GameConfig is one match: headless between two bots, or played in a
@@ -89,7 +95,7 @@ type GameConfig struct {
 	BestOf int
 	// Players are the names on the panel; BotNames when empty.
 	Players [2]string
-	// Driver is DriverBots or DriverBrowser; empty is bots.
+	// Driver is DriverBots, DriverBrowser or DriverCheck; empty is bots.
 	Driver string
 	// Mode and Bots are what a browser game shows and plays with; the game
 	// itself does not use them.
@@ -97,6 +103,10 @@ type GameConfig struct {
 	Bots [2]*BotParams
 	// Idle ends a browser game nobody presses in; zero is browserIdle.
 	Idle time.Duration
+	// CheckTimeout is how long a button check's prompt waits for its press,
+	// and CheckGap the pause between two prompts; zero is the default.
+	CheckTimeout time.Duration
+	CheckGap     time.Duration
 	// Attract is a demo the service started by itself on a free table. It
 	// gives the table to any game somebody asks for.
 	Attract bool
@@ -133,6 +143,9 @@ type Game struct {
 	token string
 	// stop ends the game from outside, with the reason as its cause.
 	stop context.CancelCauseFunc
+	// check is a button check's record, nil for every other game. Guarded
+	// by mu.
+	check *checkRun
 
 	mu          sync.Mutex
 	matchID     string
@@ -174,10 +187,19 @@ func newGame(id string, cfg GameConfig, client *Client, log *slog.Logger) *Game 
 		cfg.Driver = DriverBots
 	}
 	var driver Driver = &bots{rnd: rand.New(rand.NewSource(cfg.Seed)), skills: cfg.Skills}
-	if cfg.Driver == DriverBrowser {
+	var check *checkRun
+	switch cfg.Driver {
+	case DriverBrowser:
 		driver = newBrowser(cfg.Idle)
+	case DriverCheck:
+		// Nobody decides a rally in a check: it says what to press and
+		// listens. The driver is there for Over, which a check has nothing
+		// to answer.
+		driver = noDriver{}
+		check = &checkRun{started: time.Now(), counts: map[CheckOutcome]int{}}
 	}
 	return &Game{
+		check:       check,
 		ID:          id,
 		Source:      source,
 		cfg:         cfg,
@@ -248,14 +270,24 @@ func (g *Game) run(ctx context.Context, table <-chan TableEvent) {
 
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
-	go g.watch(ctx, cancel, table)
-
-	err := g.play(ctx)
+	var err error
+	if g.cfg.Driver == DriverCheck {
+		err = g.runCheck(ctx, table)
+	} else {
+		go g.watch(ctx, cancel, table)
+		err = g.play(ctx)
+	}
 	if cause := context.Cause(ctx); err != nil && cause != nil && !errors.Is(cause, context.Canceled) {
 		err = cause
 	}
 
 	switch {
+	case err == nil && g.cfg.Driver == DriverCheck:
+		// Done asking, not a match played out: it is ended, like any match
+		// the game does not finish.
+		g.end(ctx)
+		g.finish(StatusChecked, "")
+		return
 	case err == nil:
 		g.finish(StatusWon, "")
 		return
@@ -263,14 +295,16 @@ func (g *Game) run(ctx context.Context, table <-chan TableEvent) {
 		g.finish(StatusEnded, "zaehlwerk says the match is over")
 		return
 	case errors.Is(err, errDisplaced), errors.Is(err, errTableLost), errors.Is(err, errStopped),
-		errors.Is(err, errIdle), errors.Is(err, errYielded), errors.Is(err, errIntruded), ctx.Err() != nil:
+		errors.Is(err, errIdle), errors.Is(err, errYielded), errors.Is(err, errIntruded),
+		errors.Is(err, errNobodyPresses), ctx.Err() != nil:
 		// The match is no longer the game's to play, the game can no longer
 		// tell whether it is, nobody is playing it any more, a demo made way
 		// for a game or for somebody counting into it, or the service is
 		// stopping. Either way it is ended rather than left running, so it
 		// does not sit in the registry as current with nobody scoring it.
 		reason := "the service stopped"
-		for _, known := range []error{errDisplaced, errTableLost, errStopped, errIdle, errYielded, errIntruded} {
+		for _, known := range []error{errDisplaced, errTableLost, errStopped, errIdle, errYielded, errIntruded,
+			errNobodyPresses} {
 			if errors.Is(err, known) {
 				reason = err.Error()
 			}
@@ -804,6 +838,7 @@ func (g *Game) View() View {
 		Faults:      append([]Fault{}, g.faults...),
 		EndsChanges: append([]EndsChange{}, g.changes...),
 		State:       g.state,
+		Check:       g.checkView(),
 	}
 }
 

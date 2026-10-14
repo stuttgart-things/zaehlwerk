@@ -33,6 +33,9 @@ const (
 	// until the next replaces it.
 	defaultAttractPace = time.Second
 	defaultBrowserIdle = 10 * time.Minute
+	// Ten seconds to find the button the page names and press it, at a
+	// table somebody is setting up.
+	defaultCheckTimeout = 10 * time.Second
 )
 
 // Set by the linker at build time; see .ko.yaml. Left empty here so /healthz
@@ -63,7 +66,8 @@ func run() error {
 	log.Info("zaehlwerk-pong up", "zaehlwerk", cfg.ZaehlwerkURL, "best_of", cfg.BestOf,
 		"skills", []string{cfg.Skills[0].Name, cfg.Skills[1].Name}, "faults", cfg.Faults, "seed", cfg.Seed,
 		"attract_after", cfg.AttractAfter.String(), "attract_pace", cfg.AttractPace.String(),
-		"browser_idle", cfg.BrowserIdle.String(), "version", cfg.Build.Version)
+		"browser_idle", cfg.BrowserIdle.String(), "check_timeout", cfg.CheckTimeout.String(),
+		"version", cfg.Build.Version)
 
 	if cfg.AttractAfter == 0 {
 		log.Info("attract mode disabled, PONG_ATTRACT_AFTER not configured")
@@ -151,6 +155,9 @@ func config() (pong.Config, error) {
 		return cfg, err
 	}
 	if cfg.BrowserIdle, err = duration("PONG_BROWSER_IDLE", defaultBrowserIdle); err != nil {
+		return cfg, err
+	}
+	if cfg.CheckTimeout, err = duration("PONG_CHECK_TIMEOUT", defaultCheckTimeout); err != nil {
 		return cfg, err
 	}
 

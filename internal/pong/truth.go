@@ -159,6 +159,13 @@ func effectAt(h scorer.Half, standing [2]scorer.Player) [2]int {
 	return e
 }
 
+func halfAt(i int) scorer.Half {
+	if i == 1 {
+		return scorer.HalfRight
+	}
+	return scorer.HalfLeft
+}
+
 func halfIndex(h scorer.Half) int {
 	if h == scorer.HalfRight {
 		return 1

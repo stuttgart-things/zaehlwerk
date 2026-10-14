@@ -29,13 +29,16 @@ type browserFixture struct {
 	token string
 }
 
-// startBrowser starts a browser game through POST /games and keeps its token.
+// startBrowser starts a browser game through POST /games and keeps its token;
+// a body naming a driver of its own starts that, a button check.
 func startBrowser(t *testing.T, p *pongFixture, body map[string]any) *browserFixture {
 	t.Helper()
 	if body == nil {
 		body = map[string]any{}
 	}
-	body["driver"] = DriverBrowser
+	if body["driver"] == nil {
+		body["driver"] = DriverBrowser
+	}
 	raw, err := json.Marshal(body)
 	require.NoError(t, err)
 	resp, err := http.Post(p.url+"/games", "application/json", bytes.NewReader(raw))
