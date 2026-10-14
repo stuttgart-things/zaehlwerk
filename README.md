@@ -60,6 +60,9 @@ go run ./cmd/zaehlwerk-api
 | `CATCHER_IDLE_TIMEOUT` | `20m` | Give the panel back after this long without a point |
 | `SCHMETTERPAUSE_URL` | — | Schmetterpause base URL. Unset, a match is scored and shown and reported nowhere |
 | `SCHMETTERPAUSE_TOKEN` | — | Bearer token for its `/api`; without one configured there, the routes do not exist. The scoring page names both players from `/api/players` and whoever keeps score from `/api/operators`, which adds observers: accounts that never play but may count (Schmetterpause ADR-0023). Against a Schmetterpause without that route, the players are offered instead |
+| `CHECKIN_TIMEOUT` | `5m` | How long a lone check-in holds its half (ADR-0010). Check-in is on only with `SCHMETTERPAUSE_URL` |
+| `CHECKIN_START` | `serve_rally` | The phase a checked-in match starts in: `serve_rally` or `warmup`. The first serve is always played for |
+| `CHECKIN_CHANGE_ENDS` | `false` | `true` has the players of a checked-in match change ends |
 | `SCHMETTERPAUSE_REPORT_DELAY` | `15s` | Grace period between a won match and its report (ADR-0007). An undo in it withholds the report, and the result that holds when it is over is the one sent. `0` reports at once; a value that is not a duration stops the start |
 
 State is in memory and deliberately so — a match lasts twenty minutes and the
@@ -206,6 +209,57 @@ from yesterday should not score into today's match.
 A malformed event rejects the whole batch with a 400 and applies none of it —
 half a burst on the scoreboard is worse than none of it, and the hub retries the
 whole request anyway.
+
+### Check-in per half
+
+With `SCHMETTERPAUSE_URL` set, players can claim the halves of the table with a
+key fob instead of being picked on the page
+([ADR-0010](docs/adr/0010-check-in-per-table-half.md)). The hub reads the fob,
+waits for the next press of a button to learn the half, and sends both once,
+under the same `source` + `event_id` contract as a point
+(zaehlwerk-firmware#63):
+
+```bash
+curl -s -X POST localhost:8080/ingest/checkin \
+  -H 'content-type: application/json' \
+  -d '{"source": "hub-1", "event_id": 41, "half": "left", "uid": "04:A3:1B:22"}'
+# {"outcome":"claimed","half":"left","name":"Anna","left":"Anna"}
+
+curl -s localhost:8080/checkin       # who holds which half, by name
+```
+
+zaehlwerk asks Schmetterpause who the fob is
+(`POST /api/identities/rfid/resolve`, the same token as `/api/results`) and
+keeps the player and the check-in it got back against the half. The UID is
+hex, 4, 7 or 10 bytes, with `:`, `-`, a space or nothing between them. It is
+passed on once and kept nowhere: not in a log line, not in an answer, not in
+memory.
+
+| `outcome` | Status | Meaning |
+| --- | --- | --- |
+| `claimed` | 200 | the half was free and is now this player's |
+| `unchanged` | 200 | the same player at the same half again; the newer check-in is kept and the timeout starts again |
+| `replaced` | 200 | another player held this half and no longer does |
+| `moved` | 200 | this player held the other half and now holds this one |
+| `started` | 200 | the second half: the match is created, `match_id` names it |
+| `duplicate` | 200 | an `event_id` older than the last from this source; nothing changed |
+| `unknown` | 404 | Schmetterpause does not know the fob; nothing changed |
+| `refused` | 409 | a match is running; nothing changed and Schmetterpause was not asked |
+| `unavailable` | 503 | Schmetterpause did not answer, or has no fob route; the half stays as it was |
+
+A retry with the same `event_id` gets the first answer again, with
+`"repeated": true`, and Schmetterpause is not asked twice: every resolve is a
+new check-in over there. Without `SCHMETTERPAUSE_URL` the route answers 503,
+`GET /checkin` says `"enabled": false`, and nothing else changes.
+
+Both halves claimed creates the match: the left half is `a` and home, the right
+`b` and away. It starts in `CHECKIN_START`, and its result goes to
+Schmetterpause with `home_checkin_id` and `away_checkin_id` and no
+`operator_id` (Schmetterpause ADR-0024). A 409 for it means a check-in already
+carries the result, which is the answer to a retry of one that arrived, and is
+recorded as delivered. A lone claim is released after `CHECKIN_TIMEOUT`, and a
+restart forgets every claim. A match started on the page still names an
+operator, as before.
 
 ## Live score
 

@@ -13,6 +13,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/stuttgart-things/zaehlwerk/internal/checkin"
 	"github.com/stuttgart-things/zaehlwerk/internal/live"
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
@@ -44,6 +45,10 @@ type Server struct {
 	setOpener scorer.SetOpener
 
 	build BuildInfo
+
+	// desk is nil when no Schmetterpause is configured: a fob cannot be
+	// resolved without it, and check-in answers 503 (ADR-0010).
+	desk *checkin.Desk
 }
 
 // BuildInfo is what the binary can say about itself, reported by /healthz so a
@@ -124,6 +129,11 @@ func WithSetOpener(o scorer.SetOpener) Option {
 	return func(s *Server) { s.setOpener = o }
 }
 
+// WithCheckin turns on check-in per table half through d (ADR-0010).
+func WithCheckin(d *checkin.Desk) Option {
+	return func(s *Server) { s.desk = d }
+}
+
 // WithHeartbeat sets how often an idle stream writes a keepalive comment.
 func WithHeartbeat(d time.Duration) Option {
 	return func(s *Server) {
@@ -163,6 +173,8 @@ func New(registry *match.Registry, opts ...Option) *Server {
 	s.mux.HandleFunc("POST /ingest/button", s.ingestButton)
 	s.mux.HandleFunc("POST /ingest/piezo", s.ingestPiezo)
 	s.mux.HandleFunc("POST /ingest/web", s.ingestWeb)
+	s.mux.HandleFunc("POST /ingest/checkin", s.ingestCheckin)
+	s.mux.HandleFunc("GET /checkin", s.checkinStatus)
 
 	return s
 }
