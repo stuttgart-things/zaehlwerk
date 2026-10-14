@@ -233,8 +233,8 @@ func TestAnIdleStreamIsKeptAlive(t *testing.T) {
 // it back.
 func TestTheWinningPointBringsTheResultCardOnTheStream(t *testing.T) {
 	f := newStreamFixture(t)
-	m, err := f.registry.CreateFor(scorer.Config{BestOf: 1, PointsPerSet: 11},
-		match.Handover{HomeID: "id-anna", AwayID: "id-bernd", OperatorID: "id-cem"})
+	m, _, err := f.registry.CreateFor(scorer.Config{BestOf: 1, PointsPerSet: 11},
+		match.Setup{Handover: match.Handover{HomeID: "id-anna", AwayID: "id-bernd", OperatorID: "id-cem"}})
 	require.NoError(t, err)
 	f.match = m
 

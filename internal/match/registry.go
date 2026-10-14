@@ -29,7 +29,27 @@ var (
 	// fault, not the caller's, and the only error here that is not a bad
 	// request.
 	ErrIDGeneration = errors.New("could not generate a match id")
+	// ErrDemoReported is a demo asked for with a player or operator id. A
+	// demo is never reported (ADR-0008), so an id on one is a mistake rather
+	// than something to drop quietly.
+	ErrDemoReported = errors.New("a demo is never reported, so it takes no player or operator id")
+	// ErrTableTaken is a demo asked for while a real match is running. The
+	// real match has the table (ADR-0008); the error is a *TableTakenError,
+	// which names it.
+	ErrTableTaken = errors.New("a real match is running, a demo waits until the table is free")
 )
+
+// TableTakenError is [ErrTableTaken] with the match that holds the table, so
+// a caller can answer with where that match stands.
+type TableTakenError struct {
+	Running *Match
+}
+
+func (e *TableTakenError) Error() string {
+	return fmt.Sprintf("%v: match %s", ErrTableTaken, e.Running.ID)
+}
+
+func (e *TableTakenError) Unwrap() error { return ErrTableTaken }
 
 // Handover is who a finished match belongs to over in Schmetterpause.
 //
@@ -52,6 +72,21 @@ type Handover struct {
 // Wanted reports whether this match is meant to be reported.
 func (h Handover) Wanted() bool {
 	return h.HomeID != "" && h.AwayID != "" && h.OperatorID != ""
+}
+
+// empty reports whether no id at all is set, which is what a demo needs: one
+// id alone is not a handover, but it is somebody's id on a match that is not.
+func (h Handover) empty() bool {
+	return h == Handover{}
+}
+
+// Setup is what a match is created with besides its rules: who it belongs to,
+// and whether it is a demo.
+type Setup struct {
+	Handover Handover
+	// Demo marks a match that is no result and gives way to one, as
+	// zaehlwerk-pong's are (ADR-0008).
+	Demo bool
 }
 
 // Report is what became of the handover.
@@ -92,6 +127,10 @@ type Match struct {
 	// Handover is fixed when the match is created and never changes after.
 	// Read without the lock for that reason.
 	Handover Handover
+	// Demo is fixed the same way, and read without the lock for the same
+	// reason. It lives here and not in the scorer: whether a match is a demo
+	// has no bearing on set logic (invariant 5).
+	Demo bool
 
 	mu      sync.Mutex
 	endedAt time.Time
@@ -251,27 +290,56 @@ func NewRegistry(opts ...Option) *Registry {
 	return r
 }
 
-// Create starts a match. The id in cfg is ignored and replaced by a fresh one.
+// Create starts a real match nobody reports. The id in cfg is ignored and
+// replaced by a fresh one. Demos it ends are not handed back; a caller that
+// announces them uses CreateFor.
 func (r *Registry) Create(cfg scorer.Config) (*Match, error) {
-	return r.CreateFor(cfg, Handover{})
+	m, _, err := r.CreateFor(cfg, Setup{})
+	return m, err
 }
 
-// CreateFor is Create with the players named as Schmetterpause knows them, so
-// the finished result can belong to somebody. An empty Handover is exactly
-// Create: a match nobody reports.
-func (r *Registry) CreateFor(cfg scorer.Config, handover Handover) (*Match, error) {
+// CreateFor is Create with a setup: the players named as Schmetterpause knows
+// them, so the finished result can belong to somebody, or the match marked as
+// a demo. An empty Setup is exactly Create.
+//
+// A real match always wins the table (ADR-0008), and both halves of that are
+// decided here, under the registry lock, because a client that reads the table
+// and then acts always leaves a window between the two:
+//
+//   - a real match ends every running demo, and hands them back as ended, so
+//     the caller can announce them and let go of their panel;
+//   - a demo is refused with a *TableTakenError while a real match is running.
+//
+// So a running demo and a running real match never exist at once, and Current
+// stays the newest running match.
+func (r *Registry) CreateFor(cfg scorer.Config, setup Setup) (*Match, []*Match, error) {
+	if setup.Demo && !setup.Handover.empty() {
+		return nil, nil, ErrDemoReported
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// Running takes each match's scorer lock while the registry lock is held:
+	// the order evict already takes them in, and the only order allowed (see
+	// Registry).
+	if setup.Demo {
+		for _, m := range r.order {
+			if !m.Demo && m.Running() {
+				return nil, nil, &TableTakenError{Running: m}
+			}
+		}
+	}
+
 	id, err := r.freeID()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	cfg.MatchID = id
 
 	s, err := scorer.New(cfg)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// The match is built whole before any observer is attached, and no
@@ -279,16 +347,33 @@ func (r *Registry) CreateFor(cfg scorer.Config, handover Handover) (*Match, erro
 	// Apply and Undo, never from New, and nobody holds it until CreateFor
 	// returns or the registry lock is let go. So an observer handed m never
 	// sees half of it.
-	m := &Match{ID: id, Scorer: s, Created: time.Now(), Handover: handover}
+	now := time.Now()
+	m := &Match{ID: id, Scorer: s, Created: now, Handover: setup.Handover, Demo: setup.Demo}
 	for _, build := range r.observers {
 		s.Observe(build(m))
+	}
+
+	// Ended before the new match is added, so there is no moment in which the
+	// demo is the newer of two running matches. End takes only the match's
+	// own mutex and is no scorer transition: no observer runs, so nothing can
+	// reach back into the registry from under this lock (#102). What an end
+	// otherwise brings with it -- ended on the hub, the panel let go of -- is
+	// the caller's, once this lock is free.
+	var ended []*Match
+	if !setup.Demo {
+		for _, d := range r.order {
+			if d.Demo && d.Running() {
+				d.End(now)
+				ended = append(ended, d)
+			}
+		}
 	}
 
 	r.byID[id] = m
 	r.order = append(r.order, m)
 	r.evict()
 
-	return m, nil
+	return m, ended, nil
 }
 
 // Get returns the match with this id.

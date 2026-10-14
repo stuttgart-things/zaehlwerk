@@ -161,7 +161,7 @@ func (s *Server) StartMatch(cfg scorer.Config, handover match.Handover) (*match.
 	if cfg.SetOpener == "" {
 		cfg.SetOpener = s.setOpener
 	}
-	m, err := s.registry.CreateFor(cfg, handover)
+	m, _, err := s.registry.CreateFor(cfg, match.Setup{Handover: handover})
 	if err != nil {
 		return nil, err
 	}

@@ -69,8 +69,8 @@ func TestAWonMatchIsReported(t *testing.T) {
 		_, _ = w.Write([]byte(`{"match_id":"sp-1","status":"pending"}`))
 	})
 
-	m, err := registry.CreateFor(scorer.Config{BestOf: 3, PointsPerSet: 11},
-		match.Handover{HomeID: "h", AwayID: "a", OperatorID: "o"})
+	m, _, err := registry.CreateFor(scorer.Config{BestOf: 3, PointsPerSet: 11},
+		match.Setup{Handover: match.Handover{HomeID: "h", AwayID: "a", OperatorID: "o"}})
 	require.NoError(t, err)
 
 	playOut(t, m)
@@ -99,8 +99,8 @@ func TestTheRulesReportedAreTheOnesPlayed(t *testing.T) {
 		_, _ = w.Write([]byte(`{"match_id":"sp-2","status":"pending"}`))
 	})
 
-	m, err := registry.CreateFor(scorer.Config{},
-		match.Handover{HomeID: "h", AwayID: "a", OperatorID: "o"})
+	m, _, err := registry.CreateFor(scorer.Config{},
+		match.Setup{Handover: match.Handover{HomeID: "h", AwayID: "a", OperatorID: "o"}})
 	require.NoError(t, err)
 
 	// Best of five, so three sets rather than two.
@@ -157,8 +157,8 @@ func TestAFailedHandoverIsRecordedAndRetryable(t *testing.T) {
 		_, _ = w.Write([]byte(`{"match_id":"sp-3","status":"pending"}`))
 	})
 
-	m, err := registry.CreateFor(scorer.Config{BestOf: 3, PointsPerSet: 11},
-		match.Handover{HomeID: "h", AwayID: "a", OperatorID: "o"})
+	m, _, err := registry.CreateFor(scorer.Config{BestOf: 3, PointsPerSet: 11},
+		match.Setup{Handover: match.Handover{HomeID: "h", AwayID: "a", OperatorID: "o"}})
 	require.NoError(t, err)
 
 	playOut(t, m)
@@ -242,8 +242,8 @@ func graceHarness(t *testing.T, delay time.Duration) (*match.Registry, *Reporter
 // bestOfOne starts a reported best of one.
 func bestOfOne(t *testing.T, registry *match.Registry) *match.Match {
 	t.Helper()
-	m, err := registry.CreateFor(scorer.Config{BestOf: 1, PointsPerSet: 11},
-		match.Handover{HomeID: "h", AwayID: "a", OperatorID: "o"})
+	m, _, err := registry.CreateFor(scorer.Config{BestOf: 1, PointsPerSet: 11},
+		match.Setup{Handover: match.Handover{HomeID: "h", AwayID: "a", OperatorID: "o"}})
 	require.NoError(t, err)
 	return m
 }
