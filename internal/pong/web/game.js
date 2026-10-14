@@ -14,6 +14,9 @@
 // On two devices (ADR-0009) the host's page is this game as it always was,
 // with player b's paddle coming from the guest. The guest's page decides
 // nothing: it sends its paddle and its key, and draws the host's frames.
+//
+// At the ~700-line limit of ADR-0009: the next change to the two-device part
+// first moves that part into web/remote.js, served like check.js and tab.js.
 (() => {
   'use strict';
   const root = document.getElementById('pong');
@@ -67,6 +70,9 @@
   // device gone. The guest draws the
   // host's table 50 ms behind to have two frames to draw between, and its
   // contact is judged against the tick it saw, at most 120 ms late.
+  // JUDGE_MS is tried only by scripts (#107), not yet by two phones in the
+  // office WLAN. If the guest loses balls it saw itself hit, this is the one
+  // number to change (ADR-0009, Open questions).
   const SEND_MS = 33, REST_MS = 500, SILENCE_MS = 2000, INTERP_MS = 50, JUDGE_MS = 120;
 
   let view = null, st = null;

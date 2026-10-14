@@ -372,7 +372,14 @@ decision.
 - **The 120 ms window** is today's 60 px out-margin at the start speed, kept
   for every speed, and rests on an assumed WLAN. Whether it is enough on phones in power-saving mode
   needs a measurement at the first trial. The constant is the one place to
-  change.
+  change. As of #111 it has only been tried by scripts: two headless
+  browsers with 0, 30, 60 and 100 ms of added latency (#107). They agree with
+  zaehlwerk at every rally, but a script cannot tell whether a rally feels
+  fair. The first game on two phones in the office WLAN still decides it.
+- **`game.js` is at the limit.** After #111 it has 692 lines, and just under
+  700 with the notes that point here, against the limit of about 700 above.
+  The next change to the two-device part starts by moving that part into
+  `web/remote.js`.
 - **A copied guest tab.** Solved in #97. Duplicating a tab copies its
   `sessionStorage`, so the copied tab had the same guest token, and both tabs
   moved the paddle, with the last sample winning. Now a tab with a token asks
