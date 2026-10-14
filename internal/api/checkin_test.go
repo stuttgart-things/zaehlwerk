@@ -51,7 +51,8 @@ func (s *spStub) handler(t *testing.T) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/players":
-			_, _ = w.Write([]byte(`[{"id":"anna","display_name":"Anna"},{"id":"bernd","display_name":"Bernd"}]`))
+			_, _ = w.Write([]byte(`[{"id":"anna","display_name":"Anna"},{"id":"bernd","display_name":"Bernd"},` +
+				`{"id":"` + claraID + `","display_name":"Clara"},{"id":"` + doraID + `","display_name":"Dora"}]`))
 		case "/api/identities/rfid/resolve":
 			var body struct{ UID, Half string }
 			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))

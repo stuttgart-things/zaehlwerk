@@ -46,13 +46,18 @@ type Server struct {
 
 	build BuildInfo
 
-	// desk is nil when no Schmetterpause or no CHECKIN_TOKEN is configured: a
-	// fob cannot be resolved without the one, and must not be taken from
-	// anybody without the other. Check-in then answers 503 (ADR-0010).
+	// desk is nil when no Schmetterpause is configured, or neither way in
+	// is: a fob cannot be resolved without it, and a match from two claims
+	// would have nobody to report to. Check-in then answers 503 (ADR-0010).
 	desk *checkin.Desk
-	// checkinToken is what the hub sends as a bearer on a check-in. It is
-	// never empty while desk is set.
+	// checkinToken is what the hub sends as a bearer on a fob check-in.
+	// Empty, /ingest/checkin answers 503 whatever else is on: a check-in
+	// names a player, so it is taken from nobody without it (#113).
 	checkinToken string
+	// claimToken is what Schmetterpause sends as a bearer when it claims a
+	// half for a phone check-in, its SCHMETTERPAUSE_TOKEN. Empty,
+	// /checkin/claim answers 503 (ADR-0011).
+	claimToken string
 }
 
 // BuildInfo is what the binary can say about itself, reported by /healthz so a
@@ -133,15 +138,29 @@ func WithSetOpener(o scorer.SetOpener) Option {
 	return func(s *Server) { s.setOpener = o }
 }
 
-// WithCheckin turns on check-in per table half through d, for a hub that
-// sends token as a bearer (ADR-0010, #113). An empty token leaves check-in off:
-// a check-in names a player, so there is no way to take one from anybody.
+// WithCheckin turns on fob check-in per table half through d, for a hub that
+// sends token as a bearer (ADR-0010, #113). An empty token leaves the fob path
+// off: a check-in names a player, so there is no way to take one from
+// anybody.
 func WithCheckin(d *checkin.Desk, token string) Option {
 	return func(s *Server) {
-		if token == "" {
+		if d == nil || token == "" {
 			return
 		}
 		s.desk, s.checkinToken = d, token
+	}
+}
+
+// WithPhoneCheckin turns on POST /checkin/claim through d, for Schmetterpause
+// claiming a half for a phone check-in with token as a bearer (ADR-0011). An
+// empty token leaves the phone path off, for the same reason as the hub's.
+// Given the same desk as [WithCheckin], both paths claim the same halves.
+func WithPhoneCheckin(d *checkin.Desk, token string) Option {
+	return func(s *Server) {
+		if d == nil || token == "" {
+			return
+		}
+		s.desk, s.claimToken = d, token
 	}
 }
 
@@ -185,6 +204,7 @@ func New(registry *match.Registry, opts ...Option) *Server {
 	s.mux.HandleFunc("POST /ingest/piezo", s.ingestPiezo)
 	s.mux.HandleFunc("POST /ingest/web", s.ingestWeb)
 	s.mux.HandleFunc("POST /ingest/checkin", s.ingestCheckin)
+	s.mux.HandleFunc("POST /checkin/claim", s.claimCheckin)
 	s.mux.HandleFunc("GET /checkin", s.checkinStatus)
 
 	return s
