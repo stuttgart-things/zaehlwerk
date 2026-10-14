@@ -60,7 +60,8 @@ go run ./cmd/zaehlwerk-api
 | `CATCHER_IDLE_TIMEOUT` | `20m` | Give the panel back after this long without a point |
 | `SCHMETTERPAUSE_URL` | — | Schmetterpause base URL. Unset, a match is scored and shown and reported nowhere |
 | `SCHMETTERPAUSE_TOKEN` | — | Bearer token for its `/api`; without one configured there, the routes do not exist. The scoring page names both players from `/api/players` and whoever keeps score from `/api/operators`, which adds observers: accounts that never play but may count (Schmetterpause ADR-0023). Against a Schmetterpause without that route, the players are offered instead |
-| `CHECKIN_TIMEOUT` | `5m` | How long a lone check-in holds its half (ADR-0010). Check-in is on only with `SCHMETTERPAUSE_URL` |
+| `CHECKIN_TOKEN` | — | Bearer token the hub sends on `POST /ingest/checkin`. Unset, check-in is off: a check-in names a player, so the route takes none from anybody without it (#113) |
+| `CHECKIN_TIMEOUT` | `5m` | How long a lone check-in holds its half (ADR-0010). Check-in is on only with `SCHMETTERPAUSE_URL` and `CHECKIN_TOKEN` |
 | `CHECKIN_START` | `serve_rally` | The phase a checked-in match starts in: `serve_rally` or `warmup`. The first serve is always played for |
 | `CHECKIN_CHANGE_ENDS` | `false` | `true` has the players of a checked-in match change ends |
 | `SCHMETTERPAUSE_REPORT_DELAY` | `15s` | Grace period between a won match and its report (ADR-0007). An undo in it withholds the report, and the result that holds when it is over is the one sent. `0` reports at once; a value that is not a duration stops the start |
@@ -212,16 +213,17 @@ whole request anyway.
 
 ### Check-in per half
 
-With `SCHMETTERPAUSE_URL` set, players can claim the halves of the table with a
-key fob instead of being picked on the page
+With `SCHMETTERPAUSE_URL` and `CHECKIN_TOKEN` set, players can claim the halves
+of the table with a key fob instead of being picked on the page
 ([ADR-0010](docs/adr/0010-check-in-per-table-half.md)). The hub reads the fob,
 waits for the next press of a button to learn the half, and sends both once,
 under the same `source` + `event_id` contract as a point
-(zaehlwerk-firmware#63):
+(zaehlwerk-firmware#63), and with `CHECKIN_TOKEN` as a bearer
+(zaehlwerk-firmware#65):
 
 ```bash
 curl -s -X POST localhost:8080/ingest/checkin \
-  -H 'content-type: application/json' \
+  -H 'content-type: application/json' -H "authorization: Bearer $CHECKIN_TOKEN" \
   -d '{"source": "hub-1", "event_id": 41, "half": "left", "uid": "04:A3:1B:22"}'
 # {"outcome":"claimed","half":"left","name":"Anna","left":"Anna"}
 
@@ -249,8 +251,12 @@ memory.
 
 A retry with the same `event_id` gets the first answer again, with
 `"repeated": true`, and Schmetterpause is not asked twice: every resolve is a
-new check-in over there. Without `SCHMETTERPAUSE_URL` the route answers 503,
-`GET /checkin` says `"enabled": false`, and nothing else changes.
+new check-in over there. Without `SCHMETTERPAUSE_URL` or `CHECKIN_TOKEN` the
+route answers 503, `GET /checkin` says `"enabled": false`, and nothing else
+changes. A check-in without the token, or with another, is a 401 before its
+body is read: a fob UID is no secret, a phone reads one in a second, and a
+check-in names a player, or during "Fob koppeln" pairs a UID with one. Points
+need no token, because a point names nobody.
 
 Both halves claimed creates the match: the left half is `a` and home, the right
 `b` and away. It starts in `CHECKIN_START`, and its result goes to
@@ -925,6 +931,7 @@ accident cannot be resumed.
 | `BUTTONS_BOTH_WINDOW` | `400ms` | where the page starts |
 | `BUTTONS_DEVICE` | `button` | `display` starts with a screen per half instead; the page can switch either way |
 | `PIEZO_CONTROL_URL` | — | a piezo board's control endpoint (its `PIEZO_CONTROL_ADDR`). Unset, the page has no piezo section |
+| `CHECKIN_TOKEN` | — | what the hub sends as a bearer with a check-in; zaehlwerk's `CHECKIN_TOKEN`. `task chain:run` and `task chain:buttons` share one |
 
 It also ships as `ghcr.io/stuttgart-things/zaehlwerk-buttons`, built from
 `tools/chain-mock/cmd/buttons` with the same tags as the board. It serves
