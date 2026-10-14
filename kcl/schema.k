@@ -127,6 +127,7 @@ schema Zaehlwerk:
     vaultKeyPitcherToken: str = "omni-pitcher-token"
     vaultKeySchmetterpauseToken: str = "schmetterpause-token"
     vaultKeyRedisPassword: str = "redis-password"
+
     # checkinEnabled adds CHECKIN_TOKEN to the ExternalSecret and nothing else
     # (#113). Off, the ExternalSecret renders as it did before, so a Vault
     # entry without the key never leaves the Secret unresolved. deploy.k reads
@@ -186,4 +187,3 @@ schema Zaehlwerk:
         not pongHttpRouteEnabled or gatewayName != "", "pongHttpRouteEnabled needs a gatewayName"
         pongBestOf >= 1 and pongBestOf % 2 == 1, "pongBestOf is an odd number, 1 or more"
         not pongEnabled or pongImage != "" or "@" not in image, "image is pinned by digest, and the game's image has a digest of its own: set pongImage"
-
