@@ -63,15 +63,30 @@ func (e *TableTakenError) Unwrap() error { return ErrTableTaken }
 // names: an id is not something set logic can have an opinion about. Nothing is
 // written to disk, nothing survives a restart, and no player is known here for
 // a second longer than the match lasts.
+//
+// It carries one of two proofs that the two players played: OperatorID, the
+// person who kept score on the page (ADR-0004), or the two check-ins the
+// players made at the table themselves (ADR-0010). The check-in ids are what
+// Schmetterpause handed out when it resolved each fob, passed back unchanged.
 type Handover struct {
 	HomeID     string
 	AwayID     string
 	OperatorID string
+	// HomeCheckinID and AwayCheckinID are the check-ins at the left and the
+	// right half, so home's is a's and away's is b's (ADR-0005).
+	HomeCheckinID string
+	AwayCheckinID string
 }
 
 // Wanted reports whether this match is meant to be reported.
 func (h Handover) Wanted() bool {
-	return h.HomeID != "" && h.AwayID != "" && h.OperatorID != ""
+	return h.HomeID != "" && h.AwayID != "" && (h.OperatorID != "" || h.CheckedIn())
+}
+
+// CheckedIn reports whether both players checked in, so the result goes
+// without an operator.
+func (h Handover) CheckedIn() bool {
+	return h.HomeCheckinID != "" && h.AwayCheckinID != ""
 }
 
 // empty reports whether no id at all is set, which is what a demo needs: one
@@ -409,6 +424,24 @@ func (r *Registry) Current() (*Match, error) {
 		}
 	}
 	return nil, fmt.Errorf("%w: no match is running", ErrNotFound)
+}
+
+// Occupied returns the newest real match that is still running, if there is
+// one. A demo does not occupy the table: a real match takes it from a demo
+// (ADR-0008), and a check-in is how a real match starts (ADR-0010).
+func (r *Registry) Occupied() (*Match, bool) {
+	r.mu.Lock()
+	candidates := slices.Clone(r.order)
+	r.mu.Unlock()
+
+	// Running() reaches into the scorer, so it is called without the registry
+	// lock held, as in Current.
+	for i := len(candidates) - 1; i >= 0; i-- {
+		if m := candidates[i]; !m.Demo && m.Running() {
+			return m, true
+		}
+	}
+	return nil, false
 }
 
 // freeID draws an id that is not in use. Must be called with the lock held.

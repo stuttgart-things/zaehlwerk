@@ -13,7 +13,8 @@ concurrency:
 jobs:
   # piezo -> zaehlwerk -> Schmetterpause through the real binaries, with the
   # fake Schmetterpause at the far end: the result arrives, a resent event is
-  # a duplicate, and a refused result gets through on the page's retry. The
+  # a duplicate, a refused result gets through on the page's retry, and two
+  # fobs start a match reported without an operator. The
   # script is what `task chain:e2e` runs locally, so a red run here reproduces
   # on a laptop with one command.
   chain:

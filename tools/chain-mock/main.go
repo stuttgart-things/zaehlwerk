@@ -2,7 +2,7 @@
 // the middle of, so piezo → zaehlwerk → Schmetterpause runs on a laptop with no
 // board and no Schmetterpause (issue #55).
 //
-//	chain-mock schmetterpause   the three routes zaehlwerk calls, in memory
+//	chain-mock schmetterpause   the routes zaehlwerk calls, in memory
 //	chain-mock piezo            a board that joins the running match and scores
 //	chain-mock buttons          two buttons and their hub, pressed on a page
 //

@@ -333,7 +333,8 @@ tasks:
 
   chain:buttons:
     # Joins whatever match is running, like the hardware: start one on the
-    # page first. The page is where the buttons are pressed and where every
+    # page first, or hold a fob and press a half on each side to check in
+    # (needs task chain:run, which resolves fobs through the fake). The page is where the buttons are pressed and where every
     # fault the radio and the hub can have is switched on.
     desc: 'Two buttons and their hub, pressed in a browser. PIEZO=1 also controls task chain:piezo'
     env:

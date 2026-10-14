@@ -590,3 +590,33 @@ func TestCreatingARealMatchWhileADemoIsWonDoesNotDeadlock(t *testing.T) {
 	}
 	require.Empty(t, ended, "the demo was won before it was asked, so there was nothing to end")
 }
+
+func TestADemoDoesNotOccupyTheTableAndARealMatchDoes(t *testing.T) {
+	r := newTestRegistry(t)
+
+	_, ok := r.Occupied()
+	require.False(t, ok, "an empty table is not occupied")
+
+	_, _, err := r.CreateFor(scorer.Config{}, Setup{Demo: true})
+	require.NoError(t, err)
+	_, ok = r.Occupied()
+	require.False(t, ok, "a demo gives way, so it does not occupy the table")
+
+	played, err := r.Create(scorer.Config{})
+	require.NoError(t, err)
+	got, ok := r.Occupied()
+	require.True(t, ok)
+	require.Equal(t, played.ID, got.ID)
+
+	played.End(time.Now())
+	_, ok = r.Occupied()
+	require.False(t, ok, "an ended match frees the table")
+}
+
+func TestAHandoverIsWantedWithAnOperatorOrWithBothCheckins(t *testing.T) {
+	require.True(t, Handover{HomeID: "h", AwayID: "a", OperatorID: "o"}.Wanted())
+	require.True(t, Handover{HomeID: "h", AwayID: "a", HomeCheckinID: "c1", AwayCheckinID: "c2"}.Wanted())
+	require.False(t, Handover{HomeID: "h", AwayID: "a", HomeCheckinID: "c1"}.Wanted(),
+		"one check-in is no proof, and schmetterpause refuses it")
+	require.False(t, Handover{HomeID: "h", AwayID: "a"}.Wanted())
+}

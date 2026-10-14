@@ -17,6 +17,7 @@ import (
 	homerun "github.com/stuttgart-things/homerun-library/v4"
 
 	"github.com/stuttgart-things/zaehlwerk/internal/api"
+	"github.com/stuttgart-things/zaehlwerk/internal/checkin"
 	"github.com/stuttgart-things/zaehlwerk/internal/live"
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/panel"
@@ -129,6 +130,12 @@ func run() error {
 		Version: version, Commit: commit, Date: date,
 	}))
 
+	// Check-in needs Schmetterpause to say who a fob is, and a match from two
+	// bare claims would have nobody to report to (ADR-0010).
+	if desk := checkinDesk(log, spClient); desk != nil {
+		apiOpts = append(apiOpts, api.WithCheckin(desk))
+	}
+
 	if spClient != nil {
 		uiOpts = append(uiOpts,
 			ui.WithSchmetterpause(spClient, reporter),
@@ -240,6 +247,51 @@ func schmetterpauseClient(log *slog.Logger) *schmetterpause.Client {
 		// Whether a token is set, never the token.
 		"authenticated", os.Getenv("SCHMETTERPAUSE_TOKEN") != "")
 	return client
+}
+
+// checkinDesk builds check-in per table half, or says it is off.
+//
+// CHECKIN_TIMEOUT is how long a lone claim holds its half. CHECKIN_START is
+// the phase a checked-in match starts in, serve_rally or warmup: nobody chose
+// a first server, so it is always played for. CHECKIN_CHANGE_ENDS=true has
+// the players change ends. A value that does not parse is ignored with a
+// warning, like the other optional settings; none of them can send anything
+// that cannot be taken back.
+func checkinDesk(log *slog.Logger, sp *schmetterpause.Client) *checkin.Desk {
+	if sp == nil {
+		log.Info("check-in disabled, a fob cannot be resolved without SCHMETTERPAUSE_URL")
+		return nil
+	}
+
+	opts := []checkin.Option{checkin.WithLogger(log)}
+	if raw := os.Getenv("CHECKIN_TIMEOUT"); raw != "" {
+		if d, err := time.ParseDuration(raw); err == nil && d > 0 {
+			opts = append(opts, checkin.WithTimeout(d))
+		} else {
+			log.Warn("ignoring CHECKIN_TIMEOUT, not a positive duration", "value", raw)
+		}
+	}
+
+	cfg := scorer.Config{Start: scorer.StartServeRally}
+	switch raw := scorer.Start(os.Getenv("CHECKIN_START")); raw {
+	case "":
+	case scorer.StartServeRally, scorer.StartWarmup:
+		cfg.Start = raw
+	default:
+		log.Warn("ignoring CHECKIN_START, must be serve_rally or warmup", "value", raw)
+	}
+	if raw := os.Getenv("CHECKIN_CHANGE_ENDS"); raw != "" {
+		if on, err := strconv.ParseBool(raw); err == nil {
+			cfg.ChangeEnds = on
+		} else {
+			log.Warn("ignoring CHECKIN_CHANGE_ENDS, not a boolean", "value", raw)
+		}
+	}
+	opts = append(opts, checkin.WithMatch(cfg))
+
+	desk := checkin.NewDesk(sp, opts...)
+	log.Info("check-in enabled", "timeout", desk.Timeout(), "start", cfg.Start, "change_ends", cfg.ChangeEnds)
+	return desk
 }
 
 // setOpener reads SET_OPENER: who serves first in the sets after the first.

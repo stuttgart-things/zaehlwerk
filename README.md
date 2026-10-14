@@ -60,6 +60,9 @@ go run ./cmd/zaehlwerk-api
 | `CATCHER_IDLE_TIMEOUT` | `20m` | Give the panel back after this long without a point |
 | `SCHMETTERPAUSE_URL` | — | Schmetterpause base URL. Unset, a match is scored and shown and reported nowhere |
 | `SCHMETTERPAUSE_TOKEN` | — | Bearer token for its `/api`; without one configured there, the routes do not exist. The scoring page names both players from `/api/players` and whoever keeps score from `/api/operators`, which adds observers: accounts that never play but may count (Schmetterpause ADR-0023). Against a Schmetterpause without that route, the players are offered instead |
+| `CHECKIN_TIMEOUT` | `5m` | How long a lone check-in holds its half (ADR-0010). Check-in is on only with `SCHMETTERPAUSE_URL` |
+| `CHECKIN_START` | `serve_rally` | The phase a checked-in match starts in: `serve_rally` or `warmup`. The first serve is always played for |
+| `CHECKIN_CHANGE_ENDS` | `false` | `true` has the players of a checked-in match change ends |
 | `SCHMETTERPAUSE_REPORT_DELAY` | `15s` | Grace period between a won match and its report (ADR-0007). An undo in it withholds the report, and the result that holds when it is over is the one sent. `0` reports at once; a value that is not a duration stops the start |
 
 State is in memory and deliberately so — a match lasts twenty minutes and the
@@ -206,6 +209,57 @@ from yesterday should not score into today's match.
 A malformed event rejects the whole batch with a 400 and applies none of it —
 half a burst on the scoreboard is worse than none of it, and the hub retries the
 whole request anyway.
+
+### Check-in per half
+
+With `SCHMETTERPAUSE_URL` set, players can claim the halves of the table with a
+key fob instead of being picked on the page
+([ADR-0010](docs/adr/0010-check-in-per-table-half.md)). The hub reads the fob,
+waits for the next press of a button to learn the half, and sends both once,
+under the same `source` + `event_id` contract as a point
+(zaehlwerk-firmware#63):
+
+```bash
+curl -s -X POST localhost:8080/ingest/checkin \
+  -H 'content-type: application/json' \
+  -d '{"source": "hub-1", "event_id": 41, "half": "left", "uid": "04:A3:1B:22"}'
+# {"outcome":"claimed","half":"left","name":"Anna","left":"Anna"}
+
+curl -s localhost:8080/checkin       # who holds which half, by name
+```
+
+zaehlwerk asks Schmetterpause who the fob is
+(`POST /api/identities/rfid/resolve`, the same token as `/api/results`) and
+keeps the player and the check-in it got back against the half. The UID is
+hex, 4, 7 or 10 bytes, with `:`, `-`, a space or nothing between them. It is
+passed on once and kept nowhere: not in a log line, not in an answer, not in
+memory.
+
+| `outcome` | Status | Meaning |
+| --- | --- | --- |
+| `claimed` | 200 | the half was free and is now this player's |
+| `unchanged` | 200 | the same player at the same half again; the newer check-in is kept and the timeout starts again |
+| `replaced` | 200 | another player held this half and no longer does |
+| `moved` | 200 | this player held the other half and now holds this one |
+| `started` | 200 | the second half: the match is created, `match_id` names it |
+| `duplicate` | 200 | an `event_id` older than the last from this source; nothing changed |
+| `unknown` | 404 | Schmetterpause does not know the fob; nothing changed |
+| `refused` | 409 | a match is running; nothing changed and Schmetterpause was not asked |
+| `unavailable` | 503 | Schmetterpause did not answer, or has no fob route; the half stays as it was |
+
+A retry with the same `event_id` gets the first answer again, with
+`"repeated": true`, and Schmetterpause is not asked twice: every resolve is a
+new check-in over there. Without `SCHMETTERPAUSE_URL` the route answers 503,
+`GET /checkin` says `"enabled": false`, and nothing else changes.
+
+Both halves claimed creates the match: the left half is `a` and home, the right
+`b` and away. It starts in `CHECKIN_START`, and its result goes to
+Schmetterpause with `home_checkin_id` and `away_checkin_id` and no
+`operator_id` (Schmetterpause ADR-0024). A 409 for it means a check-in already
+carries the result, which is the answer to a retry of one that arrived, and is
+recorded as delivered. A lone claim is released after `CHECKIN_TIMEOUT`, and a
+restart forgets every claim. A match started on the page still names an
+operator, as before.
 
 ## Live score
 
@@ -682,8 +736,8 @@ task chain:piezo            # a board plays a best of three to the end
 task chain:results          # what arrived at the other end
 ```
 
-**The fake Schmetterpause** answers `/api/players`, `/api/operators` and
-`/api/results` with the refusals the real one gives. Those are a 401 without the
+**The fake Schmetterpause** answers `/api/players`, `/api/operators`,
+`/api/results` and the fob resolve route with the refusals the real one gives. Those are a 401 without the
 token, and a 400 or 422 for a result it would not store: an operator who is
 playing, an observer as a side, an unknown id, a set won by one. Its roster is
 fixed: Anna, Bernd and Clara play, Olga only watches. A contract test drives it
@@ -691,6 +745,18 @@ with this service's own client, so it cannot quietly speak a different API.
 `task chain:mode MODE=refuse` or `MODE=hang` loses the next result on purpose,
 and the page then offers the retry that ADR-0004 promises. `MODE=accept` lets
 that retry through.
+
+It also answers `POST /api/identities/rfid/resolve` for check-in (ADR-0010).
+Anna's fob is `04:A3:1B:22`, Bernd's `04:5C:7E:91`, Clara's
+`04:11:22:33:44:55:66`; `DE:AD:BE:EF` belongs to nobody and is an empty 404.
+Every resolve records a check-in, and a result proven by two of them is checked
+the way the real one checks it: each belongs to its side, they are at different
+halves, neither is older than three hours, and a check-in that already carries
+a result is a 409. A result with an operator and check-ins is a 400.
+`curl -X POST localhost:8082/link -d player_id=<id>` opens the "Anhänger
+koppeln" window for a minute, and the next unknown fob becomes that player's.
+`GET /checkins` lists what was recorded. `SCHMETTERPAUSE_FOBS=off` leaves the
+route out, as the real one does without `SP_RFID_UID_KEY`.
 
 **The board** does what zaehlwerk-firmware#41 describes, and is meant as the
 reference for it:
@@ -736,6 +802,7 @@ the first rally and says so.
 | `SCHMETTERPAUSE_ADDR` | `:8082` | where the fake listens (`ZW_SCHMETTERPAUSE_PORT` in `.env`) |
 | `SCHMETTERPAUSE_TOKEN` | — | the fake: unset, `/api` does not exist, as with the real one. The board: the bearer token it sends |
 | `SCHMETTERPAUSE_MODE` | `accept` | `refuse`, `hang` |
+| `SCHMETTERPAUSE_FOBS` | — | `off`: the fake has no fob resolve route |
 | `SCHMETTERPAUSE_URL` | — | where the board reads its players from. Unset, it starts a match nobody reports |
 | `ZAEHLWERK_URL` | `http://localhost:8080` | |
 | `PIEZO_SOURCE` | `piezo-mock` | |
@@ -784,6 +851,22 @@ With the board next to it:
 task chain:piezo JOIN=1      # the board, with its control endpoint on :8085
 task chain:buttons PIEZO=1   # the page, with a piezo section
 ```
+
+The reader at the hub is on the page too (zaehlwerk-firmware#63). "hold Anna's
+fob", then a press on a half within five seconds, sends
+`POST /ingest/checkin` for that half instead of a point; two halves start the
+match. It needs a zaehlwerk that resolves fobs, so run it against the fake:
+
+```bash
+task chain:schmetterpause    # the fake, with its fobs
+task chain:run               # zaehlwerk with check-in on
+task chain:buttons           # then hold a fob and press
+```
+
+"a stranger's badge" is a card nobody owns. The log names fobs by their label
+and never writes a UID, as the firmware must not. "API response lost" sends
+the check-in twice with one event id, and the second answer is the first one
+repeated, with nothing resolved again.
 
 The piezo section pauses and resumes the board, and sets its pace and the
 shares of ambiguous, resent and taken-back rallies while it plays. Pausing
@@ -1297,6 +1380,7 @@ base whose removal can prune somebody else's panel.
 | [0007](docs/adr/0007-a-grace-period-before-reporting.md) | A grace period before reporting, so an undo can still take the match point back |
 | [0008](docs/adr/0008-demo-matches.md) | Demo matches: a real match always wins the table |
 | [0009](docs/adr/0009-pong-on-two-devices.md) | Pong on two devices: the host reports, the guest only moves a paddle |
+| [0010](docs/adr/0010-check-in-per-table-half.md) | Check-in per table half: a fob claims a half through Schmetterpause, two claims start a match reported without an operator |
 
 ## Related
 

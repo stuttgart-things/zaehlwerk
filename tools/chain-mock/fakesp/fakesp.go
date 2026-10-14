@@ -17,10 +17,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// Package fakesp is a Schmetterpause that answers the three routes zaehlwerk
-// calls, and nothing else.
+// Package fakesp is a Schmetterpause that answers the routes zaehlwerk calls,
+// and nothing else.
 //
-// The fake Schmetterpause answers the three routes this service calls, with the
+// The fake Schmetterpause answers the four routes this service calls, with the
 // refusals the real one gives, and nothing else. It is modelled on
 // schmetterpause internal/server/api.go: same status codes, same order of
 // checks, same {"error": …} body. The contract test drives it with the real
@@ -46,42 +46,54 @@ type Person struct {
 	DisplayName string    `json:"display_name"`
 	TTR         int       `json:"ttr"`
 	Observer    bool      `json:"-"`
+	// Fob is the UID of the player's key fob, written the one way
+	// checkin.NormaliseUID writes it. The real one keeps an HMAC of it
+	// (Schmetterpause ADR-0025); a fake has nothing to protect.
+	Fob string `json:"-"`
 }
 
 // DefaultRoster is fixed so the Taskfile can name ids without asking first.
 // Olga is the observer: offered as an operator, never as a side, which is the
-// distinction Schmetterpause ADR-0022 and ADR-0023 draw.
+// distinction Schmetterpause ADR-0022 and ADR-0023 draw. The fobs are fixed
+// for the same reason; DE:AD:BE:EF belongs to nobody.
 var DefaultRoster = []Person{
-	{ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), DisplayName: "Anna", TTR: 1520},
-	{ID: uuid.MustParse("22222222-2222-4222-8222-222222222222"), DisplayName: "Bernd", TTR: 1480},
-	{ID: uuid.MustParse("33333333-3333-4333-8333-333333333333"), DisplayName: "Clara", TTR: 1610},
+	{ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), DisplayName: "Anna", TTR: 1520, Fob: "04:A3:1B:22"},
+	{ID: uuid.MustParse("22222222-2222-4222-8222-222222222222"), DisplayName: "Bernd", TTR: 1480, Fob: "04:5C:7E:91"},
+	{ID: uuid.MustParse("33333333-3333-4333-8333-333333333333"), DisplayName: "Clara", TTR: 1610, Fob: "04:11:22:33:44:55:66"},
 	{ID: uuid.MustParse("44444444-4444-4444-8444-444444444444"), DisplayName: "Olga", Observer: true},
 }
 
 // resultBody is POST /api/results as Schmetterpause decodes it. The ids are
 // uuid.UUID there too, so an id that is not one is a 400 here as it is there.
 type resultBody struct {
-	HomeID      uuid.UUID  `json:"home_id"`
-	AwayID      uuid.UUID  `json:"away_id"`
-	OperatorID  uuid.UUID  `json:"operator_id"`
-	Sets        [][2]int   `json:"sets"`
-	BestOf      int        `json:"best_of"`
-	PointsToWin int        `json:"points_to_win"`
-	PlayedAt    *time.Time `json:"played_at,omitempty"`
+	HomeID        uuid.UUID  `json:"home_id"`
+	AwayID        uuid.UUID  `json:"away_id"`
+	OperatorID    uuid.UUID  `json:"operator_id"`
+	HomeCheckinID uuid.UUID  `json:"home_checkin_id"`
+	AwayCheckinID uuid.UUID  `json:"away_checkin_id"`
+	Sets          [][2]int   `json:"sets"`
+	BestOf        int        `json:"best_of"`
+	PointsToWin   int        `json:"points_to_win"`
+	PlayedAt      *time.Time `json:"played_at,omitempty"`
 }
 
 // Result is one accepted result, with the names resolved so that
 // GET /results reads as a match rather than as three uuids.
 type Result struct {
-	MatchID    uuid.UUID  `json:"match_id"`
-	Status     string     `json:"status"`
-	Home       string     `json:"home"`
-	Away       string     `json:"away"`
-	Operator   string     `json:"operator"`
-	Sets       [][2]int   `json:"sets"`
-	BestOf     int        `json:"best_of"`
-	PlayedAt   *time.Time `json:"played_at,omitempty"`
-	ReceivedAt time.Time  `json:"received_at"`
+	MatchID  uuid.UUID `json:"match_id"`
+	Status   string    `json:"status"`
+	Home     string    `json:"home"`
+	Away     string    `json:"away"`
+	Operator string    `json:"operator"`
+	// EnteredVia is "scoreboard" for a result with an operator and "checkin"
+	// for one proven by two check-ins, as the real one records it.
+	EnteredVia    string     `json:"entered_via"`
+	HomeCheckinID *uuid.UUID `json:"home_checkin_id,omitempty"`
+	AwayCheckinID *uuid.UUID `json:"away_checkin_id,omitempty"`
+	Sets          [][2]int   `json:"sets"`
+	BestOf        int        `json:"best_of"`
+	PlayedAt      *time.Time `json:"played_at,omitempty"`
+	ReceivedAt    time.Time  `json:"received_at"`
 }
 
 // Server is the fake. Roster may be replaced before it serves, for a test that
@@ -91,16 +103,29 @@ type Server struct {
 	Roster []Person
 	log    *slog.Logger
 
-	mu      sync.Mutex
-	mode    string
-	results []Result
+	// NoFobs leaves the resolve route out, as the real one does without
+	// SP_RFID_UID_KEY. Set before it serves.
+	NoFobs bool
+
+	mu       sync.Mutex
+	mode     string
+	results  []Result
+	checkins map[uuid.UUID]*Checkin
+	// window is the player whose "Anhänger koppeln" window is open, and
+	// until when. The next unknown fob becomes theirs.
+	window      uuid.UUID
+	windowUntil time.Time
+	now         func() time.Time
 }
 
 func New(token, mode string, log *slog.Logger) (*Server, error) {
 	if err := checkMode(mode); err != nil {
 		return nil, err
 	}
-	return &Server{token: token, Roster: DefaultRoster, mode: mode, log: log}, nil
+	roster := make([]Person, len(DefaultRoster))
+	copy(roster, DefaultRoster)
+	return &Server{token: token, Roster: roster, mode: mode, log: log,
+		checkins: make(map[uuid.UUID]*Checkin), now: time.Now}, nil
 }
 
 func checkMode(mode string) error {
@@ -121,6 +146,9 @@ func (f *Server) Handler() http.Handler {
 		mux.HandleFunc("GET /api/players", f.players)
 		mux.HandleFunc("GET /api/operators", f.operators)
 		mux.HandleFunc("POST /api/results", f.result)
+		if !f.NoFobs {
+			mux.HandleFunc("POST /api/identities/rfid/resolve", f.resolveFob)
+		}
 	}
 
 	// The fake's own routes, not Schmetterpause's. No token, because they
@@ -128,6 +156,8 @@ func (f *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /results", f.listResults)
 	mux.HandleFunc("GET /mode", f.getMode)
 	mux.HandleFunc("POST /mode", f.setMode)
+	mux.HandleFunc("GET /checkins", f.listCheckins)
+	mux.HandleFunc("POST /link", f.openWindow)
 	return mux
 }
 
@@ -211,6 +241,7 @@ func (f *Server) result(w http.ResponseWriter, r *http.Request) {
 		f.refuse(w, http.StatusBadRequest, msg)
 		return
 	}
+	checkedIn := body.HomeCheckinID != uuid.Nil || body.AwayCheckinID != uuid.Nil
 	switch {
 	case body.HomeID == uuid.Nil || body.AwayID == uuid.Nil:
 		f.refuse(w, http.StatusBadRequest, "home_id and away_id are required")
@@ -218,8 +249,20 @@ func (f *Server) result(w http.ResponseWriter, r *http.Request) {
 	case body.HomeID == body.AwayID:
 		f.refuse(w, http.StatusBadRequest, "home_id and away_id must differ")
 		return
+	case checkedIn && body.OperatorID != uuid.Nil:
+		f.refuse(w, http.StatusBadRequest, "send operator_id or home_checkin_id and away_checkin_id, not both")
+		return
+	case checkedIn && (body.HomeCheckinID == uuid.Nil || body.AwayCheckinID == uuid.Nil):
+		f.refuse(w, http.StatusBadRequest, "home_checkin_id and away_checkin_id are both required")
+		return
+	case checkedIn && body.HomeCheckinID == body.AwayCheckinID:
+		f.refuse(w, http.StatusBadRequest, "home_checkin_id and away_checkin_id must differ")
+		return
+	case checkedIn:
+		f.checkedInResult(w, body)
+		return
 	case body.OperatorID == uuid.Nil:
-		f.refuse(w, http.StatusBadRequest, "operator_id is required")
+		f.refuse(w, http.StatusBadRequest, "operator_id is required, or home_checkin_id and away_checkin_id")
 		return
 	case body.OperatorID == body.HomeID || body.OperatorID == body.AwayID:
 		f.refuse(w, http.StatusUnprocessableEntity, "the operator may not be one of the two players")
@@ -249,6 +292,7 @@ func (f *Server) result(w http.ResponseWriter, r *http.Request) {
 		Home:       names[body.HomeID].DisplayName,
 		Away:       names[body.AwayID].DisplayName,
 		Operator:   names[body.OperatorID].DisplayName,
+		EnteredVia: "scoreboard",
 		Sets:       body.Sets,
 		BestOf:     body.BestOf,
 		PlayedAt:   body.PlayedAt,
@@ -371,6 +415,11 @@ func RunFromEnv(ctx context.Context, log *slog.Logger) error {
 	}
 	if token == "" {
 		log.Warn("SCHMETTERPAUSE_TOKEN not set, so /api does not exist — as with the real one")
+	}
+	// As the real one without SP_RFID_UID_KEY: no resolve route at all.
+	if os.Getenv("SCHMETTERPAUSE_FOBS") == "off" {
+		fake.NoFobs = true
+		log.Info("no fob route, as without SP_RFID_UID_KEY")
 	}
 
 	srv := &http.Server{
