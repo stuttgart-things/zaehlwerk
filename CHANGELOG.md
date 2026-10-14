@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.18.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.17.0...v0.18.0) (2026-10-14)
+
+
+### Features
+
+* attract mode and the deployment of zaehlwerk-pong ([#94](https://github.com/stuttgart-things/zaehlwerk/issues/94)) ([ff5a9c8](https://github.com/stuttgart-things/zaehlwerk/commit/ff5a9c8f1a15d59349d174946049d8ee5c0b3d1c))
+* check in at a table half with a fob, two check-ins start a match reported without an operator ([#110](https://github.com/stuttgart-things/zaehlwerk/issues/110)) ([1195d28](https://github.com/stuttgart-things/zaehlwerk/commit/1195d2860a63bb70cddad83301de92fb8c6fc9c8))
+* demo matches, a real match always wins the table ([#105](https://github.com/stuttgart-things/zaehlwerk/issues/105)) ([378b769](https://github.com/stuttgart-things/zaehlwerk/commit/378b769d9378c0be799ac50ff773136f5a1c83bd))
+* Pong on two devices, the host reports and the guest only moves a paddle ([#107](https://github.com/stuttgart-things/zaehlwerk/issues/107)) ([2a70e1f](https://github.com/stuttgart-things/zaehlwerk/commit/2a70e1f52c5cf383ac2749e0b89604874fc51740))
+* Schmetterpause claims a half for a player who checked in by phone ([#118](https://github.com/stuttgart-things/zaehlwerk/issues/118)) ([b675937](https://github.com/stuttgart-things/zaehlwerk/commit/b67593750ea9eb534bf01ad61119bcca2d8d75ad))
+* zaehlwerk-pong button check ([#100](https://github.com/stuttgart-things/zaehlwerk/issues/100)) ([2c7ab62](https://github.com/stuttgart-things/zaehlwerk/commit/2c7ab62c255fca879d2bce9d667ce5e74bf6fdbd))
+
+
+### Bug Fixes
+
+* a check-in is taken only with the hub's CHECKIN_TOKEN ([#115](https://github.com/stuttgart-things/zaehlwerk/issues/115)) ([30db3cc](https://github.com/stuttgart-things/zaehlwerk/commit/30db3cc0264fb861a15e270551016e6c81739afb))
+* a demo gives way to anybody counting into it ([#96](https://github.com/stuttgart-things/zaehlwerk/issues/96)) ([4380769](https://github.com/stuttgart-things/zaehlwerk/commit/438076983bd54cc37f777e264281d7a7720e432e))
+* a duplicated tab watches instead of playing with the copied token ([#111](https://github.com/stuttgart-things/zaehlwerk/issues/111)) ([8636675](https://github.com/stuttgart-things/zaehlwerk/commit/8636675a15511021687d35a74e574936391013b0))
+* a game ends at once when zaehlwerk ends its match ([#109](https://github.com/stuttgart-things/zaehlwerk/issues/109)) ([154cf27](https://github.com/stuttgart-things/zaehlwerk/commit/154cf277d5d5b0ef00a85eda1d92b9bda2714507))
+* a real match started elsewhere drops the check-in claims ([#117](https://github.com/stuttgart-things/zaehlwerk/issues/117)) ([0bdd494](https://github.com/stuttgart-things/zaehlwerk/commit/0bdd4944e71792a8059db5a0746daeb633b58ab1))
+* observers are handed their match, the reporter no longer asks the registry ([#103](https://github.com/stuttgart-things/zaehlwerk/issues/103)) ([cbe0234](https://github.com/stuttgart-things/zaehlwerk/commit/cbe023479ab472727e4e14f5b08fb09f4c4bd666))
+* report after a grace period an undo can stop, and take the panel back ([#101](https://github.com/stuttgart-things/zaehlwerk/issues/101)) ([7f09a73](https://github.com/stuttgart-things/zaehlwerk/commit/7f09a73c8e07c00a565fc12647383017822bf917))
+
 ## [0.17.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.16.0...v0.17.0) (2026-10-13)
 
 
