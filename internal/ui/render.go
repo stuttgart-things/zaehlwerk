@@ -3,8 +3,11 @@ package ui
 import (
 	"bytes"
 	"embed"
+	"fmt"
 	"html/template"
+	"math"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
@@ -104,22 +107,49 @@ type logRow struct {
 }
 
 func (s *Server) matchView(m *match.Match, kind scorer.TransitionKind) *matchView {
-	v := s.stateView(m.Scorer.State(), m.Running(), kind)
-	// Only a match that was meant to be reported can have a handover to show.
-	// stateView cannot do this: it renders a state, and the handover belongs
-	// to the match around it.
-	if m.Handover.Wanted() {
-		r := m.Report()
-		v.Reported = &reportView{
-			Done:     r.Done,
-			Failed:   !r.Done && r.Err != nil,
-			Attempts: r.Attempts,
-		}
-		if r.Err != nil {
-			v.Reported.Reason = r.Err.Error()
-		}
+	st := m.Scorer.State()
+	v := s.stateView(st, m.Running(), kind)
+	v.Reported = s.reportView(m, st)
+	return v
+}
+
+// reportView is what became of the handover of m, against the score st. Nil
+// for a match that was not meant to be reported. stateView cannot do this: it
+// renders a state, and the handover belongs to the match around it.
+func (s *Server) reportView(m *match.Match, st scorer.State) *reportView {
+	if !m.Handover.Wanted() {
+		return nil
+	}
+	r := m.Report()
+	v := &reportView{
+		Done:     r.Done,
+		Failed:   !r.Done && r.Err != nil,
+		Attempts: r.Attempts,
+	}
+	if r.Err != nil {
+		v.Reason = r.Err.Error()
+	}
+	if !r.Due.IsZero() && !r.Done {
+		v.Due = r.Due.Format("15:04:05")
+		v.In = max(int(math.Ceil(r.Due.Sub(s.now()).Seconds())), 0)
+	}
+	// An undo after the report is not reported again (ADR-0007), so the
+	// result over there is the one sent. Said whenever the score has moved
+	// away from it, not only once the match is won again.
+	if r.Done && (!st.Complete || !slices.Equal(r.Sent, st.CompletedSets)) {
+		v.Stale = true
+		v.Sent = sets(r.Sent)
 	}
 	return v
+}
+
+// sets is a result as a line: "11:9 7:11 11:5".
+func sets(s [][2]int) string {
+	out := make([]string, len(s))
+	for i, set := range s {
+		out[i] = fmt.Sprintf("%d:%d", set[0], set[1])
+	}
+	return strings.Join(out, " ")
 }
 
 // stateView renders one state rather than the match's current one, so that the
@@ -284,4 +314,14 @@ type reportView struct {
 	Reason string
 	// Attempts is how many times it has been tried.
 	Attempts int
+	// Due is the clock time the result goes out at while it waits out the
+	// grace period (ADR-0007), and In the seconds left. Empty and zero
+	// otherwise.
+	Due string
+	In  int
+	// Stale is a result sent and then undone: Schmetterpause holds Sent,
+	// which is no longer the score, and only somebody over there can reject
+	// or correct it.
+	Stale bool
+	Sent  string
 }

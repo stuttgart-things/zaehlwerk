@@ -92,6 +92,10 @@ type Switcher struct {
 	held     bool
 	matchID  string
 	lastSeen time.Time
+	// won is the match whose win gave the panel back, until another match is
+	// started. An undo that reopens it takes the panel again (ADR-0007); once
+	// another match has started, the panel is that one's (ADR-0003).
+	won string
 
 	work      chan func()
 	stop      chan struct{}
@@ -138,8 +142,9 @@ func (s *Switcher) Release(matchID string) {
 	s.submit(func() { s.release(matchID, "match ended") })
 }
 
-// Observe is the scorer observer: it keeps the inactivity clock honest and
-// gives the panel back when a match is won.
+// Observe is the scorer observer: it keeps the inactivity clock honest, gives
+// the panel back when a match is won, and takes it again when an undo reopens
+// that match.
 func (s *Switcher) Observe(t scorer.Transition) {
 	if s == nil {
 		return
@@ -151,10 +156,35 @@ func (s *Switcher) Observe(t scorer.Transition) {
 	}
 	s.mu.Unlock()
 
-	if t.Kind == scorer.TransitionMatchWon {
-		matchID := t.State.MatchID
-		s.submit(func() { s.release(matchID, "match won") })
+	matchID := t.State.MatchID
+	switch {
+	case t.Kind == scorer.TransitionMatchWon:
+		s.submit(func() {
+			if s.release(matchID, "match won") {
+				s.mu.Lock()
+				s.won = matchID
+				s.mu.Unlock()
+			}
+		})
+	case t.Kind == scorer.TransitionUndo && !t.State.Complete:
+		s.submit(func() { s.reopened(matchID) })
 	}
+}
+
+// reopened takes the panel back for a won match an undo has opened again.
+// Released straight away at match_won rather than after a grace period like
+// the report, because this can be undone and a report cannot.
+func (s *Switcher) reopened(matchID string) {
+	s.mu.Lock()
+	ours := s.won == matchID && !s.held
+	s.mu.Unlock()
+	if !ours {
+		// Not given back for this match's win, or another match has been
+		// started since and the panel is that one's.
+		return
+	}
+	s.cfg.Logger.Info("a won match was reopened by an undo, taking the panel back", "match", matchID)
+	s.acquire(matchID)
 }
 
 // Close releases the panel if we still hold it, and stops the worker.
@@ -231,6 +261,12 @@ func (s *Switcher) run() {
 
 // acquire points the catcher at our stream and records that we hold it.
 func (s *Switcher) acquire(matchID string) {
+	// Whatever match acquires now is the latest one at the table, so a match
+	// won before it no longer gets the panel back by an undo.
+	s.mu.Lock()
+	s.won = ""
+	s.mu.Unlock()
+
 	if err := s.setStreams(s.cfg.MatchStreams); err != nil {
 		// Deliberately not fatal, and deliberately not recorded as held: if we
 		// did not switch it, we must not switch it back.
@@ -248,18 +284,18 @@ func (s *Switcher) acquire(matchID string) {
 }
 
 // release gives the panel back, but only if we still hold it and the catcher
-// is still on the set we left it on.
-func (s *Switcher) release(matchID, reason string) {
+// is still on the set we left it on. It reports whether it gave it back.
+func (s *Switcher) release(matchID, reason string) bool {
 	s.mu.Lock()
 	held, current := s.held, s.matchID
 	s.mu.Unlock()
 
 	if !held {
-		return
+		return false
 	}
 	if matchID != "" && matchID != current {
 		// An end for a match that no longer owns the panel.
-		return
+		return false
 	}
 
 	streams, err := s.getStreams()
@@ -270,26 +306,27 @@ func (s *Switcher) release(matchID, reason string) {
 		s.forget()
 		s.cfg.Logger.Warn("could not read the panel's streams back, giving up the override",
 			"error", err, "match", current, "catcher", s.cfg.BaseURL)
-		return
+		return false
 	}
 
 	if !sameSet(streams, s.cfg.MatchStreams) {
 		s.forget()
 		s.cfg.Logger.Info("panel was switched by someone else, leaving it alone",
 			"match", current, "streams", streams)
-		return
+		return false
 	}
 
 	if err := s.setStreams(s.cfg.IdleStreams); err != nil {
 		s.forget()
 		s.cfg.Logger.Warn("could not give the panel back",
 			"error", err, "match", current, "catcher", s.cfg.BaseURL)
-		return
+		return false
 	}
 
 	s.forget()
 	s.cfg.Logger.Info("panel given back",
 		"match", current, "reason", reason, "streams", s.cfg.IdleStreams)
+	return true
 }
 
 func (s *Switcher) forget() {

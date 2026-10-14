@@ -226,3 +226,29 @@ func TestAnIdleStreamIsKeptAlive(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, ": ping\n", line)
 }
+
+// The card used to arrive only with a reload: the stream rendered the
+// transition's state, and the handover is the match's. At match_won is when
+// it has the most to say — when the result goes, and that an undo still takes
+// it back.
+func TestTheWinningPointBringsTheResultCardOnTheStream(t *testing.T) {
+	f := newStreamFixture(t)
+	m, err := f.registry.CreateFor(scorer.Config{BestOf: 1, PointsPerSet: 11},
+		match.Handover{HomeID: "id-anna", AwayID: "id-bernd", OperatorID: "id-cem"})
+	require.NoError(t, err)
+	f.match = m
+
+	for range 10 {
+		f.point(scorer.PlayerA)
+	}
+	r, _ := f.connect()
+	readEvent(t, r) // the board on connect
+
+	m.ReportDue(time.Date(2026, 9, 5, 12, 0, 15, 0, time.UTC))
+	f.point(scorer.PlayerA)
+
+	board := readEvent(t, r)
+	require.Equal(t, "board", board.name)
+	require.Contains(t, board.data, `id="handover"`)
+	require.Contains(t, board.data, "result goes at 12:00:15")
+}

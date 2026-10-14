@@ -83,6 +83,10 @@ func run() error {
 	// (invariant 4). Nil client, nil reporter, and the page asks for two
 	// free-text names exactly as it does today.
 	spClient := schmetterpauseClient(log)
+	delay, err := reportDelay(log, spClient != nil)
+	if err != nil {
+		return err
+	}
 
 	hub := live.New()
 	origins := allowedOrigins(log)
@@ -95,13 +99,17 @@ func run() error {
 	var reporter *schmetterpause.Reporter
 	opts := registryOptions(sink, hub, switcher)
 	if spClient != nil {
-		opts = append(opts, match.WithObserver(func(t scorer.Transition) {
+		// First, ahead of the hub: the page renders the result card from the
+		// transition the hub hands it, and the card says when the result goes
+		// out, so the reporter has to have decided that already.
+		opts = append([]match.Option{match.WithObserver(func(t scorer.Transition) {
 			reporter.Observe(t)
-		}))
+		})}, opts...)
 	}
 	registry := match.NewRegistry(opts...)
 	if spClient != nil {
-		reporter = schmetterpause.NewReporter(spClient, registry, schmetterpause.WithLogger(log))
+		reporter = schmetterpause.NewReporter(spClient, registry,
+			schmetterpause.WithLogger(log), schmetterpause.WithDelay(delay))
 	}
 
 	apiOpts := []api.Option{
@@ -168,10 +176,46 @@ func run() error {
 	shutdown, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
-	if err := srv.Shutdown(shutdown); err != nil {
-		return fmt.Errorf("shutting down: %w", err)
+	// Results still in their grace period go out now, alongside the server
+	// draining rather than after it: a page holding its live stream keeps
+	// Shutdown waiting for the whole timeout, and the results must not wait
+	// behind it. A SIGKILL in the grace period loses them (ADR-0007).
+	flushed := make(chan error, 1)
+	go func() {
+		if reporter == nil {
+			flushed <- nil
+			return
+		}
+		flushed <- reporter.Flush(shutdown)
+	}()
+	stopped := srv.Shutdown(shutdown)
+	if err := <-flushed; err != nil {
+		log.Error("results may not have reached schmetterpause", "error", err)
+	}
+	if stopped != nil {
+		return fmt.Errorf("shutting down: %w", stopped)
 	}
 	return <-errs
+}
+
+// reportDelay reads SCHMETTERPAUSE_REPORT_DELAY, the grace period between a
+// won match and its report (ADR-0007). Unset is the default and 0 reports at
+// once. A value that is not a duration fails the start rather than being
+// ignored like the other settings: guessing wrong here sends a result early,
+// and a result sent cannot be taken back.
+func reportDelay(log *slog.Logger, on bool) (time.Duration, error) {
+	raw := os.Getenv("SCHMETTERPAUSE_REPORT_DELAY")
+	if raw == "" {
+		return schmetterpause.DefaultDelay, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d < 0 {
+		return 0, fmt.Errorf("SCHMETTERPAUSE_REPORT_DELAY must be a duration of 0 or more, got %q", raw)
+	}
+	if on {
+		log.Info("results are reported after a grace period", "report_delay", d)
+	}
+	return d, nil
 }
 
 // schmetterpauseClient builds the coupling, or reports that it is off.

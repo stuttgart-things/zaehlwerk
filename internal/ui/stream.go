@@ -92,6 +92,10 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		case ev := <-sub.Events():
 			kind := scorer.TransitionKind(ev.Kind)
 			v := view{Match: s.stateView(ev.State, m.Running(), kind), Stream: true}
+			// The handover is the match's, not the transition's, so it is
+			// added here: without it the card would go at match_won, the
+			// moment it has something to say.
+			v.Match.Reported = s.reportView(m, ev.State)
 
 			if ev.Kind != live.KindSnapshot {
 				rows = append([]logRow{s.logRow(kind, ev.State)}, rows...)

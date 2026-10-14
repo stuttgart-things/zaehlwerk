@@ -179,6 +179,7 @@ func New(registry *match.Registry, lifecycle Lifecycle, opts ...Option) *Server 
 	s.mux.HandleFunc("POST /ui/matches/{id}/undo", s.undo)
 	s.mux.HandleFunc("POST /ui/matches/{id}/end", s.endMatch)
 	s.mux.HandleFunc("POST /ui/matches/{id}/report", s.report)
+	s.mux.HandleFunc("GET /ui/matches/{id}/handover", s.handoverCard)
 	s.mux.HandleFunc("GET /ui/matches/{id}/stream", s.stream)
 
 	return s
@@ -332,6 +333,17 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request) {
 		s.log.Warn("retrying the handover failed", "match_id", m.ID, "error", err)
 	}
 	s.renderLive(w, s.liveView(m, kindOf(m.Scorer.State())))
+}
+
+// handoverCard is the result card alone, which asks for itself while the
+// result waits out its grace period or is on its way (ADR-0007).
+func (s *Server) handoverCard(w http.ResponseWriter, r *http.Request) {
+	m, ok := s.lookup(w, r)
+	if !ok {
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	s.render(w, "handover", view{Match: s.matchView(m, kindOf(m.Scorer.State()))})
 }
 
 // fillRoster asks Schmetterpause for the players, every time the page renders.

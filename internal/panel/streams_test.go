@@ -217,6 +217,75 @@ func TestAWonMatchGivesThePanelBackWithoutAnExplicitEnd(t *testing.T) {
 	requireReleased(t, s, c, "messages")
 }
 
+// The match point pressed for the wrong player and undone: play goes on, and
+// the score belongs on the panel again (ADR-0007).
+func TestAnUndoThatReopensAWonMatchTakesThePanelBack(t *testing.T) {
+	c := newCatcher(t)
+	s, _ := newSwitcher(t, c)
+
+	s.Start("m1")
+	requireHolds(t, s, c, "m1", "tabletennis")
+	s.Observe(scorer.Transition{Kind: scorer.TransitionMatchWon,
+		State: scorer.State{MatchID: "m1", Complete: true}})
+	requireReleased(t, s, c, "messages")
+
+	s.Observe(scorer.Transition{Kind: scorer.TransitionUndo,
+		State: scorer.State{MatchID: "m1"}})
+
+	requireHolds(t, s, c, "m1", "tabletennis")
+}
+
+// ADR-0003: once another match has started, the panel is that one's, and an
+// undo in a match that was over before it changes nothing.
+func TestAnUndoDoesNotTakeThePanelFromANewerMatch(t *testing.T) {
+	c := newCatcher(t)
+	s, _ := newSwitcher(t, c)
+
+	s.Start("m1")
+	requireHolds(t, s, c, "m1", "tabletennis")
+	s.Observe(scorer.Transition{Kind: scorer.TransitionMatchWon,
+		State: scorer.State{MatchID: "m1", Complete: true}})
+	requireReleased(t, s, c, "messages")
+
+	s.Start("m2")
+	requireHolds(t, s, c, "m2", "tabletennis")
+	s.Release("m2")
+	requireReleased(t, s, c, "messages")
+	switches := c.switches()
+
+	s.Observe(scorer.Transition{Kind: scorer.TransitionUndo,
+		State: scorer.State{MatchID: "m1"}})
+
+	requireStable(t, "the panel stays given back", func() bool {
+		_, held := s.Held()
+		return !held && c.switches() == switches
+	})
+}
+
+// A panel somebody else took during the match was never ours to give back,
+// and an undo does not make it ours.
+func TestAnUndoDoesNotTakeAPanelSomebodyElseSwitched(t *testing.T) {
+	c := newCatcher(t)
+	s, _ := newSwitcher(t, c)
+
+	s.Start("m1")
+	requireHolds(t, s, c, "m1", "tabletennis")
+	c.setStreams("messages", "scale")
+	s.Observe(scorer.Transition{Kind: scorer.TransitionMatchWon,
+		State: scorer.State{MatchID: "m1", Complete: true}})
+	eventually(t, "the override to be given up", func() bool {
+		_, held := s.Held()
+		return !held
+	})
+
+	s.Observe(scorer.Transition{Kind: scorer.TransitionUndo,
+		State: scorer.State{MatchID: "m1"}})
+
+	requireStable(t, "the panel stays with whoever switched it", func() bool {
+		return sameSet(c.current(), []string{"messages", "scale"})
+	})
+}
+
 func TestAnOrdinaryPointDoesNotGiveThePanelBack(t *testing.T) {
 	c := newCatcher(t)
 	s, _ := newSwitcher(t, c)

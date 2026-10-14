@@ -9,22 +9,24 @@
 #   2. an event sent twice is a duplicate and does not move the score — the
 #      board stops with an error if it does, and zaehlwerk logs the duplicate
 #   3. a result refused by Schmetterpause gets there on the page's retry
-#   4. zaehlwerk-pong plays headless best of threes, one of them to a deciding
+#   4. a match point given to the wrong player and undone in the grace period
+#      is never reported, and the right result is, once (ADR-0007)
+#   5. zaehlwerk-pong plays headless best of threes, one of them to a deciding
 #      set with its change of ends at five, and its truth and zaehlwerk
 #      agree after every rally (ADR-0006)
-#   5. a game with every fault injected ends with no divergence the faults do
+#   6. a game with every fault injected ends with no divergence the faults do
 #      not explain: resends discarded, a second confirmation ignored, a
 #      counter reset after a quiet minute accepted, a wrong half undone
-#   6. a game played the way the browser plays it — presses with a token,
+#   7. a game played the way the browser plays it — presses with a token,
 #      one number each — ends with truth and zaehlwerk agreeing; a press
 #      without the token is refused and one sent twice counts once
-#   7. attract mode starts a demo on a free table after the wait, with no
+#   8. attract mode starts a demo on a free table after the wait, with no
 #      faults whatever PONG_FAULTS says; a match started at the table ends
 #      it, and the next waits for that match to end; a game asked for takes
 #      the table from it
-#   8. a button check pressed as it says has no finding, and one press at the
+#   9. a button check pressed as it says has no finding, and one press at the
 #      wrong half is the one finding it reports
-#   9. a Pong match never reaches Schmetterpause
+#   10. a Pong match never reaches Schmetterpause
 #
 # Ports are off the usual ones, so it runs next to a `task run` without
 # either noticing.
@@ -57,8 +59,8 @@ trap finish EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 # wait_until <seconds> <command…> — polls rather than sleeps a fixed time,
-# because the reporter posts from a goroutine and a slow runner is not a
-# broken chain.
+# because the reporter posts after its grace period, from a goroutine, and a
+# slow runner is not a broken chain.
 wait_until() {
   local deadline=$(( SECONDS + $1 )); shift
   until "$@" >/dev/null 2>&1; do
@@ -68,6 +70,9 @@ wait_until() {
 }
 
 results() { curl -sf "$SP/results" | jq length; }
+# scheduled — how many results zaehlwerk has set out to report. Counted in
+# its log, where the reporter says so at match_won, before the grace period.
+scheduled() { grep -c '"msg":"report scheduled"' "$WORK/zw.log" || true; }
 has_results() { [ "$(results)" = "$1" ]; }
 mode() { curl -sf -X POST "$SP/mode" -d "mode=$1" >/dev/null; }
 
@@ -78,7 +83,9 @@ go build -o "$WORK/zaehlwerk-pong" ./cmd/zaehlwerk-pong
 
 SCHMETTERPAUSE_ADDR=":$SP_PORT" SCHMETTERPAUSE_TOKEN=$TOKEN \
   "$WORK/chain-mock" schmetterpause >"$WORK/sp.log" 2>&1 &
-HTTP_ADDR=":$ZW_PORT" SCHMETTERPAUSE_URL=$SP SCHMETTERPAUSE_TOKEN=$TOKEN \
+# A grace period short enough for CI, and long enough for the undo in step 4,
+# which is two curls after the match point.
+HTTP_ADDR=":$ZW_PORT" SCHMETTERPAUSE_URL=$SP SCHMETTERPAUSE_TOKEN=$TOKEN SCHMETTERPAUSE_REPORT_DELAY=2s \
   "$WORK/zaehlwerk-api" >"$WORK/zw.log" 2>&1 &
 
 wait_until 20 curl -sf "$ZW/healthz" || fail "zaehlwerk did not come up"
@@ -115,9 +122,39 @@ mode accept
 curl -sf -X POST "$ZW/ui/matches/$match/report" >/dev/null || fail "the retry was not accepted"
 wait_until 10 has_results 2 || fail "the retried result did not arrive (have $(results))"
 
+echo "4. a match point undone in the grace period is not reported"
+roster=$(curl -sf -H "Authorization: Bearer $TOKEN" "$SP/api/players")
+curl -sf -X POST "$ZW/ui/matches" -d best_of=1 \
+  -d "home_id=$(jq -r '.[0].id' <<<"$roster")" -d "away_id=$(jq -r '.[1].id' <<<"$roster")" \
+  -d "operator_id=$(jq -r '.[2].id' <<<"$roster")" >/dev/null || fail "the page did not start the match"
+match=$(curl -sf "$ZW/matches/current" | jq -r .match_id)
+event=0
+press() {
+  event=$((event + 1))
+  curl -sf -X POST "$ZW/ingest/web" -H 'Content-Type: application/json' \
+    -d "{\"match_id\":\"$match\",\"source\":\"e2e-undo\",\"player\":\"$1\",\"event_id\":$event}" >/dev/null ||
+    fail "press $event for $1 was refused"
+}
+for _ in $(seq 9); do press a; done
+for _ in $(seq 10); do press b; done
+# 9:10, and the point a should have levelled with goes to b, who wins 9:11.
+press b
+[ "$(curl -sf "$ZW/matches/$match" | jq -r .complete)" = true ] || fail "the wrong match point did not win the match"
+curl -sf -X POST "$ZW/matches/$match/undo" >/dev/null || fail "the undo was refused"
+grep -q '"msg":"report withheld, the match was reopened"' "$WORK/zw.log" ||
+  fail "zaehlwerk did not withhold the report on the undo"
+# The right point, and a wins 12:10.
+for _ in $(seq 3); do press a; done
+wait_until 10 has_results 3 || fail "the right result did not arrive (have $(results))"
+sets=$(curl -sf "$SP/results" | jq -c '.[-1].sets')
+[ "$sets" = '[[12,10]]' ] || fail "Schmetterpause got $sets, want [[12,10]]"
+[ "$(grep '"msg":"result reported to schmetterpause"' "$WORK/zw.log" | grep -c "\"match_id\":\"$match\"")" = 1 ] ||
+  fail "match $match was reported more than once"
+reported=$(scheduled)
+
 # The game, against the same zaehlwerk. It reports nowhere and refuses to
 # start while a match is current, so it runs after the board's matches are
-# over, and the fake Schmetterpause must still hold exactly their two results.
+# over, and the fake Schmetterpause must still hold exactly their three results.
 HTTP_ADDR=":$PONG_PORT" ZAEHLWERK_URL=$ZW PONG_BEST_OF=3 PONG_SEED=1 \
   "$WORK/zaehlwerk-pong" >"$WORK/pong.log" 2>&1 &
 pong_pid=$!
@@ -125,7 +162,7 @@ wait_until 20 curl -sf "$PONG/healthz" || fail "zaehlwerk-pong did not come up"
 
 game_over() { [ "$(curl -sf "$PONG/games/$1" | jq -r .status)" != playing ]; }
 
-echo "4. headless best of threes agree with zaehlwerk at every rally"
+echo "5. headless best of threes agree with zaehlwerk at every rally"
 games=0
 decider=""
 # Each game draws different rallies from the seed, so some go to a third
@@ -153,7 +190,7 @@ jq -e '[.ends_changes[] | select(.set == 3 and (.points | max) == 5)] | length =
   <<<"$decider" >/dev/null ||
   fail "no change of ends at five in the deciding set: $(jq -c .ends_changes <<<"$decider")"
 
-echo "5. a game with every fault has no unexplained divergence"
+echo "6. a game with every fault has no unexplained divergence"
 # The seed fixes which presses go wrong. counter_reset waits out zaehlwerk's
 # quiet minute before each reset, so it is rare here, and this game is the
 # one step that takes a while.
@@ -176,7 +213,7 @@ jq -e '.zaehlwerk == ([.truth, .explained] | transpose | map(add))' <<<"$game" >
 echo "   game $id: $(jq -r '.faults | group_by(.kind) | map("\(length) \(.[0].kind)") | join(", ")' <<<"$game")"
 echo "   $(jq '.divergences | length' <<<"$game") divergences, all explained; truth $(jq -c .truth <<<"$game"), zaehlwerk $(jq -c .zaehlwerk <<<"$game")"
 
-echo "6. a game played through the browser's presses"
+echo "7. a game played through the browser's presses"
 # What game.js does, without a browser: read the phase from the answer, press
 # ready for a half zaehlwerk waits for, report a rally's winning half. The
 # canvas itself is checked by hand; this checks the door it reports through.
@@ -215,7 +252,7 @@ games=$((games + 1))
   fail "browser game $id: truth and zaehlwerk part at $(jq -c '.divergences[0]' <<<"$game")"
 echo "   game $id: $(jq -c .state.completed_sets <<<"$game"), $((n - 1)) presses, no divergence"
 
-echo "7. attract mode: a demo on a free table, and it always gives way"
+echo "8. attract mode: a demo on a free table, and it always gives way"
 # The same binary again, with attract mode on and a wait short enough for CI.
 # PONG_FAULTS is set to show it does not reach a demo.
 kill "$pong_pid"
@@ -275,7 +312,7 @@ curl -sf -X POST "$PONG/games/$game_id/end" -H "X-Pong-Token: $(jq -r .token <<<
   fail "could not end browser game $game_id"
 echo "   demo $id gave way to browser game $game_id"
 
-echo "8. a button check, pressed the way the buttons press"
+echo "9. a button check, pressed the way the buttons press"
 # The buttons are a curl each: /ingest/button with a half, a source and a
 # counter per button, as the hardware sends. The game sends nothing; this is
 # what arrives at zaehlwerk. A demo may hold the table by now, and the check
@@ -324,13 +361,15 @@ button_check 1
 jq -r .check.summary <<<"$game" | grep -q 'wrong half 1' || fail "button check $id: the summary does not say it"
 echo "   check $id: the wrong half found, $(jq -r '.check.findings[0] | "\(.want) -> \(.got)"' <<<"$game")"
 
-echo "9. a Pong match never reaches Schmetterpause"
-# The one fixed wait in here: there is nothing to poll for when the check is
-# that something does not arrive. The reporter posts within milliseconds of
-# match_won, so a second is ample for a result that should not exist.
-sleep 1
-has_results 2 || fail "a Pong match was reported (have $(results))"
+echo "10. a Pong match never reaches Schmetterpause"
+# Not a wait for something that should not arrive: the reporter decides at
+# match_won whether a match is reported and logs it then, before any grace
+# period, so a Pong match that was going to be reported would be counted
+# here already.
+[ "$(scheduled)" = "$reported" ] || fail "a Pong match was set out to be reported"
+has_results 3 || fail "a Pong match was reported (have $(results))"
 
-echo "ok: 2 results, $resent resends, $duplicates duplicates, retry after refuse," \
+echo "ok: 3 results, $resent resends, $duplicates duplicates, retry after refuse," \
+  "an undone match point withheld," \
   "$games Pong games with no unexplained divergence, ends changed at five in the decider," \
   "2 button checks"

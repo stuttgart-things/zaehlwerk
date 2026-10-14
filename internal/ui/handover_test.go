@@ -7,11 +7,13 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/schmetterpause"
+	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 )
 
 // stubRoster is the player list Schmetterpause would return.
@@ -257,4 +259,91 @@ func TestAFailingOperatorListOffersThePlayers(t *testing.T) {
 	require.Contains(t, picker, `value="id-anna"`)
 	require.Contains(t, picker, `value="id-cem"`)
 	require.NotContains(t, page, "cannot be reported")
+}
+
+// reported starts a reported best of one and scores it: a wins 11:0, or, when
+// a is false, b wins 9:11.
+func (f *fixture) reported(aWins bool) *match.Match {
+	f.t.Helper()
+
+	m, err := f.registry.CreateFor(scorer.Config{BestOf: 1, PointsPerSet: 11},
+		match.Handover{HomeID: "id-anna", AwayID: "id-bernd", OperatorID: "id-cem"})
+	require.NoError(f.t, err)
+
+	score := func(p scorer.Player, n int) {
+		for range n {
+			f.event++
+			_, err := m.Scorer.Apply(scorer.ScoreEvent{MatchID: m.ID, Source: "ui-test",
+				EventID: f.event, Player: p, Delta: 1})
+			require.NoError(f.t, err)
+		}
+	}
+	if aWins {
+		score(scorer.PlayerA, 11)
+	} else {
+		score(scorer.PlayerA, 9)
+		score(scorer.PlayerB, 11)
+	}
+	require.True(f.t, m.Scorer.State().Complete)
+	return m
+}
+
+func TestTheCardSaysWhenTheResultGoesAndThatAnUndoTakesItBack(t *testing.T) {
+	f := newFixture(t, WithSchmetterpause(roster(), &stubHandover{}))
+	m := f.reported(true)
+	// The fixture's clock stands at 12:00:00.
+	m.ReportDue(time.Date(2026, 9, 5, 12, 0, 12, 0, time.UTC))
+
+	_, page := f.do(http.MethodGet, "/ui?match="+m.ID, nil)
+
+	require.Contains(t, page, "result goes at 12:00:12")
+	require.Contains(t, page, "in 12s")
+	require.Contains(t, page, "an undo before then takes the match point back")
+	require.Contains(t, page, ">Send now</button>")
+	require.Contains(t, page, `hx-post="/ui/matches/`+m.ID+`/report"`)
+}
+
+// Nothing about the end of a grace period is a transition, so the live stream
+// has nothing to carry it on; the card asks for itself until it has an outcome.
+func TestTheCardAsksForItselfUntilTheResultIsSent(t *testing.T) {
+	f := newFixture(t, WithSchmetterpause(roster(), &stubHandover{}))
+	m := f.reported(true)
+	m.ReportDue(time.Date(2026, 9, 5, 12, 0, 12, 0, time.UTC))
+	poll := `hx-get="/ui/matches/` + m.ID + `/handover" hx-trigger="every 1s"`
+
+	rec, card := f.do(http.MethodGet, "/ui/matches/"+m.ID+"/handover", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, card, poll)
+	require.Contains(t, card, "result goes at 12:00:12")
+
+	m.Reported("sp-1", m.Scorer.State().CompletedSets)
+
+	_, card = f.do(http.MethodGet, "/ui/matches/"+m.ID+"/handover", nil)
+	require.Contains(t, card, "result sent")
+	require.NotContains(t, card, "hx-trigger", "a card with an outcome must stop asking")
+}
+
+func TestTheCardSaysASentResultNoLongerHoldsAfterAnUndo(t *testing.T) {
+	f := newFixture(t, WithSchmetterpause(roster(), &stubHandover{}))
+	m := f.reported(false)
+	m.Reported("sp-1", m.Scorer.State().CompletedSets)
+
+	_, err := m.Scorer.Undo()
+	require.NoError(t, err)
+
+	// Said while play goes on, not only once the match is won again.
+	_, page := f.do(http.MethodGet, "/ui?match="+m.ID, nil)
+	require.Contains(t, page, "the result sent no longer holds")
+	require.Contains(t, page, "Schmetterpause has 9:11")
+	require.Contains(t, page, "reject or correct it there")
+}
+
+func TestASentResultThatStillHoldsIsNotCalledStale(t *testing.T) {
+	f := newFixture(t, WithSchmetterpause(roster(), &stubHandover{}))
+	m := f.reported(true)
+	m.Reported("sp-1", m.Scorer.State().CompletedSets)
+
+	_, page := f.do(http.MethodGet, "/ui?match="+m.ID, nil)
+	require.Contains(t, page, "result sent")
+	require.NotContains(t, page, "no longer holds")
 }

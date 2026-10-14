@@ -3,6 +3,10 @@
 Status: Accepted
 Date: 2026-09-08
 
+> Supplemented by [ADR-0007](0007-a-grace-period-before-reporting.md): the
+> result is posted after a grace period that an undo can stop, not at
+> `match_won`.
+
 ## Context
 
 ADR-0001 already decided this: "Schmetterpause keeps players, TTR, tournaments
