@@ -299,8 +299,21 @@ tasks:
       SCHMETTERPAUSE_ADDR: ':{{.ZW_SCHMETTERPAUSE_PORT}}'
       SCHMETTERPAUSE_TOKEN: '{{.CHAIN_TOKEN}}'
       SCHMETTERPAUSE_MODE: '{{.MODE | default "accept"}}'
+      # Where task chain:phone claims a half, as SP_ZAEHLWERK_URL over there.
+      ZAEHLWERK_URL: '{{.API}}'
     cmds:
       - go run ./tools/chain-mock schmetterpause
+
+  chain:phone:
+    # What the real one does when a player scans the QR code at a half and
+    # presses the button: records a phone check-in, then claims the half at
+    # zaehlwerk's POST /checkin/claim with its token (ADR-0011). The answer
+    # is zaehlwerk's. Needs task chain:schmetterpause and task chain:run.
+    desc: 'Check in at a half by phone through the fake Schmetterpause. HALF=left|right, PLAYER=anna|bernd|clara'
+    vars:
+      PLAYER_ID: '{{if eq (.PLAYER | default "anna") "bernd"}}22222222-2222-4222-8222-222222222222{{else if eq (.PLAYER | default "anna") "clara"}}33333333-3333-4333-8333-333333333333{{else}}11111111-1111-4111-8111-111111111111{{end}}'
+    cmds:
+      - curl -s -X POST {{.FAKE_SCHMETTERPAUSE}}/phone -d half={{.HALF | default "left"}} -d player_id={{.PLAYER_ID}}
 
   chain:run:
     desc: Run zaehlwerk reporting to the fake Schmetterpause (Ctrl-C to stop)

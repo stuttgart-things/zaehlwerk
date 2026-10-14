@@ -37,6 +37,11 @@
 #      check-in resolves once, an unknown fob and one during the match change
 #      nothing, the match is played, and its result reaches Schmetterpause
 #      with both check-ins and no operator; no UID is in either log (ADR-0010)
+#   13. one half by fob and the other by phone, claimed by the fake
+#      Schmetterpause at POST /checkin/claim, start a match; a repeat of the
+#      claim is answered as one, a claim with the hub's token and one during
+#      the match are refused, and the result reaches Schmetterpause with the
+#      fob's and the phone's check-in and no operator (ADR-0011)
 #
 # Ports are off the usual ones, so it runs next to a `task run` without
 # either noticing.
@@ -92,7 +97,7 @@ go build -o "$WORK/zaehlwerk-api" ./cmd/zaehlwerk-api
 go build -o "$WORK/chain-mock" ./tools/chain-mock
 go build -o "$WORK/zaehlwerk-pong" ./cmd/zaehlwerk-pong
 
-SCHMETTERPAUSE_ADDR=":$SP_PORT" SCHMETTERPAUSE_TOKEN=$TOKEN \
+SCHMETTERPAUSE_ADDR=":$SP_PORT" SCHMETTERPAUSE_TOKEN=$TOKEN ZAEHLWERK_URL=$ZW \
   "$WORK/chain-mock" schmetterpause >"$WORK/sp.log" 2>&1 &
 # A grace period short enough for CI, and long enough for the undo in step 4,
 # which is two curls after the match point.
@@ -549,8 +554,59 @@ done
 echo "   a check-in without the hub's token, or with another, refused with 401 and never resolved"
 echo "   match $match: Anna and Bernd by fob, $presses presses, $(jq -c .sets <<<"$last") reported with two check-ins and no operator"
 
-echo "ok: 4 results, $resent resends, $duplicates duplicates, retry after refuse," \
+echo "13. one half by fob, one by phone, and the result goes without an operator"
+# phone <half> <player_id> [checkin_id] — the fake's table page: it records a
+# phone check-in and claims the half at zaehlwerk, and answers with
+# zaehlwerk's status and body. A checkin_id repeats the claim of that one.
+phone() {
+  curl -s -o "$WORK/checkin.json" -w '%{http_code}' -X POST "$SP/phone" \
+    -d "half=$1" -d "player_id=$2" ${3:+-d "checkin_id=$3"}
+}
+anna_id=11111111-1111-4111-8111-111111111111
+bernd_id=22222222-2222-4222-8222-222222222222
+clara_id=33333333-3333-4333-8333-333333333333
+phone_checkin() { curl -sf "$SP/checkins" | jq -r '[.[] | select(.method == "phone")] | sort_by(.created_at) | .[-1].id'; }
+
+# The hub's token does not claim for Schmetterpause.
+[ "$(curl -s -o "$WORK/checkin.json" -w '%{http_code}' -X POST "$ZW/checkin/claim" \
+  -H 'content-type: application/json' -H "authorization: Bearer $HUB_TOKEN" \
+  -d "{\"half\":\"right\",\"player_id\":\"$bernd_id\",\"checkin_id\":\"$bernd_id\"}")" = 401 ] ||
+  fail "a claim with the hub's token was not refused: $(cat "$WORK/checkin.json")"
+
+[ "$(checkin 5 left "04 11 22 33 44 55 66")" = 200 ] && [ "$(outcome)" = claimed ] ||
+  fail "Clara's fob did not claim the left half: $(cat "$WORK/checkin.json")"
+[ "$(phone right $bernd_id)" = 200 ] && [ "$(outcome)" = started ] ||
+  fail "Bernd's phone did not start the match: $(cat "$WORK/checkin.json")"
+match=$(jq -r .match_id "$WORK/checkin.json")
+bernd_checkin=$(phone_checkin)
+[ "$(phone right $bernd_id "$bernd_checkin")" = 200 ] && [ "$(outcome)" = started ] &&
+  [ "$(jq -r '.repeated and .match_id == "'"$match"'"' "$WORK/checkin.json")" = true ] ||
+  fail "the repeated claim was not answered as the first: $(cat "$WORK/checkin.json")"
+[ "$(curl -sf "$ZW/matches/current" | jq -r '.match_id + "|" + (.players | join(","))')" = "$match|Clara,Bernd" ] ||
+  fail "the match is not Clara against Bernd: $(curl -sf "$ZW/matches/current")"
+[ "$(phone left $anna_id)" = 409 ] && [ "$(outcome)" = refused ] ||
+  fail "a phone claim during the match was not refused: $(cat "$WORK/checkin.json")"
+
+# Clara wins every point at the left half.
+presses=0
+while [ "$(curl -sf "$ZW/matches/$match" | jq -r .complete)" = false ] && [ $presses -lt 60 ]; do
+  presses=$((presses + 1))
+  curl -sf -X POST "$ZW/ingest/button" -H 'content-type: application/json' \
+    -d "{\"events\":[{\"source\":\"e2e-phone-left\",\"half\":\"left\",\"event_id\":$presses}]}" >/dev/null ||
+    fail "press $presses at the left half was refused"
+done
+wait_until 10 has_results 5 || fail "the fob-and-phone result did not arrive (have $(results))"
+last=$(curl -sf "$SP/results" | jq -c '.[-1]')
+[ "$(jq -r '[.home, .away, .entered_via, .operator] | join("|")' <<<"$last")" = "Clara|Bernd|checkin|" ] ||
+  fail "the fob-and-phone result arrived as $last"
+[ "$(curl -sf "$SP/checkins" | jq -r --argjson r "$last" \
+  '[.[] | select(.used and (.id == $r.home_checkin_id or .id == $r.away_checkin_id)) | .method] | sort | join(",")')" = phone,rfid ] ||
+  fail "the result does not carry the fob's and the phone's check-in: $last"
+[ "$(jq -r .away_checkin_id <<<"$last")" = "$bernd_checkin" ] || fail "the away check-in is not Bernd's phone"
+echo "   match $match: Clara by fob, Bernd by phone, $(jq -c .sets <<<"$last") reported with both check-ins and no operator"
+
+echo "ok: 5 results, $resent resends, $duplicates duplicates, retry after refuse," \
   "an undone match point withheld," \
   "$games Pong games with no unexplained divergence, ends changed at five in the decider," \
   "one of them on two devices," \
-  "2 button checks, a match started by two fobs"
+  "2 button checks, a match started by two fobs, one by a fob and a phone"

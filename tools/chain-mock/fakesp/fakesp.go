@@ -21,7 +21,8 @@ import (
 // and nothing else.
 //
 // The fake Schmetterpause answers the four routes this service calls, with the
-// refusals the real one gives, and nothing else. It is modelled on
+// refusals the real one gives, and makes the one call the real one makes to
+// this service: the claim of a phone check-in. It is modelled on
 // schmetterpause internal/server/api.go: same status codes, same order of
 // checks, same {"error": …} body. The contract test drives it with the real
 // internal/schmetterpause client, so a change on this side that the client does
@@ -106,6 +107,9 @@ type Server struct {
 	// NoFobs leaves the resolve route out, as the real one does without
 	// SP_RFID_UID_KEY. Set before it serves.
 	NoFobs bool
+	// Zaehlwerk is where POST /phone claims a half, the real one's
+	// SP_ZAEHLWERK_URL. Empty, there is no phone check-in, as there.
+	Zaehlwerk string
 
 	mu       sync.Mutex
 	mode     string
@@ -158,6 +162,7 @@ func (f *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /mode", f.setMode)
 	mux.HandleFunc("GET /checkins", f.listCheckins)
 	mux.HandleFunc("POST /link", f.openWindow)
+	mux.HandleFunc("POST /phone", f.phoneCheckin)
 	return mux
 }
 
@@ -420,6 +425,13 @@ func RunFromEnv(ctx context.Context, log *slog.Logger) error {
 	if os.Getenv("SCHMETTERPAUSE_FOBS") == "off" {
 		fake.NoFobs = true
 		log.Info("no fob route, as without SP_RFID_UID_KEY")
+	}
+
+	fake.Zaehlwerk = os.Getenv("ZAEHLWERK_URL")
+	if fake.Zaehlwerk == "" || token == "" {
+		log.Info("no phone check-in, it needs ZAEHLWERK_URL and SCHMETTERPAUSE_TOKEN")
+	} else {
+		log.Info("phone check-in claims at zaehlwerk", "zaehlwerk", fake.Zaehlwerk)
 	}
 
 	srv := &http.Server{
