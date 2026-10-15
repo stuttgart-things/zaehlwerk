@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.20.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.19.0...v0.20.0) (2026-10-15)
+
+
+### Features
+
+* a fob per player on the table mock, and a reader that says what it read ([#127](https://github.com/stuttgart-things/zaehlwerk/issues/127)) ([889b7eb](https://github.com/stuttgart-things/zaehlwerk/commit/889b7eb96ec56225250ade577363278669305986))
+* take a point back through the ingest contract, with an event id ([#124](https://github.com/stuttgart-things/zaehlwerk/issues/124)) ([d5dc4c9](https://github.com/stuttgart-things/zaehlwerk/commit/d5dc4c975981275f2b5c4c447e7dd5b411c1f974))
+
+
+### Bug Fixes
+
+* the piezo mock board takes a point back with the undo event ([#126](https://github.com/stuttgart-things/zaehlwerk/issues/126)) ([d80adb3](https://github.com/stuttgart-things/zaehlwerk/commit/d80adb3372681cbe362838ef092dedacd4d0bc82))
+
 ## [0.19.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.18.0...v0.19.0) (2026-10-15)
 
 
