@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stuttgart-things/zaehlwerk/internal/checkin"
+	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/qr"
 )
 
@@ -41,6 +42,9 @@ type sides struct {
 	// own poll, so it is late by at most one poll.
 	mu   sync.Mutex
 	over map[string]time.Time
+	// freeSince is when the table was last seen free with nobody holding a
+	// half, for the screensaver; zero while it is not.
+	freeSince time.Time
 }
 
 // sideLink is one half's way in by phone.
@@ -114,6 +118,9 @@ type sidesView struct {
 	// Waiting is set when one half is taken: the screen asks for an
 	// opponent.
 	Waiting bool
+	// Screensaver is the pong screensaver's address once the table has been
+	// idle long enough, and the screen shows it instead of the columns.
+	Screensaver string
 }
 
 type halfView struct {
@@ -162,22 +169,106 @@ func (sd *sides) held(id string, now time.Time, hold time.Duration) bool {
 	return now.Sub(since) < hold
 }
 
-// watchSides answers the side select's poll: the columns as they are now, or
-// a redirect to the score once a match is running.
+// DefaultScreensaverAfter is how long the side select waits on a free table
+// before it hands the screen to the pong screensaver (#120). Long enough that
+// a pair finding their fobs or unlocking their phones does not lose the codes
+// to a bot game; short enough that a screen nobody uses does not sit still.
+const DefaultScreensaverAfter = 3 * time.Minute
+
+// WithScreensaver hands an idle side select to the pong screensaver at
+// pongURL after the table has been free for after (ADR-0013). Empty pongURL
+// leaves the side select up for as long as the table is free. Without the side
+// select it changes nothing.
+func WithScreensaver(pongURL string, after time.Duration) Option {
+	return func(s *Server) {
+		base := strings.TrimRight(pongURL, "/")
+		if base == "" {
+			return
+		}
+		if after <= 0 {
+			after = DefaultScreensaverAfter
+		}
+		s.saver = &screensaver{url: base + "/screensaver", after: after}
+	}
+}
+
+// screensaver is where an idle watch screen goes, and when.
+type screensaver struct {
+	url   string
+	after time.Duration
+}
+
+// current is the running match the watch screen follows. With the side select
+// on, a demo is not one: a free table shows the halves and their codes, not
+// bots, and the screensaver is a demo the screen itself asked for. Without it
+// the screen follows a demo as it always has.
+func (s *Server) current() (*match.Match, bool) {
+	m, err := s.registry.Current()
+	if err != nil || (s.sides != nil && m.Demo) {
+		return nil, false
+	}
+	return m, true
+}
+
+// idle reports whether the table has been free, with nobody holding a half,
+// for the screensaver's wait, and starts or stops the clock for it. Shared by
+// every screen: the table is free or it is not, whoever asks.
+func (sd *sides) idle(now time.Time, after time.Duration) bool {
+	claimed := sd.claimed()
+	sd.mu.Lock()
+	defer sd.mu.Unlock()
+	if claimed {
+		sd.freeSince = time.Time{}
+		return false
+	}
+	if sd.freeSince.IsZero() {
+		sd.freeSince = now
+	}
+	return now.Sub(sd.freeSince) >= after
+}
+
+// busy stops the screensaver's clock: a real match holds the table.
+func (sd *sides) busy() {
+	sd.mu.Lock()
+	sd.freeSince = time.Time{}
+	sd.mu.Unlock()
+}
+
+// sidesNow is the side select as it should be now: the columns, or the
+// screensaver once the table has been idle long enough.
+func (s *Server) sidesNow() *sidesView {
+	v := s.sides.view()
+	if s.saver != nil && s.sides.idle(s.now(), s.saver.after) {
+		v.Screensaver = s.saver.url
+	}
+	return v
+}
+
+// watchSides answers the side select's poll: the columns as they are now, the
+// screensaver once the table has been idle long enough, or a redirect to the
+// score once a real match is running.
 //
 // Polled rather than pushed, like [Server.watchNext]: the hub carries a
-// match's transitions, and a claim is not one.
+// match's transitions, and a claim is not one. The screensaver's poll says
+// so with ?saver, and while the screensaver should stay it gets a 204, which
+// htmx does not swap: swapping it for itself would load the game again.
 func (s *Server) watchSides(w http.ResponseWriter, r *http.Request) {
 	if s.sides == nil {
 		http.NotFound(w, r)
 		return
 	}
-	if _, err := s.registry.Current(); err == nil {
+	if _, running := s.current(); running {
+		s.sides.busy()
 		w.Header().Set("HX-Redirect", "/ui/watch")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	v := s.sidesNow()
+	if r.URL.Query().Has("saver") && v.Screensaver != "" {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	s.render(w, "sides", view{Sides: s.sides.view()})
+	s.render(w, "sides", view{Sides: v})
 }

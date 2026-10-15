@@ -65,6 +65,8 @@ go run ./cmd/zaehlwerk-api
 | `CHECKIN_START` | `serve_rally` | The phase a checked-in match starts in: `serve_rally` or `warmup`. The first serve is always played for |
 | `CHECKIN_CHANGE_ENDS` | `false` | `true` has the players of a checked-in match change ends |
 | `WATCH_RESULT_HOLD` | `1m` | With check-in on, how long `/ui/watch` leaves a finished match up before the side select comes back. A check-in cuts it short |
+| `PONG_URL` | — | zaehlwerk-pong as a browser at the table reaches it. With the side select on, an idle table hands the watch screen to its `/screensaver` (ADR-0013). This service never calls it. Unset, the side select stays up |
+| `WATCH_SCREENSAVER_AFTER` | `3m` | How long the table has to be free, with nobody checked in, before the screensaver takes the watch screen |
 | `SCHMETTERPAUSE_REPORT_DELAY` | `15s` | Grace period between a won match and its report (ADR-0007). An undo in it withholds the report, and the result that holds when it is over is the one sent. `0` reports at once; a value that is not a duration stops the start |
 
 State is in memory and deliberately so — a match lasts twenty minutes and the
@@ -493,6 +495,11 @@ before kick-off (#128):
 - **A finished match stays up for `WATCH_RESULT_HOLD`**, then the side select
   comes back. A check-in in the meantime brings it back at once. Without
   check-in, a finished match stays up until the next one starts, as before.
+- **A demo is not followed.** With the side select on, the screen shows the
+  halves while a demo plays, not the bots' score. Without check-in it follows
+  a demo as before.
+- **After `WATCH_SCREENSAVER_AFTER` idle, the pong screensaver takes the
+  screen** when `PONG_URL` is set (see zaehlwerk-pong, "The screensaver").
 
 The codes are fixed, the same URLs as the sheet Schmetterpause prints at
 `/qr/table`. Anybody who knows the link can check themselves in from their
@@ -1238,6 +1245,27 @@ The lobby says it is on and when the next demo starts, or that a match is at
 the table; `/healthz` is the same either way. A demo is marked `"attract":
 true` on `GET /games/{id}`.
 
+**The screensaver.** `GET /screensaver` is a page for a screen at the table
+(ADR-0013, #120). It starts a browser game between the two bots the moment it
+loads, so the screen shows the rally the panel scores, and the next one ten
+seconds after that one is over. The game page has nothing on it but the score
+and the table, and it starts with the sound off (`M` turns it on). A table
+that is taken is said on the page, which asks again every half minute.
+
+zaehlwerk's watch screen opens it by itself: with the side select on and
+`PONG_URL` set there, a table free with nobody checked in for
+`WATCH_SCREENSAVER_AFTER` gets the screensaver over the whole screen, with the
+two QR codes small in the corners. A check-in brings the side select back at
+once, and the game's page ends its demo as it goes, so the panel is free for
+the players' names.
+
+A screensaver game is a demo with every rule above: never reported, ended by a
+real match, by a game somebody starts in the lobby and by anybody counting
+into it. It ends attract mode's demo when it starts, but not another
+screensaver's: a second screen at the same table waits rather than take the
+table from the first. It is marked `"screensaver": true` on
+`GET /games/{id}`.
+
 ```bash
 task chain:pong:game ATTRACT=1m        # from source, against task run
 docker compose -f deploy/panel/compose.yaml --profile pong up -d   # the image, with the simulated panel
@@ -1502,6 +1530,7 @@ base whose removal can prune somebody else's panel.
 | [0010](docs/adr/0010-check-in-per-table-half.md) | Check-in per table half: a fob claims a half through Schmetterpause, two claims start a match reported without an operator |
 | [0011](docs/adr/0011-check-in-by-phone-through-schmetterpause.md) | Check-in by phone: Schmetterpause claims a half for a player with `POST /checkin/claim` |
 | [0012](docs/adr/0012-taking-a-point-back-through-the-ingest-contract.md) | An undo through the ingest contract: `"action": "undo"` with `source` and `event_id`, safe to retry |
+| [0013](docs/adr/0013-the-screensaver.md) | The screensaver: an idle side select hands the screen to a browser bot game, which gives way like any demo |
 
 ## Related
 

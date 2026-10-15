@@ -99,6 +99,8 @@ type Server struct {
 	// off. The screen is then what it was before check-in existed.
 	sides      *sides
 	resultHold time.Duration
+	// saver is where an idle side select goes, nil without PONG_URL.
+	saver *screensaver
 }
 
 // Option configures a Server.
@@ -248,14 +250,14 @@ func (s *Server) watch(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		v.Follow = true
-		if m, err := s.registry.Current(); err == nil {
+		if m, ok := s.current(); ok {
 			v.Match = s.matchView(m, kindOf(m.Scorer.State()))
 		}
 	}
 
 	v.Stream = v.Match != nil && s.hub != nil
 	if v.Follow && v.Match == nil && s.sides != nil {
-		v.Sides = s.sides.view()
+		v.Sides = s.sidesNow()
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -278,11 +280,11 @@ func (s *Server) watch(w http.ResponseWriter, r *http.Request) {
 // whoever is checking in wants to see their name in a column.
 func (s *Server) watchNext(w http.ResponseWriter, r *http.Request) {
 	shown := r.URL.Query().Get("match")
-	m, err := s.registry.Current()
+	m, running := s.current()
 	switch {
-	case err == nil && m.ID != shown:
+	case running && m.ID != shown:
 		w.Header().Set("HX-Redirect", "/ui/watch")
-	case err != nil && shown != "" && s.sides != nil:
+	case !running && shown != "" && s.sides != nil:
 		if s.sides.claimed() || !s.sides.held(shown, s.now(), s.resultHold) {
 			w.Header().Set("HX-Redirect", "/ui/watch")
 		}
