@@ -3,6 +3,7 @@ package pong
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -33,10 +34,10 @@ func newLobby(t *testing.T, r Roster) (*pongFixture, *table) {
 
 func TestTheLobbyOffersSchmetterpausesPlayersByName(t *testing.T) {
 	p, _ := newLobby(t, roster{players: []schmetterpause.Player{
-		{ID: "1", DisplayName: "skywalker"},
-		{ID: "2", DisplayName: "Anna"},
-		{ID: "3", DisplayName: "somebody with a name far too long for a game"},
-		{ID: "4", DisplayName: ""},
+		{ID: "id-skywalker", DisplayName: "skywalker"},
+		{ID: "id-anna", DisplayName: "Anna"},
+		{ID: "id-long", DisplayName: "somebody with a name far too long for a game"},
+		{ID: "id-empty", DisplayName: ""},
 	}})
 
 	page := get(t, p.url+"/")
@@ -48,7 +49,9 @@ func TestTheLobbyOffersSchmetterpausesPlayersByName(t *testing.T) {
 		"sorted, and a name a game cannot take is left out rather than cut")
 	require.Equal(t, 2, strings.Count(page, `list="players"`), "both name fields")
 	require.Contains(t, page, "zählt trotzdem nicht für die Liga")
-	require.NotContains(t, page, `value="1"`, "an id is never on the page")
+	for _, id := range []string{"id-skywalker", "id-anna", "id-long", "id-empty"} {
+		require.NotContains(t, page, id, "an id is never on the page")
+	}
 }
 
 func TestWithoutSchmetterpauseTheNamesAreFree(t *testing.T) {
@@ -86,4 +89,49 @@ func TestAGameBetweenSchmetterpausePlayersIsStillADemo(t *testing.T) {
 	require.Equal(t, [2]string{"Anna", "Bernd"}, m.Scorer.State().Players)
 	require.True(t, m.Demo)
 	require.False(t, m.Handover.Wanted())
+}
+
+// The lobby offers a single set, best of three and best of five, starting on
+// the service's own length, and the game plays the length picked.
+func TestTheLobbyPicksHowLongAGameLasts(t *testing.T) {
+	p, tbl := newLobby(t, nil)
+
+	page := get(t, p.url+"/")
+	require.Contains(t, page, `value="1"> 1 Satz`)
+	require.Contains(t, page, `value="3" checked> Best of 3`, "the service's PONG_BEST_OF")
+	require.Contains(t, page, `value="5"> Best of 5`)
+
+	resp, err := http.PostForm(p.url+"/ui/games", url.Values{"mode": {ModePvP}, "best_of": {"1"}})
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	m, err := tbl.registry.Current()
+	require.NoError(t, err)
+	bestOf, points := m.Scorer.Rules()
+	require.Equal(t, 1, bestOf)
+	require.Equal(t, 11, points)
+}
+
+func TestTheLobbyRefusesALengthItDoesNotOffer(t *testing.T) {
+	p, tbl := newLobby(t, nil)
+
+	resp, err := http.PostForm(p.url+"/ui/games", url.Values{"mode": {ModePvP}, "best_of": {"7"}})
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Contains(t, string(body), "Das geht so nicht")
+	_, err = tbl.registry.Current()
+	require.Error(t, err, "no game started")
+}
+
+// A demo is not the lobby's: it plays the service's length.
+func TestADemoPlaysTheServicesLength(t *testing.T) {
+	p, tbl := newLobby(t, nil)
+	b, _ := startSaver(t, p)
+	require.NotNil(t, b)
+
+	m, err := tbl.registry.Current()
+	require.NoError(t, err)
+	bestOf, _ := m.Scorer.Rules()
+	require.Equal(t, 3, bestOf)
 }

@@ -1370,7 +1370,7 @@ wrong half must report exactly that.
 | `HTTP_ADDR` | `:8081` | Listen address. Not `:8080`, so it runs next to a local zaehlwerk. `task chain:pong` uses `ZW_PONG_PORT` (`8087`), because `:8081` is the simulator's there |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARN`, `ERROR` |
 | `ZAEHLWERK_URL` | `http://localhost:8080` | The zaehlwerk it plays against. Only the service calls it, never a browser |
-| `PONG_BEST_OF` | `3` | Any odd number |
+| `PONG_BEST_OF` | `3` | Any odd number. The length of attract mode's demos and the screensaver's, and the one the lobby starts on. The lobby also offers a single set (`1`), best of 3 and best of 5. Every set goes to 11 |
 | `PONG_BOT_SKILL` | `mittel` | `leicht`, `mittel` or `schwer` for both bots, or `leicht,schwer` for Pong A and Pong B. A shot misses 30, 15 or 6 times in a hundred |
 | `PONG_FAULTS` | none | Faults for every game, e.g. `wrong_half=0.05,resend=0.1,correct=true`: names from the table above with a share from 0 to 1, and `correct`. An unknown name or a share out of range stops the service at startup |
 | `PONG_SEED` | the clock | The n-th game of a service started with the same seed draws the same rallies. A clock seed is logged at startup, so a run can be repeated |

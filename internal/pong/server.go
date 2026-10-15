@@ -379,7 +379,13 @@ func (s *Server) start(cfg GameConfig) (*Game, error) {
 		s.mu.Unlock()
 		return nil, err
 	}
-	cfg.BestOf, cfg.Skills, cfg.Seed = s.cfg.BestOf, s.cfg.Skills, s.cfg.Seed+n
+	// A game somebody started in the lobby keeps the length they picked;
+	// every other game, demos and the screensaver included, plays the
+	// service's PONG_BEST_OF.
+	if cfg.BestOf == 0 {
+		cfg.BestOf = s.cfg.BestOf
+	}
+	cfg.Skills, cfg.Seed = s.cfg.Skills, s.cfg.Seed+n
 	cfg.ResetQuiet, cfg.Idle = s.resetQuiet, s.idle
 	cfg.CheckTimeout, cfg.CheckGap = s.cfg.CheckTimeout, s.checkGap
 	// A demo leaves the driver empty, which is bots, and keeps its pace.
