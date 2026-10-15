@@ -149,7 +149,8 @@ the game renders its own profile with `config.pongEnabled: true`.
 
 Two values must not be readable from the namespace: `OMNI_PITCHER_TOKEN`, the
 bearer token `/pitch` answers 401 without, and `REDIS_PASSWORD`. Everything
-else is in the ConfigMap.
+else is in the ConfigMap, apart from the tokens of two optional couplings:
+`SCHMETTERPAUSE_TOKEN`, and `CHECKIN_TOKEN` below.
 
 - `secretsMode: none` — the default. No panel, so no secret to have.
 - `secretsMode: external` — renders an ExternalSecret against the cluster's
@@ -161,6 +162,29 @@ else is in the ConfigMap.
 Both keys are read with `optional: true`, so a Secret carrying only one of them
 does not stop the pod from starting — which is the normal case, since the two
 panel paths are alternatives rather than a pair.
+
+### `CHECKIN_TOKEN`
+
+The bearer token the hub sends with a fob check-in (#113). zaehlwerk turns
+check-in on only with it set, so without it check-in simply stays off: the
+route answers 503, `GET /checkin` says `"enabled": false`, the start log says
+`check-in disabled, CHECKIN_TOKEN not configured`, and nothing else changes.
+
+The Deployment reads it from `<name>-panel` with `optional: true`, like
+`SCHMETTERPAUSE_TOKEN`, in both `external` and `existing` mode.
+
+- **`secretsMode: external`** — `config.checkinEnabled: true` adds the entry
+  to the ExternalSecret, from the Vault key `checkin-token` under
+  `config.vaultPath` (`config.vaultKeyCheckinToken` to name it otherwise).
+  Off, the ExternalSecret renders exactly as before: a property missing in
+  Vault fails the whole ExternalSecret, so it is asked for only once it is
+  there. `task kcl:check` proves the switch adds that one entry and nothing
+  else.
+- **`secretsMode: existing`**, a cluster without ESO such as one run by Flux —
+  add `CHECKIN_TOKEN` as one more key to the Secret `<name>-panel` that is
+  already there. There is no switch to set; the Deployment already reads it.
+
+The hub has to send the same value (zaehlwerk-firmware#65).
 
 ## Trusting the cluster's CA
 

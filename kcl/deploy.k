@@ -55,6 +55,16 @@ _secretEnv = [
             secretKeyRef: {name: labels.secretName, key: "SCHMETTERPAUSE_TOKEN", optional: True}
         }
     }
+    # The hub's bearer for a check-in (#113). Read whether or not
+    # config.checkinEnabled puts it in the ExternalSecret: with secretsMode
+    # "existing" somebody adds it to the Secret by hand, and a Secret without
+    # it leaves check-in off, which zaehlwerk says in its start log.
+    {
+        name: "CHECKIN_TOKEN"
+        valueFrom: {
+            secretKeyRef: {name: labels.secretName, key: "CHECKIN_TOKEN", optional: True}
+        }
+    }
 ] if labels.renderSecret else []
 
 # Where the cluster CA bundle is mounted, and what Go is told to read. A

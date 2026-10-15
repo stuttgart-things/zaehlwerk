@@ -676,13 +676,37 @@ tasks:
           -D config.vaultPath=zaehlwerk \
           -D config.omniPitcherURL=https://omni-pitcher.example.com \
           -D config.redisAddr=redis.example.com \
-          -D config.schmetterpauseURL=https://schmetterpause.example.com 2>&1)" || {
+          -D config.schmetterpauseURL=https://schmetterpause.example.com \
+          -D config.checkinEnabled=true 2>&1)" || {
           echo "FAIL  all couplings on — did not render"; echo "${full}" | tail -5; exit 1
         }
         if printf '%s\n' "${full}" | python3 kcl/check_secret_keys.py; then
           echo "ok    all couplings on — every fetched secret key reaches a container"
         else
           status=1
+        fi
+
+        # checkinEnabled adds CHECKIN_TOKEN to the ExternalSecret and nothing
+        # else (#113): off, the ExternalSecret has no such entry, so a Vault
+        # entry without the key resolves as before; on, the render is the
+        # base plus exactly that entry.
+        base="$(task kcl:render)"
+        withcheckin="$(task kcl:render -- -D config.checkinEnabled=true 2>&1)" || {
+          echo "FAIL  checkin — did not render"; echo "${withcheckin}" | tail -5; exit 1
+        }
+        dropped="$(printf '%s\n' "${withcheckin}" | yq eval-all \
+          'del(select(.kind == "ExternalSecret").spec.data[] | select(.secretKey == "CHECKIN_TOKEN"))' -)"
+        added="$(printf '%s\n' "${withcheckin}" | yq eval-all \
+          'select(.kind == "ExternalSecret").spec.data[] | select(.secretKey == "CHECKIN_TOKEN") | .remoteRef.property' -)"
+        if printf '%s\n' "${base}" | yq eval-all \
+          'select(.kind == "ExternalSecret").spec.data[] | select(.secretKey == "CHECKIN_TOKEN")' - | grep -q .; then
+          echo "FAIL  checkin — the ExternalSecret asks for CHECKIN_TOKEN without the switch"; status=1
+        elif [ "${added}" != "checkin-token" ]; then
+          echo "FAIL  checkin — the switch added ${added:-nothing}, not checkin-token"; status=1
+        elif [ "${dropped}" != "$(printf '%s\n' "${base}" | yq eval-all '.' -)" ]; then
+          echo "FAIL  checkin — the switch changed more than the one ExternalSecret entry"; status=1
+        else
+          echo "ok    checkin — the switch adds CHECKIN_TOKEN to the ExternalSecret and nothing else"
         fi
 
         # zaehlwerk-pong is off in every profile, so its part is rendered here
