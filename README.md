@@ -108,7 +108,7 @@ curl -s -X POST localhost:8080/matches \
   -d '{"players": ["Anna", "Bernd"], "best_of": 5}'      # 201, Location: /matches/{id}
 
 curl -s localhost:8080/matches/{id}
-curl -s localhost:8080/matches/current                  # 404 when nothing is running
+curl -s localhost:8080/matches/current                  # 404 when nothing is running; "demo": true for a demo
 curl -s -X POST localhost:8080/matches/{id}/undo         # 409 if there is nothing to take back; not safe to retry
 curl -s -X POST localhost:8080/matches/{id}/end          # idempotent
 ```
@@ -872,6 +872,12 @@ reference for it:
 
 - It joins through `GET /matches/current` and asks again before every rally,
   so an undo from the phone changes who serves.
+- It does not join a demo (`"demo": true` on `GET /matches/current`), which is
+  every match zaehlwerk-pong starts: its bots, the screensaver, and a game
+  somebody plays in the browser. A real board scores into one only when
+  somebody hits a ball, and that ends the demo, as it should (ADR-0008). This
+  board hits no ball: it would roll rallies into a game on a canvas and end it
+  within a few seconds. It waits for a real match instead.
 - It sends one `POST /ingest/piezo` per rally, with a counter that only goes
   up.
 - It maps table half to player and swaps them at each set boundary.

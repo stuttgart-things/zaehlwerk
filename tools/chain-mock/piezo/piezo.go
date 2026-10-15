@@ -254,29 +254,44 @@ var pageError = regexp.MustCompile(`<div class="error">([^<]*)</div>`)
 
 // join waits for a running match, as a board does after power-up.
 func (b *Board) join(ctx context.Context) (scorer.State, error) {
-	waiting := false
+	// said is what the board last said it waits for, so it says it once
+	// per change rather than once a second.
+	said := ""
 	for {
 		st, status, err := b.ask(ctx, http.MethodGet, "/matches/current", nil)
 		switch {
 		case err != nil:
-			return st, err
+			return st.State, err
+		case status == http.StatusOK && st.Demo:
+			// A demo is any match zaehlwerk-pong started: its bots, the
+			// screensaver, or a game somebody plays in the browser. A board
+			// on the table would score into one only if somebody hit a ball,
+			// and then ending the demo is right (ADR-0008). This board hits
+			// no ball: it rolls rallies, and rolled into a game on a canvas
+			// they are a count nobody played, which ends it within a few
+			// rallies. So it waits, as it does for an empty table.
+			if said != "demo" {
+				b.setDoing("waiting, a demo is running", "")
+				b.log.Info("a demo is running, waiting for a real match", "match_id", st.MatchID)
+				said = "demo"
+			}
 		case status == http.StatusOK:
 			b.setDoing("playing", st.MatchID)
 			b.log.Info("joined", "match_id", st.MatchID,
 				"players", st.Players, "serving", st.Players[index(st.Serving)])
-			return st, nil
+			return st.State, nil
 		case status != http.StatusNotFound:
-			return st, fmt.Errorf("GET /matches/current: %d", status)
+			return st.State, fmt.Errorf("GET /matches/current: %d", status)
 		}
 
-		if !waiting {
+		if said != "empty" && status == http.StatusNotFound {
 			b.setDoing("waiting for a match", "")
 			b.log.Info("no match running, waiting for one to be started on the page")
-			waiting = true
+			said = "empty"
 		}
 		select {
 		case <-ctx.Done():
-			return st, ctx.Err()
+			return st.State, ctx.Err()
 		case <-time.After(joinPoll):
 		}
 	}
@@ -309,7 +324,7 @@ func (b *Board) play(ctx context.Context, st scorer.State) error {
 			return err
 		}
 
-		if err := b.rally(ctx, cur); errors.Is(err, errMatchOver) {
+		if err := b.rally(ctx, cur.State); errors.Is(err, errMatchOver) {
 			continue
 		} else if err != nil {
 			return err
@@ -410,14 +425,14 @@ func (b *Board) ingest(ctx context.Context, ev ingestBody) (scorer.State, error)
 	st, status, err := b.ask(ctx, http.MethodPost, "/ingest/piezo", ev)
 	switch {
 	case err != nil:
-		return st, err
+		return st.State, err
 	case status == http.StatusOK:
-		return st, nil
+		return st.State, nil
 	case status == http.StatusConflict || status == http.StatusNotFound:
 		// Won by the previous rally, or ended on the page between two.
-		return st, errMatchOver
+		return st.State, errMatchOver
 	}
-	return st, fmt.Errorf("POST /ingest/piezo: %d", status)
+	return st.State, fmt.Errorf("POST /ingest/piezo: %d", status)
 }
 
 // ask is call for a board on the table: while zaehlwerk cannot be reached —
@@ -430,7 +445,7 @@ func (b *Board) ingest(ctx context.Context, ev ingestBody) (scorer.State, error)
 // whose answer got lost is a duplicate the second time, not a second point
 // (ADR-0002). The page's new-match form does not go through here: it has no
 // such id, and sent twice it could start two matches.
-func (b *Board) ask(ctx context.Context, method, path string, body any) (scorer.State, int, error) {
+func (b *Board) ask(ctx context.Context, method, path string, body any) (state, int, error) {
 	var (
 		since time.Time
 		tries int
@@ -471,11 +486,18 @@ func (b *Board) ask(ctx context.Context, method, path string, body any) (scorer.
 	}
 }
 
+// state is a match's state as zaehlwerk answers it. Demo is only ever set by
+// GET /matches/current.
+type state struct {
+	scorer.State
+	Demo bool `json:"demo"`
+}
+
 // call sends a request and decodes the state, from the body or from the state
 // an error body carries. The status is returned rather than judged here,
 // because a 404 means "wait" to join and "over" to a rally.
-func (b *Board) call(ctx context.Context, method, path string, body any) (scorer.State, int, error) {
-	var st scorer.State
+func (b *Board) call(ctx context.Context, method, path string, body any) (state, int, error) {
+	var st state
 
 	var reader io.Reader
 	if body != nil {
@@ -516,7 +538,7 @@ func (b *Board) call(ctx context.Context, method, path string, body any) (scorer
 	}
 	if json.Unmarshal(raw, &refusal) == nil {
 		if refusal.State != nil {
-			st = *refusal.State
+			st.State = *refusal.State
 		}
 		b.log.Debug("refused", "method", method, "path", path,
 			"status", resp.StatusCode, "error", refusal.Error)

@@ -149,3 +149,17 @@ func TestTheRealMatchHasThePanelBeforeTheDemoLetsGo(t *testing.T) {
 	require.Equal(t, [][]string{{"tabletennis"}, {"tabletennis"}}, cat.switches(),
 		"the panel never went back to the idle streams in between")
 }
+
+// GET /matches/current says a demo is one, and says nothing for a real match,
+// so a caller that never heard of the field reads what it always read.
+func TestTheCurrentMatchSaysWhenItIsADemo(t *testing.T) {
+	c := newClient(t)
+	c.newMatch(demoBody)
+	_, body := c.do(http.MethodGet, "/matches/current", "")
+	require.Contains(t, string(body), `"demo":true`)
+
+	c.newMatch(`{"players":["Anna","Bernd"]}`)
+	_, body = c.do(http.MethodGet, "/matches/current", "")
+	require.NotContains(t, string(body), `"demo"`)
+	require.Contains(t, string(body), `"match_id"`, "the state itself is unchanged")
+}

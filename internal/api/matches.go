@@ -128,7 +128,18 @@ func (s *Server) currentMatch(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusNotFound, err, nil)
 		return
 	}
-	s.writeState(w, http.StatusOK, m.Scorer.State())
+	writeJSON(w, http.StatusOK, currentBody{State: m.Scorer.State(), Demo: m.Demo})
+}
+
+// currentBody is the state with whether the match is a demo, flat beside it
+// and absent for a real match, so a caller that never heard of the field reads
+// exactly what it read before. A board on the table has no use for it: a
+// person hitting the ball into a demo is somebody playing, and that ending the
+// demo is the point (ADR-0008). A simulated board does: it only rolls rallies,
+// and rolled into a demo they are nothing but noise in the bots' game.
+type currentBody struct {
+	scorer.State
+	Demo bool `json:"demo,omitempty"`
 }
 
 // undo is not gated on the match still running. Taking back a wrongly awarded
