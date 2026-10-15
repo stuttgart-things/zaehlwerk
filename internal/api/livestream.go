@@ -122,9 +122,13 @@ func (s *Server) tableTransition(rc *http.ResponseController, w http.ResponseWri
 		if err != nil || m.ID != ev.State.MatchID {
 			return nil
 		}
-		// The fresh state already contains ev, so the snapshot replaces it.
+		// The snapshot replaces ev, and is ev's own state rather than the
+		// match's state now: the events after ev are still queued behind it
+		// and are sent next, so a fresh state that already held them would
+		// send each of them twice, once in the snapshot and once as itself
+		// (#141).
 		*current = m.ID
-		return s.writeTableEvent(rc, w, s.withIDs(m, live.KindSnapshot, m.Scorer.State()))
+		return s.writeTableEvent(rc, w, s.withIDs(m, live.KindSnapshot, ev.State))
 	}
 
 	m, err := s.registry.Get(ev.State.MatchID)

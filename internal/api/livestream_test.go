@@ -104,6 +104,34 @@ func readTableEvent(t *testing.T, r *bufio.Reader) tableEvent {
 	return tableEvent{}
 }
 
+// The snapshot a table stream sends when it moves to a new match is where that
+// match stood at the event that moved it, not where it stands by the time the
+// stream gets round to it. The events after it are still queued behind it and
+// are sent next; a snapshot that already held them made a fast first press
+// arrive twice, once in the snapshot and once as itself, and a reader that
+// works out which half was pressed from the change found none (#141).
+func TestTheSnapshotOfANewMatchIsWhereItStoodAtTheEventThatStartedIt(t *testing.T) {
+	f := newTableFixture(t)
+	m := f.start(match.Handover{})
+	started := live.Event{Kind: live.KindStarted, State: m.Scorer.State()}
+	// A point scored before the stream handles the start: its own event is
+	// queued behind the start's.
+	point(t, m, scorer.PlayerA, 1)
+
+	rec := httptest.NewRecorder()
+	current := ""
+	require.NoError(t, f.api.tableTransition(http.NewResponseController(rec), rec, started, &current,
+		func() error { return nil }))
+
+	line, ok := strings.CutPrefix(strings.TrimSpace(rec.Body.String()), "data: ")
+	require.True(t, ok, rec.Body.String())
+	var ev tableEvent
+	require.NoError(t, json.Unmarshal([]byte(line), &ev))
+	require.Equal(t, live.KindSnapshot, ev.Kind)
+	require.Equal(t, m.ID, current)
+	require.Equal(t, [2]int{0, 0}, ev.State.Points, "the point is still to come, as its own event")
+}
+
 func TestTheTableStreamSaysNoMatchOnConnectBetweenMatches(t *testing.T) {
 	f := newTableFixture(t)
 	r, _ := f.connect()
