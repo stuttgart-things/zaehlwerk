@@ -440,7 +440,7 @@ func (b *Board) ask(ctx context.Context, method, path string, body any) (scorer.
 		st, status, err := b.call(ctx, method, path, body)
 		if err == nil && status < http.StatusInternalServerError {
 			if tries > 0 {
-				b.log.Info("zaehlwerk back", "tries", tries, "after", time.Since(since).Round(time.Millisecond))
+				b.log.Info("zaehlwerk back", "tries", tries, "after", time.Since(since).Round(time.Millisecond).String())
 			}
 			return st, status, nil
 		}
@@ -594,7 +594,7 @@ func RunFromEnv(ctx context.Context, log *slog.Logger) error {
 		cfg.Roster = client
 	}
 
-	log.Info("board up", "api", cfg.API, "source", cfg.Source, "pace", cfg.Pace,
+	log.Info("board up", "api", cfg.API, "source", cfg.Source, "pace", cfg.Pace.String(),
 		"joins", cfg.Join, "roster", cfg.Roster != nil)
 	b := New(cfg, log)
 
