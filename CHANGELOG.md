@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.1](https://github.com/stuttgart-things/zaehlwerk/compare/v0.21.0...v0.21.1) (2026-10-15)
+
+
+### Bug Fixes
+
+* **piezo:** ride out zaehlwerk going away instead of stopping ([#134](https://github.com/stuttgart-things/zaehlwerk/issues/134)) ([6ca2667](https://github.com/stuttgart-things/zaehlwerk/commit/6ca2667f9c6c4d4535e52bfff7952ede888ace13)), closes [#133](https://github.com/stuttgart-things/zaehlwerk/issues/133)
+
 ## [0.21.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.20.0...v0.21.0) (2026-10-15)
 
 
