@@ -166,9 +166,10 @@ panel paths are alternatives rather than a pair.
 ### `CHECKIN_TOKEN`
 
 The bearer token the hub sends with a fob check-in (#113). zaehlwerk turns
-check-in on only with it set, so without it check-in simply stays off: the
-route answers 503, `GET /checkin` says `"enabled": false`, the start log says
-`check-in disabled, CHECKIN_TOKEN not configured`, and nothing else changes.
+check-in by fob on only with it set, so without it fob check-in simply stays
+off: `/ingest/checkin` answers 503, `GET /checkin` leaves out `"fob"`, the
+start log says `fob check-in disabled, CHECKIN_TOKEN not configured`, and
+nothing else changes. Check-in by phone does not need it (ADR-0011).
 
 The Deployment reads it from `<name>-panel` with `optional: true`, like
 `SCHMETTERPAUSE_TOKEN`, in both `external` and `existing` mode.
@@ -185,6 +186,12 @@ The Deployment reads it from `<name>-panel` with `optional: true`, like
   already there. There is no switch to set; the Deployment already reads it.
 
 The hub has to send the same value (zaehlwerk-firmware#65).
+
+`task kcl:check` also fails when the binary reads a secret that the Deployment
+never passes in (#121): every `…_TOKEN`, `…_PASSWORD`, `…_SECRET` or `…_KEY`
+named in `cmd/zaehlwerk-api` has to arrive from `<name>-panel`, in `external`
+and in `existing` mode. A new token is then one entry in `deploy.k`, and the
+check says so before a cluster does.
 
 ## Trusting the cluster's CA
 
