@@ -39,6 +39,14 @@ import (
 // from the page to the table in the meantime; a second is plenty.
 const joinPoll = time.Second
 
+// retryFirst and retryMax bound the wait between two tries while zaehlwerk
+// cannot be reached: a rollout is over in seconds, an outage may take longer,
+// and a board on the table keeps trying for as long as it is switched on.
+const (
+	retryFirst = time.Second
+	retryMax   = 30 * time.Second
+)
+
 type Config struct {
 	API    string
 	Source string
@@ -91,6 +99,9 @@ type Board struct {
 	// also cannot send backwards.
 	eventID uint64
 
+	// retryFirst and retryMax are the package constants; tests shorten them.
+	retryFirst, retryMax time.Duration
+
 	// mu guards what the control endpoint reads and writes while the board
 	// plays: the knobs, and what the board is doing right now.
 	mu      sync.Mutex
@@ -101,11 +112,13 @@ type Board struct {
 
 func New(cfg Config, log *slog.Logger) *Board {
 	return &Board{
-		cfg:     cfg,
-		http:    &http.Client{Timeout: 5 * time.Second},
-		log:     log,
-		rnd:     rand.New(rand.NewSource(cfg.Seed)),
-		eventID: uint64(time.Now().UnixMilli()),
+		cfg:        cfg,
+		http:       &http.Client{Timeout: 5 * time.Second},
+		log:        log,
+		rnd:        rand.New(rand.NewSource(cfg.Seed)),
+		eventID:    uint64(time.Now().UnixMilli()),
+		retryFirst: retryFirst,
+		retryMax:   retryMax,
 		ctl: Control{
 			PaceMs:    cfg.Pace.Milliseconds(),
 			Ambiguous: cfg.Ambiguous,
@@ -243,7 +256,7 @@ var pageError = regexp.MustCompile(`<div class="error">([^<]*)</div>`)
 func (b *Board) join(ctx context.Context) (scorer.State, error) {
 	waiting := false
 	for {
-		st, status, err := b.call(ctx, http.MethodGet, "/matches/current", nil)
+		st, status, err := b.ask(ctx, http.MethodGet, "/matches/current", nil)
 		switch {
 		case err != nil:
 			return st, err
@@ -276,12 +289,12 @@ func (b *Board) play(ctx context.Context, st scorer.State) error {
 		// point back since the last answer, and who serves next is part of
 		// how a board judges the rally. A board that remembered would judge
 		// it against a serve that no longer holds.
-		cur, status, err := b.call(ctx, http.MethodGet, "/matches/current", nil)
+		cur, status, err := b.ask(ctx, http.MethodGet, "/matches/current", nil)
 		if err != nil {
 			return err
 		}
 		if status != http.StatusOK || cur.MatchID != id {
-			final, _, err := b.call(ctx, http.MethodGet, "/matches/"+id, nil)
+			final, _, err := b.ask(ctx, http.MethodGet, "/matches/"+id, nil)
 			if err != nil {
 				return err
 			}
@@ -394,7 +407,7 @@ func (b *Board) rally(ctx context.Context, st scorer.State) error {
 }
 
 func (b *Board) ingest(ctx context.Context, ev ingestBody) (scorer.State, error) {
-	st, status, err := b.call(ctx, http.MethodPost, "/ingest/piezo", ev)
+	st, status, err := b.ask(ctx, http.MethodPost, "/ingest/piezo", ev)
 	switch {
 	case err != nil:
 		return st, err
@@ -405,6 +418,57 @@ func (b *Board) ingest(ctx context.Context, ev ingestBody) (scorer.State, error)
 		return st, errMatchOver
 	}
 	return st, fmt.Errorf("POST /ingest/piezo: %d", status)
+}
+
+// ask is call for a board on the table: while zaehlwerk cannot be reached —
+// no connection, no answer in time, or a 5xx from it or the gateway in front
+// of it, as during a rollout — it waits and asks again instead of giving up
+// (#133). Only the context ends the wait.
+//
+// Asking again is safe for everything that goes through here: the GETs read,
+// and an ingest event carries its event_id, so one zaehlwerk did receive but
+// whose answer got lost is a duplicate the second time, not a second point
+// (ADR-0002). The page's new-match form does not go through here: it has no
+// such id, and sent twice it could start two matches.
+func (b *Board) ask(ctx context.Context, method, path string, body any) (scorer.State, int, error) {
+	var (
+		since time.Time
+		tries int
+		wait  = b.retryFirst
+	)
+	for {
+		st, status, err := b.call(ctx, method, path, body)
+		if err == nil && status < http.StatusInternalServerError {
+			if tries > 0 {
+				b.log.Info("zaehlwerk back", "tries", tries, "after", time.Since(since).Round(time.Millisecond))
+			}
+			return st, status, nil
+		}
+		if ctx.Err() != nil {
+			return st, status, ctx.Err()
+		}
+
+		reason := fmt.Sprintf("%s %s: %d", method, path, status)
+		if err != nil {
+			reason = err.Error()
+		}
+		if tries == 0 {
+			since = time.Now()
+			b.log.Warn("zaehlwerk unreachable, retrying", "error", reason)
+		} else {
+			b.log.Debug("zaehlwerk still unreachable", "error", reason, "tries", tries)
+		}
+		tries++
+
+		// Up to half again at random, so boards that lost zaehlwerk together
+		// do not all come back in the same millisecond.
+		select {
+		case <-ctx.Done():
+			return st, status, ctx.Err()
+		case <-time.After(wait + time.Duration(rand.Int63n(int64(wait)/2+1))):
+		}
+		wait = min(2*wait, b.retryMax)
+	}
 }
 
 // call sends a request and decodes the state, from the body or from the state
