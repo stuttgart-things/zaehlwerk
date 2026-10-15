@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 )
 
 // outage sits between the board and zaehlwerk and fails the requests its
@@ -115,7 +113,7 @@ func TestALostAnswerIsNotASecondPoint(t *testing.T) {
 	require.NoError(t, b.rally(ctx, st))
 	require.Equal(t, 1, o.failed())
 
-	var now scorer.State
+	var now state
 	now, _, err = b.call(ctx, http.MethodGet, "/matches/current", nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, now.Points[0]+now.Points[1], "one rally, sent twice, is one point")

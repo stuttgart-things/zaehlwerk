@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -164,4 +165,50 @@ func TestTheBoardSendsTheFourFieldsAndTheMatch(t *testing.T) {
 	raw, err = json.Marshal(ingestBody{MatchID: "m", Source: "s", Action: "undo", EventID: 4})
 	require.NoError(t, err)
 	require.JSONEq(t, `{"match_id":"m","source":"s","action":"undo","event_id":4}`, string(raw))
+}
+
+// A demo is any match zaehlwerk-pong started. A board that only rolls rallies
+// would count into it, which ends the game on the canvas within a few rallies; it
+// waits instead, and joins the real match that takes the table.
+func TestABoardWaitsThroughADemoAndJoinsTheRealMatch(t *testing.T) {
+	registry := match.NewRegistry()
+	apiSrv := api.New(registry, api.WithLogger(quiet))
+	srv := httptest.NewServer(apiSrv)
+	t.Cleanup(srv.Close)
+
+	post := func(body string) string {
+		t.Helper()
+		resp, err := http.Post(srv.URL+"/matches", "application/json", strings.NewReader(body))
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		require.Equal(t, http.StatusCreated, resp.StatusCode)
+		var st scorer.State
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&st))
+		return st.MatchID
+	}
+	demo := post(`{"players":["Pong A","Pong B"],"best_of":1,"demo":true}`)
+
+	b := New(Config{API: srv.URL, Source: "piezo-test", Seed: 3, Join: true}, quiet)
+	joined := make(chan scorer.State, 1)
+	go func() {
+		st, err := b.join(t.Context())
+		if err == nil {
+			joined <- st
+		}
+	}()
+
+	require.Never(t, func() bool { return len(joined) > 0 }, 3*joinPoll, joinPoll/4,
+		"the board joined the demo")
+	require.Equal(t, "waiting, a demo is running", b.Status().Doing)
+	m, err := registry.Get(demo)
+	require.NoError(t, err)
+	require.Zero(t, m.Scorer.State().Points, "nothing counted into the demo")
+
+	real := post(`{"players":["Anna","Bernd"],"best_of":1}`)
+	select {
+	case st := <-joined:
+		require.Equal(t, real, st.MatchID)
+	case <-time.After(5 * joinPoll):
+		t.Fatal("the board did not join the real match")
+	}
 }
