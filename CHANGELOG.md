@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.22.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.21.2...v0.22.0) (2026-10-15)
+
+
+### Features
+
+* link the services around the table from the scoring page ([#139](https://github.com/stuttgart-things/zaehlwerk/issues/139)) ([2b4e950](https://github.com/stuttgart-things/zaehlwerk/commit/2b4e950039689c843282dc42f598f62e27c7dc58))
+* the pong lobby offers Schmetterpause's players and how long a game lasts ([#140](https://github.com/stuttgart-things/zaehlwerk/issues/140)) ([ee18001](https://github.com/stuttgart-things/zaehlwerk/commit/ee18001d6b7eab8826a9e8a055c4de6c40f7b0bd))
+
+
+### Bug Fixes
+
+* the piezo mock waits through a demo instead of scoring into it ([#138](https://github.com/stuttgart-things/zaehlwerk/issues/138)) ([0d1baa1](https://github.com/stuttgart-things/zaehlwerk/commit/0d1baa121cc8bf3df554b4d6fb1b40bddc1da267))
+
 ## [0.21.2](https://github.com/stuttgart-things/zaehlwerk/compare/v0.21.1...v0.21.2) (2026-10-15)
 
 
