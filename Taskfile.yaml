@@ -680,8 +680,23 @@ tasks:
           -D config.checkinEnabled=true 2>&1)" || {
           echo "FAIL  all couplings on — did not render"; echo "${full}" | tail -5; exit 1
         }
-        if printf '%s\n' "${full}" | python3 kcl/check_secret_keys.py; then
-          echo "ok    all couplings on — every fetched secret key reaches a container"
+        # --reads checks the other direction too: every secret the binary
+        # reads reaches it. CHECKIN_TOKEN was missing from both files at once
+        # (#121), which the fetched-key half cannot see.
+        if printf '%s\n' "${full}" | python3 kcl/check_secret_keys.py --reads cmd/zaehlwerk-api; then
+          echo "ok    all couplings on — every fetched secret key reaches a container, every secret read is passed in"
+        else
+          status=1
+        fi
+
+        # secretsMode existing renders no ExternalSecret, so only --reads has
+        # anything to compare: the Secret is written by hand (Flux, SOPS), and
+        # a key in it reaches the binary only if deploy.k names it.
+        existing="$(kcl run kcl -D config.secretsMode=existing 2>&1)" || {
+          echo "FAIL  secretsMode existing — did not render"; echo "${existing}" | tail -5; exit 1
+        }
+        if printf '%s\n' "${existing}" | python3 kcl/check_secret_keys.py --reads cmd/zaehlwerk-api; then
+          echo "ok    secretsMode existing — every secret the binary reads is passed in"
         else
           status=1
         fi
