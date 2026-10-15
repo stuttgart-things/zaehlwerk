@@ -54,8 +54,9 @@ var mascotSVG string
 // paddleColours are the blades schmetterpause gives its players
 // (web/static/css/app.css there), picked by measurement: far enough from each
 // other, from the fur, and from every colour that already means something on
-// the page — violet is "press me", green and red are good and bad. That last
-// one is why the drawing's own red is not among them.
+// the page — violet is "press me", green and red are good and bad. The
+// drawing's own gold, the cord's fallback, sits too close to the fur to be
+// one of them.
 var paddleColours = []string{
 	"#3aa6ff", // light blue
 	"#2f6fd0", // blue
