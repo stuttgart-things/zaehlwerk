@@ -1438,6 +1438,7 @@ base whose removal can prune somebody else's panel.
 | [0009](docs/adr/0009-pong-on-two-devices.md) | Pong on two devices: the host reports, the guest only moves a paddle |
 | [0010](docs/adr/0010-check-in-per-table-half.md) | Check-in per table half: a fob claims a half through Schmetterpause, two claims start a match reported without an operator |
 | [0011](docs/adr/0011-check-in-by-phone-through-schmetterpause.md) | Check-in by phone: Schmetterpause claims a half for a player with `POST /checkin/claim` |
+| [0012](docs/adr/0012-taking-a-point-back-through-the-ingest-contract.md) | An undo through the ingest contract: `"action": "undo"` with `source` and `event_id`, safe to retry |
 
 ## Related
 
