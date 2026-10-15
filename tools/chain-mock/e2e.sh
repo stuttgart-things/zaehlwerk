@@ -516,28 +516,30 @@ checkins() { curl -sf "$SP/checkins" | jq length; }
 outcome() { jq -r .outcome "$WORK/checkin.json"; }
 
 # Anybody else on the network: Anna's UID is no secret, the token is.
-[ "$(checkin 1 left 04:a3:1b:22 "")" = 401 ] ||
+# The roster's fobs are fobuid.For(id): Anna 04:BD:76:62:A5:EE:B4, Bernd
+# 04:B4:54:F8:2C:58:57, Clara 04:F6:22:2A:11:06:EE.
+[ "$(checkin 1 left 04:bd:76:62:a5:ee:b4 "")" = 401 ] ||
   fail "a check-in without the hub's token was not refused: $(cat "$WORK/checkin.json")"
-[ "$(checkin 1 left 04:a3:1b:22 not-the-hub)" = 401 ] ||
+[ "$(checkin 1 left 04:bd:76:62:a5:ee:b4 not-the-hub)" = 401 ] ||
   fail "a check-in with a wrong token was not refused: $(cat "$WORK/checkin.json")"
 [ "$(checkins)" = 0 ] || fail "a refused check-in reached Schmetterpause ($(checkins) check-ins over there)"
 
-[ "$(checkin 1 left 04:a3:1b:22)" = 200 ] && [ "$(outcome)" = claimed ] ||
+[ "$(checkin 1 left 04:bd:76:62:a5:ee:b4)" = 200 ] && [ "$(outcome)" = claimed ] ||
   fail "Anna's fob did not claim the left half: $(cat "$WORK/checkin.json")"
-[ "$(checkin 1 left 04:a3:1b:22)" = 200 ] && [ "$(jq -r .repeated "$WORK/checkin.json")" = true ] ||
+[ "$(checkin 1 left 04:bd:76:62:a5:ee:b4)" = 200 ] && [ "$(jq -r .repeated "$WORK/checkin.json")" = true ] ||
   fail "the retried check-in was not answered as a repeat: $(cat "$WORK/checkin.json")"
 [ "$(checkins)" = 1 ] || fail "a retried check-in was resolved again ($(checkins) check-ins over there)"
 [ "$(checkin 2 right DE:AD:BE:EF)" = 404 ] && [ "$(outcome)" = unknown ] ||
   fail "an unknown fob was not answered as one: $(cat "$WORK/checkin.json")"
 [ "$(curl -sf "$ZW/checkin" | jq -r '.left.name + "|" + (.right.name // "")')" = "Anna|" ] ||
   fail "the halves are not Anna and free: $(curl -sf "$ZW/checkin")"
-[ "$(checkin 3 right 04-5C-7E-91)" = 200 ] && [ "$(outcome)" = started ] ||
+[ "$(checkin 3 right 04-B4-54-F8-2C-58-57)" = 200 ] && [ "$(outcome)" = started ] ||
   fail "Bernd's fob did not start the match: $(cat "$WORK/checkin.json")"
 match=$(jq -r .match_id "$WORK/checkin.json")
 [ "$(curl -sf "$ZW/matches/current" | jq -r '.match_id + "|" + .phase + "|" + (.players | join(","))')" = "$match|serve_rally|Anna,Bernd" ] ||
   fail "the checked-in match is not Anna against Bernd playing for the serve: $(curl -sf "$ZW/matches/current")"
 before=$(checkins)
-[ "$(checkin 4 left "04 11 22 33 44 55 66")" = 409 ] && [ "$(outcome)" = refused ] ||
+[ "$(checkin 4 left "04 F6 22 2A 11 06 EE")" = 409 ] && [ "$(outcome)" = refused ] ||
   fail "a check-in during the match was not refused: $(cat "$WORK/checkin.json")"
 [ "$(checkins)" = "$before" ] || fail "a check-in during the match reached Schmetterpause"
 
@@ -558,7 +560,7 @@ last=$(curl -sf "$SP/results" | jq -c '.[-1]')
 [ "$(curl -sf "$SP/checkins" | jq '[.[] | select(.used)] | length')" = 2 ] ||
   fail "the result did not use exactly the two check-ins"
 for log in zw sp; do
-  for spelling in de:ad:be:ef DE:AD:BE:EF deadbeef DEADBEEF 04:a3:1b:22 04:A3:1B:22 04-5C-7E-91 "04 11 22 33"; do
+  for spelling in de:ad:be:ef DE:AD:BE:EF deadbeef DEADBEEF 04:bd:76:62:a5:ee:b4 04:BD:76:62:A5:EE:B4 04-B4-54-F8-2C-58-57 "04 F6 22 2A"; do
     ! grep -qF "$spelling" "$WORK/$log.log" || fail "a UID ($spelling) is in $log.log"
   done
 done
@@ -584,7 +586,7 @@ phone_checkin() { curl -sf "$SP/checkins" | jq -r '[.[] | select(.method == "pho
   -d "{\"half\":\"right\",\"player_id\":\"$bernd_id\",\"checkin_id\":\"$bernd_id\"}")" = 401 ] ||
   fail "a claim with the hub's token was not refused: $(cat "$WORK/checkin.json")"
 
-[ "$(checkin 5 left "04 11 22 33 44 55 66")" = 200 ] && [ "$(outcome)" = claimed ] ||
+[ "$(checkin 5 left "04 F6 22 2A 11 06 EE")" = 200 ] && [ "$(outcome)" = claimed ] ||
   fail "Clara's fob did not claim the left half: $(cat "$WORK/checkin.json")"
 [ "$(phone right $bernd_id)" = 200 ] && [ "$(outcome)" = started ] ||
   fail "Bernd's phone did not start the match: $(cat "$WORK/checkin.json")"

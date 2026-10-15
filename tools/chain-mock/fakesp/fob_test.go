@@ -16,6 +16,13 @@ import (
 	"github.com/stuttgart-things/zaehlwerk/internal/schmetterpause"
 )
 
+// The roster's fobs, which are the table mock's (fobuid.For).
+var (
+	annaFob  = DefaultRoster[0].Fob
+	berndFob = DefaultRoster[1].Fob
+	claraFob = DefaultRoster[2].Fob
+)
+
 func checkedIn(home, away, homeCheckin, awayCheckin string) schmetterpause.Result {
 	r := result(home, away, "")
 	r.HomeCheckinID, r.AwayCheckinID = homeCheckin, awayCheckin
@@ -25,12 +32,12 @@ func checkedIn(home, away, homeCheckin, awayCheckin string) schmetterpause.Resul
 func TestTheClientResolvesAFakeFobAsItResolvesARealOne(t *testing.T) {
 	f, _, c := fake(t, ModeAccept)
 
-	got, err := c.ResolveFob(context.Background(), "04-a3-1b-22", "left")
+	got, err := c.ResolveFob(context.Background(), strings.ReplaceAll(strings.ToLower(annaFob), ":", "-"), "left")
 	require.NoError(t, err)
 	require.Equal(t, anna, got.PlayerID)
 	require.NotEmpty(t, got.CheckinID)
 
-	again, err := c.ResolveFob(context.Background(), "04:A3:1B:22", "left")
+	again, err := c.ResolveFob(context.Background(), annaFob, "left")
 	require.NoError(t, err)
 	require.NotEqual(t, got.CheckinID, again.CheckinID, "every resolve is a new check-in")
 	require.Len(t, f.Checkins(), 2)
@@ -51,7 +58,7 @@ func TestWithoutTheFobKeyThereIsNoRoute(t *testing.T) {
 	c, err := schmetterpause.New(schmetterpause.Config{BaseURL: srv.URL, Token: "secret"})
 	require.NoError(t, err)
 
-	_, err = c.ResolveFob(context.Background(), "04:A3:1B:22", "left")
+	_, err = c.ResolveFob(context.Background(), annaFob, "left")
 	require.ErrorIs(t, err, schmetterpause.ErrNoFobRoute)
 }
 
@@ -76,9 +83,9 @@ func TestTwoCheckinsProveAResultWithoutAnOperator(t *testing.T) {
 	f, _, c := fake(t, ModeAccept)
 	ctx := context.Background()
 
-	home, err := c.ResolveFob(ctx, "04:A3:1B:22", "left")
+	home, err := c.ResolveFob(ctx, annaFob, "left")
 	require.NoError(t, err)
-	away, err := c.ResolveFob(ctx, "04:5C:7E:91", "right")
+	away, err := c.ResolveFob(ctx, berndFob, "right")
 	require.NoError(t, err)
 
 	accepted, err := c.Report(ctx, checkedIn(anna, bernd, home.CheckinID, away.CheckinID))
@@ -104,10 +111,10 @@ func TestTheFakeRefusesCheckinsTheRealOneRefuses(t *testing.T) {
 		require.NoError(t, err)
 		return got.CheckinID
 	}
-	annaLeft := resolve("04:A3:1B:22", "left")
-	berndRight := resolve("04:5C:7E:91", "right")
-	berndLeft := resolve("04:5C:7E:91", "left")
-	claraRight := resolve("04:11:22:33:44:55:66", "right")
+	annaLeft := resolve(annaFob, "left")
+	berndRight := resolve(berndFob, "right")
+	berndLeft := resolve(berndFob, "left")
+	claraRight := resolve(claraFob, "right")
 
 	withOperator := checkedIn(anna, bernd, annaLeft, berndRight)
 	withOperator.OperatorID = olga
@@ -145,13 +152,13 @@ func TestTheFakeNeverLogsAUID(t *testing.T) {
 	c, err := schmetterpause.New(schmetterpause.Config{BaseURL: srv.URL, Token: "secret"})
 	require.NoError(t, err)
 
-	_, _ = c.ResolveFob(context.Background(), "04:A3:1B:22", "left")
+	_, _ = c.ResolveFob(context.Background(), annaFob, "left")
 	_, _ = c.ResolveFob(context.Background(), "DE:AD:BE:EF", "left")
 	_, _ = c.ResolveFob(context.Background(), "DE:AD:BE", "left")
 
 	got := strings.ToLower(logs.String())
 	require.NotEmpty(t, got)
-	for _, uid := range []string{"04:a3:1b:22", "de:ad:be:ef", "de:ad:be"} {
+	for _, uid := range []string{strings.ToLower(annaFob), "de:ad:be:ef", "de:ad:be"} {
 		require.NotContains(t, got, uid)
 	}
 }

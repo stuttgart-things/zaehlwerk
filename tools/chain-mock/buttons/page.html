@@ -190,6 +190,87 @@
         .badge.on { color: var(--ok); border-color: var(--ok); }
         .badge.off { color: var(--bad); border-color: var(--bad); }
 
+        /* --- Fob reader ------------------------------------------------- */
+
+        .reader-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
+        .fobs { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+        /* A key fob, held rather than clicked: the ring fills over the time
+           a reader needs to see it, and only a full ring reads it. */
+        .fob {
+            --read: 400ms;
+            position: relative;
+            min-width: 7.5rem;
+            padding: 0.7rem 1rem 0.7rem 2.4rem;
+            border-radius: 1.5rem 1.5rem 1.5rem 0.4rem;
+            border: 1px solid #4d3aa8;
+            background: linear-gradient(160deg, #2c2463, #1b1640);
+            color: var(--fg);
+            font: 600 0.9rem var(--font-ui);
+            text-align: left;
+            cursor: pointer;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+            box-shadow: 0 0.3rem 0 #120e2c, 0 0.4rem 0.8rem rgb(0 0 0 / 0.4);
+            transition: transform 60ms, box-shadow 60ms;
+        }
+        /* The ring of the key ring, and the progress of the read. */
+        .fob::before {
+            content: "";
+            position: absolute;
+            left: 0.7rem;
+            top: 50%;
+            width: 1.1rem;
+            height: 1.1rem;
+            margin-top: -0.55rem;
+            border-radius: 50%;
+            background: conic-gradient(var(--ok) var(--p, 0%), #3a3370 0);
+            -webkit-mask: radial-gradient(circle, transparent 45%, #000 47%);
+                    mask: radial-gradient(circle, transparent 45%, #000 47%);
+        }
+        .fob.down { transform: translateY(0.25rem); box-shadow: 0 0.05rem 0 #120e2c, 0 0.15rem 0.4rem rgb(0 0 0 / 0.4); }
+        .fob.down::before { animation: fill var(--read) linear forwards; }
+        .fob.read { border-color: var(--ok); }
+        .fob.short { animation: shake 240ms; }
+        @keyframes shake { 25% { translate: -3px 0; } 75% { translate: 3px 0; } }
+
+        .reader { display: grid; gap: 0.6rem; }
+        .pad {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.7rem 0.9rem;
+            border-radius: var(--radius-sm);
+            background: #0d2a24;
+            border: 1px solid #1d5c4c;
+            font: 600 0.8rem var(--font-mono);
+            color: #8fd9c0;
+        }
+        .pad-name { margin-left: auto; }
+        .led { width: 0.9rem; height: 0.9rem; border-radius: 50%; background: #23233a; box-shadow: inset 0 0 0 1px #000; }
+        .pad.waiting .led.green { animation: blink 400ms steps(1) infinite; }
+        .pad.sending .led, .pad.ok .led.green { background: var(--ok); box-shadow: 0 0 0.6rem var(--ok); }
+        .pad.sending .led.red, .pad.bad .led.red { background: var(--bad); box-shadow: 0 0 0.6rem var(--bad); }
+        @keyframes blink { 50% { background: var(--ok); box-shadow: 0 0 0.6rem var(--ok); } }
+        .reader-says { min-height: 2.6rem; font-size: 0.9rem; }
+        .reader-says .ok { color: var(--ok); }
+        .reader-says .bad { color: var(--bad); }
+        /* Drawn from what is left when the partial arrives, so a refresh
+           carries on rather than starting over. */
+        .countdown { height: 0.35rem; margin-top: 0.4rem; border-radius: 1rem; background: var(--panel); overflow: hidden; }
+        .countdown span { display: block; height: 100%; width: var(--from); background: var(--ok); animation: drain var(--ms) linear forwards; }
+        @keyframes drain { to { width: 0; } }
+        .fob-status { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.25rem; font-size: 0.8rem; }
+        .fob-status li { display: flex; justify-content: space-between; gap: 0.5rem; }
+
+        /* While a fob waits, the halves ask for the press that names one. */
+        body.fob-waiting .press, body.fob-waiting .zone.plus { animation: ask 800ms ease-in-out infinite; }
+        @keyframes ask { 50% { filter: brightness(1.35); outline: 3px solid var(--ok); outline-offset: 4px; } }
+
+        @media (max-width: 40rem) {
+            .reader-row { grid-template-columns: 1fr; }
+        }
+
         @media (max-width: 30rem) {
             .log div { grid-template-columns: 1fr; gap: 0; }
         }
@@ -239,16 +320,31 @@
             a long press and takes the last point back, both held is <code>both_long</code>. On a phone
             both can be held at once.</p>
         {{end}}
-        {{/* The reader at the hub (zaehlwerk-firmware#63): a fob, then a
-             press within five seconds names the half, and that press is a
-             check-in rather than a point. Needs a zaehlwerk with
-             SCHMETTERPAUSE_URL, such as task chain:run. */}}
-        <div class="both">
-            {{range .Fobs}}<button class="small" hx-post="/fob" hx-vals='{"fob":"{{.Label}}"}' hx-target="#live" hx-swap="outerHTML">hold {{.Label}}</button> {{end}}
+    </section>
+
+    {{/* The reader at the hub (zaehlwerk-firmware#63): a fob, then a press
+         within five seconds names the half, and that press is a check-in
+         rather than a point. Needs a zaehlwerk with SCHMETTERPAUSE_URL and
+         CHECKIN_TOKEN, such as task chain:run. */}}
+    <section class="card">
+        <h2>Fob reader at the hub</h2>
+        <div class="reader-row">
+            <div>
+                {{/* Outside the polled partial on purpose: a refresh under a
+                     finger that is holding a fob would drop the hold. */}}
+                <div class="fobs">
+                    {{range .Fobs}}<button class="fob" data-fob="{{.Key}}" aria-label="Hold {{.Label}} to the reader">{{.Label}}</button>{{end}}
+                </div>
+                {{if .FobsError}}<p class="notice" style="text-align:left">{{.FobsError}} — only the fobs that belong to nobody.</p>{{end}}
+            </div>
+            {{template "reader" .Reader}}
         </div>
-        <p class="muted" style="margin-bottom:0">Hold a fob to the reader, then press the button of a half
-            within five seconds: that press checks the player in there instead of scoring. Two halves
-            checked in start the match. The UID is never written to the log below.</p>
+        <p class="muted" style="margin-bottom:0">Hold a fob until its ring is full: the reader has read it and
+            its green LED blinks. Then press the button of a half within five seconds — that press checks the
+            player in there instead of scoring, and two halves checked in start the match. Each player on the
+            roster has a fob of their own. Against a real Schmetterpause it is theirs only once they have
+            linked it in „Anhänger koppeln“; what the list says comes from the answer, not from the label.
+            Reload the page for players who joined since. The UID is never written to the page or the log.</p>
     </section>
 
     <section class="card">
@@ -318,6 +414,47 @@
         // press anybody meant.
         el.addEventListener('pointercancel', function () { release(false); });
     });
+
+    // A fob is read once it has been held for the ring to fill, as a reader
+    // needs it near for a moment. Let go before that and nothing was read.
+    document.querySelectorAll('.fob').forEach(function (el) {
+        let read = false;
+
+        el.addEventListener('pointerdown', function (e) {
+            e.preventDefault();
+            el.setPointerCapture(e.pointerId);
+            read = false;
+            el.classList.remove('read', 'short');
+            el.classList.add('down');
+        });
+        el.addEventListener('animationend', function (e) {
+            if (e.animationName !== 'fill' || !el.classList.contains('down')) return;
+            read = true;
+            el.classList.add('read');
+            htmx.ajax('POST', '/fob', { values: { fob: el.dataset.fob }, target: '#reader', swap: 'outerHTML' });
+        });
+        function release() {
+            if (!el.classList.contains('down')) return;
+            el.classList.remove('down');
+            if (!read) {
+                void el.offsetWidth; // restart the shake on a second miss
+                el.classList.add('short');
+            }
+        }
+        el.addEventListener('pointerup', release);
+        el.addEventListener('pointercancel', release);
+    });
+
+    // The halves ask for a press while a fob waits.
+    function askForPress() {
+        const reader = document.getElementById('reader');
+        document.body.classList.toggle('fob-waiting', !!(reader && reader.dataset.waiting));
+        document.querySelectorAll('.fob.read').forEach(function (el) {
+            if (!reader || !reader.dataset.waiting) el.classList.remove('read');
+        });
+    }
+    document.body.addEventListener('htmx:afterSettle', askForPress);
+    askForPress();
 </script>
 </body>
 </html>
@@ -341,9 +478,6 @@
         {{else}}
             <div class="notice">No match running. <a href="{{.ZaehlwerkUI}}" target="_blank" rel="noopener">Start one on the zaehlwerk page</a> — a button never starts one.</div>
         {{end}}
-        {{if .FobHeld}}
-            <div class="notice" style="margin-top:0.5rem">reader: <span class="badge on">{{.FobHeld}}</span> waits for a press</div>
-        {{end}}
         {{if .PiezoOn}}
             <div class="notice" style="margin-top:0.5rem">piezo board:
             {{if .Piezo}}<span class="badge {{if .Piezo.Paused}}off{{else}}on{{end}}">{{.Piezo.Doing}}</span>{{if .Piezo.Paused}} — scores nothing until it is resumed{{end}}
@@ -365,6 +499,35 @@
         </div>
     </div>
 </section>
+{{end}}
+
+{{define "reader"}}
+{{/* Polled twice a second, and what a fob posts back: the LED, the countdown
+     and what each fob's last check-in said. data-waiting is read by the
+     script to make the half buttons ask for the press. */}}
+<div id="reader" class="reader" hx-get="/reader" hx-trigger="every 500ms" hx-swap="outerHTML"
+     {{if .Waiting}}data-waiting="1"{{end}}>
+    <div class="pad {{if .Waiting}}waiting{{else if .Sending}}sending{{else if .Result}}{{if .OK}}ok{{else}}bad{{end}}{{end}}">
+        <span class="led green" title="green LED"></span>
+        <span class="led red" title="red LED"></span>
+        <span class="pad-name">RC522</span>
+    </div>
+    <div class="reader-says">
+        {{if .Waiting}}
+            <b>{{.Label}}</b> read — press a half now
+            <div class="countdown"><span style="--from:{{share .Left}}%;--ms:{{ms .Left}}ms"></span></div>
+        {{else if .Sending}}
+            asking zaehlwerk …
+        {{else if .Result}}
+            <span class="{{if .OK}}ok{{else}}bad{{end}}">{{.Result}}</span>
+        {{else}}
+            <span class="muted">idle — hold a fob</span>
+        {{end}}
+    </div>
+    <ul class="fob-status">
+        {{range .Fobs}}<li><span>{{.Label}}</span> <span class="badge {{if .Known}}on{{else if .Unknown}}off{{end}}">{{.Status}}</span></li>{{end}}
+    </ul>
+</div>
 {{end}}
 
 {{define "piezo"}}

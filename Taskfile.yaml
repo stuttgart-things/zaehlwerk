@@ -351,13 +351,18 @@ tasks:
   chain:buttons:
     # Joins whatever match is running, like the hardware: start one on the
     # page first, or hold a fob and press a half on each side to check in
-    # (needs task chain:run, which resolves fobs through the fake). The page is where the buttons are pressed and where every
+    # (needs task chain:run, which resolves fobs through the fake, whose
+    # roster has the fob the page offers for each player). The page is where the buttons are pressed and where every
     # fault the radio and the hub can have is switched on.
     desc: 'Two buttons and their hub, pressed in a browser. PIEZO=1 also controls task chain:piezo'
     env:
       ZAEHLWERK_URL: '{{.API}}'
       BUTTONS_ADDR: ':{{.ZW_BUTTONS_PORT}}'
       CHECKIN_TOKEN: '{{.CHAIN_HUB_TOKEN}}'
+      # The players the page offers a fob for, from the fake chain:run
+      # reports to, or a real one: SCHMETTERPAUSE_URL=https://… task chain:buttons
+      SCHMETTERPAUSE_URL: '{{.SCHMETTERPAUSE_URL | default .FAKE_SCHMETTERPAUSE}}'
+      SCHMETTERPAUSE_TOKEN: '{{.SCHMETTERPAUSE_TOKEN | default .CHAIN_TOKEN}}'
       # Opt-in: without a board running, the page would only report one
       # that is not answering.
       PIEZO_CONTROL_URL: '{{if .PIEZO}}http://localhost:{{.ZW_PIEZO_CONTROL_PORT}}{{end}}'

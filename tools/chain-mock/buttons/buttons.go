@@ -170,6 +170,11 @@ type Rig struct {
 	fob       *heldFob
 	hubSource string
 	hubEvent  uint64
+	// sending is a check-in on its way, result the reader's last answer and
+	// answers what each fob's last check-in said. Guarded by mu.
+	sending bool
+	result  readerResult
+	answers map[string]FobAnswer
 	// checkinToken is CHECKIN_TOKEN, sent as a bearer with every check-in:
 	// zaehlwerk takes one only from the hub (#113). Set once, before use.
 	checkinToken string
@@ -211,6 +216,7 @@ func New(api, sourcePrefix string, settings Settings, log *slog.Logger) *Rig {
 		},
 		seen:      map[string]uint64{},
 		acks:      map[string]Ack{},
+		answers:   map[string]FobAnswer{},
 		hubSource: sourcePrefix + "-hub",
 		hubEvent:  start,
 	}
