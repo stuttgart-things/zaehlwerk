@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.21.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.20.0...v0.21.0) (2026-10-15)
+
+
+### Features
+
+* a pong screensaver on an idle table, handed over by the side select ([#131](https://github.com/stuttgart-things/zaehlwerk/issues/131)) ([358d48f](https://github.com/stuttgart-things/zaehlwerk/commit/358d48fbdc329413a28af01958aa12b084a4aa0a))
+* a side select on the watch screen, a QR code per half and who holds it ([#129](https://github.com/stuttgart-things/zaehlwerk/issues/129)) ([3b5aa7a](https://github.com/stuttgart-things/zaehlwerk/commit/3b5aa7aec04d26da3cd7704b18c7ab7aa81288b8))
+
 ## [0.20.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.19.0...v0.20.0) (2026-10-15)
 
 
