@@ -50,10 +50,15 @@
                 <span>Taster prüfen<small>die echten Taster am Tisch: die Seite sagt an, was zu drücken ist, und vergleicht, was ankommt. Namen, Computer und Fehler gelten hier nicht.</small></span></label>
         </div>
 
+        {{/* The names Schmetterpause knows, as suggestions: a field still
+             takes any name, and a game is never reported, whoever plays it. */}}
         <div class="grid2" style="margin-top: 1rem">
-            <label>Name A <input type="text" name="name_a" maxlength="20" placeholder="Links · Spieler · Pong A"></label>
-            <label>Name B <input type="text" name="name_b" maxlength="20" placeholder="Rechts · Computer · Pong B"></label>
+            <label>Name A <input type="text" name="name_a" maxlength="20" placeholder="Links · Spieler · Pong A"{{if .Players}} list="players" autocomplete="off"{{end}}></label>
+            <label>Name B <input type="text" name="name_b" maxlength="20" placeholder="Rechts · Computer · Pong B"{{if .Players}} list="players" autocomplete="off"{{end}}></label>
         </div>
+        {{if .Players}}<datalist id="players">{{range .Players}}<option value="{{.}}">{{end}}</datalist>
+        <p class="muted" style="margin: 0.4rem 0 0">Spieler aus Schmetterpause stehen zur Auswahl, sobald du ins Feld tippst. Das Ergebnis zählt trotzdem nicht für die Liga.</p>
+        {{else if .PlayersErr}}<p class="muted" style="margin: 0.4rem 0 0">Die Spieler aus Schmetterpause sind gerade nicht abrufbar. Namen gehen trotzdem.</p>{{end}}
 
         <h2 style="margin-top: 1.2rem">Computer</h2>
         <p class="muted" style="margin-top: 0">B spielt gegen dich, A und B spielen gegeneinander. Die Stufe füllt die Regler, danach sind sie frei.</p>

@@ -2,6 +2,7 @@ package pong
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 )
@@ -54,6 +56,11 @@ type lobbyView struct {
 	Bots    [2]botView
 	Faults  []faultField
 	Correct bool
+	// Players is the names Schmetterpause knows, offered in the name
+	// fields; empty when the coupling is off or the list could not be read.
+	Players []string
+	// PlayersErr says the list is missing although the coupling is on.
+	PlayersErr bool
 }
 
 // botView is one bot's sliders in the lobby.
@@ -99,7 +106,7 @@ var faultLabels = map[FaultKind]string{
 var faultOrder = []FaultKind{FaultWrongHalf, FaultResend, FaultBounce, FaultLost,
 	FaultGhost, FaultWrongPhase, FaultCounterReset}
 
-func (s *Server) lobby(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) lobby(w http.ResponseWriter, r *http.Request) {
 	v := lobbyView{
 		BestOf:  s.cfg.BestOf,
 		Bots:    [2]botView{newBotView("a", s.cfg.Skills[0].Name), newBotView("b", s.cfg.Skills[1].Name)},
@@ -117,8 +124,40 @@ func (s *Server) lobby(w http.ResponseWriter, _ *http.Request) {
 	}
 	s.mu.Unlock()
 	v.Attract = s.attractView(time.Now())
+	v.Players, v.PlayersErr = s.playerNames(r.Context())
 	render(w, "lobby", v)
 }
+
+// playerNames is who the lobby offers, read from Schmetterpause on every load
+// and never cached, as zaehlwerk's scoring page reads it (ADR-0004). Names
+// only, for what a game is called: a pong game is a demo, and nothing it plays
+// is reported (ADR-0008). A name longer than a game takes is left out rather
+// than cut, because a cut name would be nobody's. A list that cannot be read
+// leaves the fields free, as they are without the coupling.
+func (s *Server) playerNames(ctx context.Context) ([]string, bool) {
+	if s.cfg.Roster == nil {
+		return nil, false
+	}
+	ctx, cancel := context.WithTimeout(ctx, rosterTimeout)
+	defer cancel()
+	players, err := s.cfg.Roster.Players(ctx)
+	if err != nil {
+		s.log.Warn("the lobby offers no players, Schmetterpause did not answer", "error", err)
+		return nil, true
+	}
+	names := make([]string, 0, len(players))
+	for _, p := range players {
+		if p.DisplayName != "" && utf8.RuneCountInString(p.DisplayName) <= maxNameRunes {
+			names = append(names, p.DisplayName)
+		}
+	}
+	slices.SortFunc(names, func(a, b string) int { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) })
+	return names, false
+}
+
+// rosterTimeout bounds the lobby's wait for the list. The page is the thing
+// somebody is waiting for; without names it still starts a game.
+const rosterTimeout = 2 * time.Second
 
 // attractView is attract mode in the lobby: on, and when the next demo starts,
 // or why none is waiting.

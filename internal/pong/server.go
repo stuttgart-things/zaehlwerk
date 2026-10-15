@@ -14,6 +14,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/stuttgart-things/zaehlwerk/internal/schmetterpause"
 )
 
 // maxRetainedGames bounds what the service remembers. Games are in memory and
@@ -47,7 +49,16 @@ type Config struct {
 	// CheckTimeout is how long a button check's prompt waits for its
 	// press; zero is DefaultCheckTimeout.
 	CheckTimeout time.Duration
-	Build        BuildInfo
+	// Roster is where the lobby gets the names it offers, nil when
+	// SCHMETTERPAUSE_URL is unset. Names only: a pong game is a demo and is
+	// never reported (ADR-0008), so no id is ever used.
+	Roster Roster
+	Build  BuildInfo
+}
+
+// Roster is the half of the Schmetterpause client the lobby needs.
+type Roster interface {
+	Players(ctx context.Context) ([]schmetterpause.Player, error)
 }
 
 // BuildInfo is what the binary says about itself on /healthz.

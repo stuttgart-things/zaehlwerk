@@ -1378,6 +1378,8 @@ wrong half must report exactly that.
 | `PONG_ATTRACT_PACE` | `1s` | The demo's pause between two reports |
 | `PONG_BROWSER_IDLE` | `10m` | How long a browser game waits for a press before it ends itself and its match |
 | `PONG_CHECK_TIMEOUT` | `10s` | How long a button check's prompt waits for its press before it counts as missing |
+| `SCHMETTERPAUSE_URL` | none | The lobby offers Schmetterpause's players as names, read from `/api/players` on every load. Names only: the game is still a demo and nothing is reported (ADR-0008). A name longer than 20 characters is left out. Unset, the name fields are free text only, as before |
+| `SCHMETTERPAUSE_TOKEN` | none | The bearer token for that `/api`, the one zaehlwerk holds. Without it the list is not readable, and the lobby says so and still starts games |
 
 Every duration is a Go duration and must be above zero; anything else stops
 the service at startup.
