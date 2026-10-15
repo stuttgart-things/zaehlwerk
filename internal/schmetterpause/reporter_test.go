@@ -288,8 +288,11 @@ func TestAWonMatchIsReportedAfterTheGracePeriod(t *testing.T) {
 	require.GreaterOrEqual(t, time.Since(won), grace)
 	require.Equal(t, [][2]int{{11, 0}}, sp.sent()[0].Sets)
 
+	// The stub keeps the result before it answers, and the reporter marks it
+	// done only once it has the answer, so done comes a moment after sent
+	// (#141).
+	require.Eventually(t, func() bool { return m.Report().Done }, 5*grace, time.Millisecond)
 	report := m.Report()
-	require.True(t, report.Done)
 	require.True(t, report.Due.IsZero(), "a sent result no longer waits")
 	require.Equal(t, [][2]int{{11, 0}}, report.Sent)
 }
