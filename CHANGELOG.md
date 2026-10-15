@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.18.0...v0.19.0) (2026-10-15)
+
+
+### Features
+
+* read CHECKIN_TOKEN from the panel secret ([#119](https://github.com/stuttgart-things/zaehlwerk/issues/119)) ([ddbee4d](https://github.com/stuttgart-things/zaehlwerk/commit/ddbee4d1c552751fd5d49c531856777460154cb0))
+
 ## [0.18.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.17.0...v0.18.0) (2026-10-14)
 
 
