@@ -883,6 +883,11 @@ reference for it:
     (ADR-0012), and some of those go out twice too, and it stops with an
     error if the second one takes back another point
 - It never counts. The score always comes from the response.
+- It rides out zaehlwerk going away, as during a rollout: no connection, no
+  answer in time or a 5xx, and it waits and asks again (1 s, doubling to 30 s)
+  instead of stopping. A rally whose answer got lost goes out again with the
+  same `event_id`, so it stays one point. Only a refusal (4xx) or being switched
+  off ends it.
 
 By default the board starts the match itself, through the page's form. It
 picks two players from `GET /api/players` and whoever keeps score from
