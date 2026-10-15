@@ -687,7 +687,42 @@ func (s *Scorer) halfOf(m match, p Player) Half {
 func (s *Scorer) Undo() (State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.takeBack()
+}
 
+// UndoEvent is [Scorer.Undo] arriving as an event, so that a retried
+// correction takes back one point and not two (ADR-0012). It goes through the
+// same watermark as a point: a repeat of its source and event id is a
+// Duplicate. Player, Half and Delta are not read; an undo takes back the last
+// event whoever it went to.
+//
+// It is accepted after the match is won, as Undo is: taking back the match
+// point is the mis-press it exists for. With nothing to take back it is
+// recorded and reported as Ignored, not as an error, so a retry of it stays a
+// duplicate instead of taking back a point scored in the meantime.
+func (s *Scorer) UndoEvent(ev ScoreEvent) (Result, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	switch {
+	case ev.MatchID != s.cfg.MatchID:
+		return Result{State: s.state()}, fmt.Errorf("%w: %q", ErrWrongMatch, ev.MatchID)
+	case ev.Source == "":
+		return Result{State: s.state()}, ErrMissingSource
+	}
+
+	if !s.accept(ev) {
+		return Result{Outcome: Duplicate, State: s.state()}, nil
+	}
+	st, err := s.takeBack()
+	if errors.Is(err, ErrNothingToUndo) {
+		return Result{Outcome: Ignored, State: st}, nil
+	}
+	return Result{Outcome: Applied, State: st}, err
+}
+
+// takeBack is the undo itself. Must be called with mu held.
+func (s *Scorer) takeBack() (State, error) {
 	n := len(s.undo)
 	if n == 0 {
 		return s.state(), ErrNothingToUndo
