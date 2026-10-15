@@ -84,6 +84,22 @@ func TestABoardPlaysAMatchFromThePageIntoSchmetterpause(t *testing.T) {
 	require.NotEmpty(t, got.Sets)
 }
 
+// Every correction goes out twice, and the board stops with an error if the
+// second one takes back another point: the undo event is a duplicate the way
+// a rally is (ADR-0012).
+func TestABoardsResentCorrectionTakesBackOnePoint(t *testing.T) {
+	f, sp := fake(t)
+	zw := chain(t, sp)
+
+	b := New(Config{
+		API: zw.URL, Source: "piezo-test", Matches: 1, Seed: 11, BestOf: 1,
+		Resend: 1, Undo: 0.3, Roster: sp,
+	}, quiet)
+	require.NoError(t, b.Run(context.Background()))
+
+	require.Eventually(t, func() bool { return len(f.Results()) == 1 }, 2*time.Second, 10*time.Millisecond)
+}
+
 // The board reads the players rather than knowing them, so it runs unchanged
 // against a Schmetterpause with other people in it.
 func TestTheBoardPlaysWhoeverTheRosterHolds(t *testing.T) {
@@ -139,7 +155,13 @@ func TestTheHalvesChangePlayersEverySet(t *testing.T) {
 }
 
 func TestTheBoardSendsTheFourFieldsAndTheMatch(t *testing.T) {
-	raw, err := json.Marshal(ingestBody{MatchID: "m", Source: "s", Player: "a", Delta: 0, EventID: 3})
+	zero := 0
+	raw, err := json.Marshal(ingestBody{MatchID: "m", Source: "s", Player: "a", Delta: &zero, EventID: 3})
 	require.NoError(t, err)
 	require.JSONEq(t, `{"match_id":"m","source":"s","player":"a","delta":0,"event_id":3}`, string(raw))
+
+	// An undo has no player and must have no delta, or ingest refuses it.
+	raw, err = json.Marshal(ingestBody{MatchID: "m", Source: "s", Action: "undo", EventID: 4})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"match_id":"m","source":"s","action":"undo","event_id":4}`, string(raw))
 }
