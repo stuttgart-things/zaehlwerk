@@ -16,10 +16,11 @@ goes up, and a repeat is a duplicate. A correction has no such path (#68).
   clamps a negative one (`max(0, points+delta)`), so `delta: -1` is not an undo:
   it does not reopen a set that was just won, and at 0 it is silently lost.
 
-Every hardware path retries: the hub (zaehlwerk-firmware#3), the board's
-offline queue (zaehlwerk-firmware#17), and corrections from the board
-(zaehlwerk-firmware#41). All of them inherit the double undo the moment they
-send a correction.
+Every hardware path that is planned retries: the hub (zaehlwerk-firmware#3),
+the board's offline queue (zaehlwerk-firmware#17), and corrections from the
+board (zaehlwerk-firmware#41). None of them sends to this service yet, so the
+contract can be fixed before they do; with only the undo route they would all
+inherit the double undo the moment they send a correction.
 
 ## Decision
 
@@ -60,8 +61,9 @@ watermark are unchanged, and an event without `action` means what it meant.
 ## Consequences
 
 - A hub or a board can retry a correction as freely as a point. The firmware
-  sends the new event with its next counter value instead of calling the
-  match's undo route, and needs no match id for it.
+  sends the new event with its next counter value and never calls the match's
+  undo route (zaehlwerk-firmware#67). It needs a match id only to take back a
+  match point outside the burst that scored it, as above.
 - `delta: -1` and `delta: 2` stop being accepted. Nothing in this repository
   sends them; a sender outside it that did gets a 400 instead of a clamp that
   only looked like a correction.
