@@ -489,10 +489,12 @@ type ingestBody struct {
 }
 
 type ingestEvent struct {
-	Source  string `json:"source"`
-	Player  string `json:"player"`
-	Delta   int    `json:"delta"`
+	Source string `json:"source"`
+	Player string `json:"player,omitempty"`
+	// Delta is left out of an undo, which refuses one (ADR-0012).
+	Delta   *int   `json:"delta,omitempty"`
 	EventID uint64 `json:"event_id"`
+	Action  string `json:"action,omitempty"`
 }
 
 // point scores for the half f came from. It returns the score after it, and
@@ -516,8 +518,9 @@ func (r *Rig) point(ctx context.Context, f Frame) (scorer.State, bool) {
 	r.note("hub", fmt.Sprintf("half %s is %s in set %d (%s)", f.Side, player, cur.SetNumber,
 		cur.Players[index(player)]), false)
 
+	one := 1
 	body := ingestBody{Events: []ingestEvent{{
-		Source: f.SourceID, Player: string(player), Delta: 1, EventID: f.EventID,
+		Source: f.SourceID, Player: string(player), Delta: &one, EventID: f.EventID,
 	}}}
 	before := cur
 	for attempt := range r.attempts() {
@@ -553,17 +556,20 @@ func (r *Rig) undo(ctx context.Context, f Frame) (scorer.State, bool) {
 		return cur, false
 	}
 
+	// The undo is an ingest event with the press's own id (ADR-0012), so a
+	// retry of it, or a repeat the radio delivered, is a duplicate and takes
+	// back nothing. It names no half: it takes back the last point.
+	body := ingestBody{Events: []ingestEvent{{
+		Source: f.SourceID, Action: "undo", EventID: f.EventID,
+	}}}
 	before := cur
 	for attempt := range r.attempts() {
-		// There is no undo in the ingest contract. The only door is this
-		// one, and it carries no event id, so the API cannot tell a retry
-		// from a second correction.
-		st, status, err := r.call(ctx, http.MethodPost, "/matches/"+cur.MatchID+"/undo", nil)
+		st, status, err := r.call(ctx, http.MethodPost, "/ingest/button", body)
 		if err != nil {
 			r.note("api", err.Error(), true)
 			return before, false
 		}
-		label := "POST /matches/" + cur.MatchID + "/undo"
+		label := "POST /ingest/button undo"
 		if attempt > 0 {
 			label += " (retry, the first answer was lost)"
 		}
@@ -571,8 +577,8 @@ func (r *Rig) undo(ctx context.Context, f Frame) (scorer.State, bool) {
 		bad := attempt > 0 && changed
 		r.note("api", fmt.Sprintf("%s for %s event %d → %d, %s", label, f.SourceID, f.EventID,
 			status, score(st)), bad || status != http.StatusOK)
-		if bad {
-			r.note("api", "the retry took back a second point: undo has no event id to deduplicate on", true)
+		if attempt > 0 && !changed {
+			r.note("api", "the retry changed nothing: ingest discarded it as a duplicate", false)
 		}
 		before = st
 	}

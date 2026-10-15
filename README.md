@@ -106,7 +106,7 @@ curl -s -X POST localhost:8080/matches \
 
 curl -s localhost:8080/matches/{id}
 curl -s localhost:8080/matches/current                  # 404 when nothing is running
-curl -s -X POST localhost:8080/matches/{id}/undo         # 409 if there is nothing to take back
+curl -s -X POST localhost:8080/matches/{id}/undo         # 409 if there is nothing to take back; not safe to retry
 curl -s -X POST localhost:8080/matches/{id}/end          # idempotent
 ```
 
@@ -199,7 +199,27 @@ curl -s -X POST localhost:8080/ingest/piezo \
 curl -s -X POST localhost:8080/ingest/web \
   -H 'content-type: application/json' \
   -d '{"match_id": "9f3a1c02", "source": "phone-3f9a", "player": "a", "event_id": 3}'
+
+# undo — takes the last point back, counted like a point (ADR-0012)
+curl -s -X POST localhost:8080/ingest/button \
+  -H 'content-type: application/json' \
+  -d '{"events": [{"source": "button-a", "action": "undo", "event_id": 9}]}'
 ```
+
+**A correction goes through ingest too.** An event with `"action": "undo"`
+takes back the last point, whoever it went to, exactly as
+`POST /matches/{id}/undo` does: it reopens a set whose last point it takes back,
+and after a won match it withdraws the report. It uses the source's counter
+like a point, so its retry is a duplicate and takes back nothing. That route
+has no counter, and a retry after a lost answer takes back a second point; it
+is for the page and for people
+([ADR-0012](docs/adr/0012-taking-a-point-back-through-the-ingest-contract.md)).
+An undo takes no `delta`, `player` and `half` are ignored, and with nothing to
+take back it is recorded and changes nothing. `delta` is 1 for a point or 0 for
+a hit that is not one; anything else is a 400, not a correction. A won match
+takes an undo, in the burst that won it or in a request that names it; without
+a `match_id` an undo looks for the running match like a point does, and a won
+match is not running.
 
 **`match_id` is optional for hardware and required for the browser.** A button
 wakes, sends and sleeps; the ESP-NOW payload has no room and no source for a
@@ -946,12 +966,11 @@ red:
 
 - **Debounce off.** A bounce wakes the button twice, with two ids. Nothing
   downstream can tell it from two presses.
-- **Radio ACK lost.** Every frame arrives twice with the same id. A point is
-  still safe without the hub, because ingest discards the repeat. An undo is
-  only safe if the hub drops it.
-- **API response lost.** The hub sends every call twice. A point is safe. An
-  undo takes back two points, because `POST /matches/{id}/undo` carries no
-  event id.
+- **Radio ACK lost.** Every frame arrives twice with the same id. A point and
+  an undo are both safe without the hub, because ingest discards the repeat.
+- **API response lost.** The hub sends every call twice. A point is safe, and
+  so is an undo: the hub sends it as `"action": "undo"` with the press's event
+  id, and the second is a duplicate (ADR-0012).
 - **Both window.** A long press is held back for this long, in case the other
   side follows. Every undo is late by the same amount.
 
@@ -1438,6 +1457,7 @@ base whose removal can prune somebody else's panel.
 | [0009](docs/adr/0009-pong-on-two-devices.md) | Pong on two devices: the host reports, the guest only moves a paddle |
 | [0010](docs/adr/0010-check-in-per-table-half.md) | Check-in per table half: a fob claims a half through Schmetterpause, two claims start a match reported without an operator |
 | [0011](docs/adr/0011-check-in-by-phone-through-schmetterpause.md) | Check-in by phone: Schmetterpause claims a half for a player with `POST /checkin/claim` |
+| [0012](docs/adr/0012-taking-a-point-back-through-the-ingest-contract.md) | An undo through the ingest contract: `"action": "undo"` with `source` and `event_id`, safe to retry |
 
 ## Related
 

@@ -21,13 +21,23 @@ import (
 // mounted: a button under the left half sends "left", and the scorer resolves
 // which player stands there, ends changed or not (ADR-0005). Exactly one of the
 // two is set.
+//
+// Action "undo" takes the last point back instead of scoring, counted on the
+// same source and event id as a point so that its retry is a duplicate
+// (ADR-0012). It names no side, so Player and Half are not read for it.
 type ingestEvent struct {
 	Source  string `json:"source"`
 	Player  string `json:"player"`
 	Half    string `json:"half"`
 	Delta   *int   `json:"delta"`
 	EventID uint64 `json:"event_id"`
+	Action  string `json:"action"`
 }
+
+// actionUndo is the one action an ingest event can name besides scoring.
+const actionUndo = "undo"
+
+func (e ingestEvent) undo() bool { return e.Action == actionUndo }
 
 // batchRequest is POST /ingest/button. The hub queues presses while a request
 // is in flight and drains several at once, so a burst during a rally arrives as
@@ -62,6 +72,12 @@ func (e ingestEvent) scoreEvent(matchID string, deltaRequired bool) (scorer.Scor
 	switch {
 	case e.Source == "":
 		return ev, errors.New("source is required")
+	case e.Action != "" && !e.undo():
+		return ev, fmt.Errorf("action %q: the only action is %q", e.Action, actionUndo)
+	case e.undo() && e.Delta != nil:
+		return ev, errors.New("an undo takes no delta: it takes back the last point, whoever it went to")
+	case e.undo():
+		return ev, nil
 	case e.Player != "" && e.Half != "":
 		return ev, errors.New("player and half: name one of them, not both")
 	case e.Half != "" && ev.Half != scorer.HalfLeft && ev.Half != scorer.HalfRight:
@@ -70,6 +86,12 @@ func (e ingestEvent) scoreEvent(matchID string, deltaRequired bool) (scorer.Scor
 		return ev, fmt.Errorf("player %q: must be %q or %q", e.Player, scorer.PlayerA, scorer.PlayerB)
 	case e.Delta == nil && deltaRequired:
 		return ev, errors.New("delta is required: 1 for a point, 0 for a hit that is not one")
+	case e.Delta != nil && *e.Delta != 0 && *e.Delta != 1:
+		// The scorer clamps anything else at zero, which reads like a
+		// correction and is not one: it does not reopen a set, and at 0 it
+		// is lost without a word (#68).
+		return ev, fmt.Errorf("delta %d: must be 1 for a point or 0 for a hit that is not one; "+
+			"take a point back with \"action\": %q", *e.Delta, actionUndo)
 	}
 
 	ev.Delta = 1
@@ -117,6 +139,7 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, m *match.Match, 
 	}
 
 	scoreEvents := make([]scorer.ScoreEvent, 0, len(events))
+	hasUndo := false
 	for i, e := range events {
 		ev, err := e.scoreEvent(m.ID, deltaRequired)
 		if err != nil {
@@ -124,26 +147,40 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, m *match.Match, 
 			return
 		}
 		scoreEvents = append(scoreEvents, ev)
+		hasUndo = hasUndo || e.undo()
 	}
 
-	if !m.Running() {
+	// A won match still takes an undo: taking back the match point is the
+	// mis-press it exists for, and POST /matches/{id}/undo takes it too
+	// (ADR-0007, ADR-0012). A match ended by hand takes nothing.
+	_, ended := m.EndedAt()
+	if ended || (!m.Running() && !hasUndo) {
 		st := m.Scorer.State()
 		s.fail(w, r, http.StatusConflict, errors.New("the match is over"), &st)
 		return
 	}
 
 	st := m.Scorer.State()
-	for _, ev := range scoreEvents {
-		res, err := m.Scorer.Apply(ev)
+	for i, ev := range scoreEvents {
+		var (
+			res scorer.Result
+			err error
+		)
+		if events[i].undo() {
+			res, err = m.Scorer.UndoEvent(ev)
+		} else {
+			res, err = m.Scorer.Apply(ev)
+		}
 		st = res.State
 
 		if errors.Is(err, scorer.ErrMatchComplete) {
-			// The match was won earlier in this same burst. The rest of the
-			// presses have nowhere to go, and the request did do something, so
-			// this is not a failure — the state says what happened.
-			s.log.Info("events dropped after the match was won",
+			// The match was won before this press: earlier in this burst, or
+			// before the request. It has nowhere to go, and the request may
+			// still do something, so this is not a failure. The next event is
+			// still tried, because it may be the undo of the match point.
+			s.log.Info("event dropped, the match is won",
 				"match_id", m.ID, "source", ev.Source, "event_id", ev.EventID)
-			break
+			continue
 		}
 		if err != nil {
 			// Everything was validated above and the match was running, so
@@ -154,7 +191,7 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, m *match.Match, 
 		}
 
 		s.log.Info("event ingested", "match_id", m.ID, "source", ev.Source,
-			"event_id", ev.EventID, "outcome", res.Outcome.String(),
+			"event_id", ev.EventID, "undo", events[i].undo(), "outcome", res.Outcome.String(),
 			"points", st.Points, "sets", st.Sets, "serving", st.Serving, "phase", st.Phase)
 	}
 
