@@ -121,6 +121,7 @@ func New(cfg Config, log *slog.Logger) *Server {
 	s.mux.HandleFunc("POST /games/{id}/frames", s.frames)
 	s.mux.HandleFunc("GET /games/{id}/relay", s.relay)
 	s.routeUI()
+	s.routeScreensaver()
 	return s
 }
 
@@ -347,7 +348,7 @@ func (s *Server) start(cfg GameConfig) (*Game, error) {
 	s.starting.Lock()
 	defer s.starting.Unlock()
 	if !cfg.Attract {
-		s.yield()
+		s.yield(cfg)
 	}
 
 	// One game at a time. Exactly one instance reports for a game (ADR-0006),
@@ -428,7 +429,7 @@ func (s *Server) launch(g *Game) (*Game, error) {
 		cancel(nil)
 		return nil, err
 	}
-	if first.Demo && first.State != nil && !g.cfg.Attract && !s.ownsMatch(first.State.MatchID) {
+	if first.Demo && first.State != nil && !g.cfg.demo() && !s.ownsMatch(first.State.MatchID) {
 		if first, err = s.endForeignDemo(ctx, first.State.MatchID, table); err != nil {
 			cancel(nil)
 			return nil, err
