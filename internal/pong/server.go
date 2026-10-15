@@ -14,6 +14,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/stuttgart-things/zaehlwerk/internal/schmetterpause"
 )
 
 // maxRetainedGames bounds what the service remembers. Games are in memory and
@@ -47,7 +49,16 @@ type Config struct {
 	// CheckTimeout is how long a button check's prompt waits for its
 	// press; zero is DefaultCheckTimeout.
 	CheckTimeout time.Duration
-	Build        BuildInfo
+	// Roster is where the lobby gets the names it offers, nil when
+	// SCHMETTERPAUSE_URL is unset. Names only: a pong game is a demo and is
+	// never reported (ADR-0008), so no id is ever used.
+	Roster Roster
+	Build  BuildInfo
+}
+
+// Roster is the half of the Schmetterpause client the lobby needs.
+type Roster interface {
+	Players(ctx context.Context) ([]schmetterpause.Player, error)
 }
 
 // BuildInfo is what the binary says about itself on /healthz.
@@ -368,7 +379,13 @@ func (s *Server) start(cfg GameConfig) (*Game, error) {
 		s.mu.Unlock()
 		return nil, err
 	}
-	cfg.BestOf, cfg.Skills, cfg.Seed = s.cfg.BestOf, s.cfg.Skills, s.cfg.Seed+n
+	// A game somebody started in the lobby keeps the length they picked;
+	// every other game, demos and the screensaver included, plays the
+	// service's PONG_BEST_OF.
+	if cfg.BestOf == 0 {
+		cfg.BestOf = s.cfg.BestOf
+	}
+	cfg.Skills, cfg.Seed = s.cfg.Skills, s.cfg.Seed+n
 	cfg.ResetQuiet, cfg.Idle = s.resetQuiet, s.idle
 	cfg.CheckTimeout, cfg.CheckGap = s.cfg.CheckTimeout, s.checkGap
 	// A demo leaves the driver empty, which is bots, and keeps its pace.

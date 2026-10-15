@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/stuttgart-things/zaehlwerk/internal/pong"
+	"github.com/stuttgart-things/zaehlwerk/internal/schmetterpause"
 )
 
 const (
@@ -71,6 +72,12 @@ func run() error {
 
 	if cfg.AttractAfter == 0 {
 		log.Info("attract mode disabled, PONG_ATTRACT_AFTER not configured")
+	}
+	if cfg.Roster == nil {
+		log.Info("the lobby offers no players, SCHMETTERPAUSE_URL not configured")
+	} else {
+		log.Info("the lobby offers Schmetterpause's players", "schmetterpause", os.Getenv("SCHMETTERPAUSE_URL"),
+			"token", os.Getenv("SCHMETTERPAUSE_TOKEN") != "")
 	}
 
 	game := pong.New(cfg, log)
@@ -159,6 +166,17 @@ func config() (pong.Config, error) {
 	}
 	if cfg.CheckTimeout, err = duration("PONG_CHECK_TIMEOUT", defaultCheckTimeout); err != nil {
 		return cfg, err
+	}
+
+	// The lobby's names. The same two variables zaehlwerk reads, and the
+	// same client: without a token Schmetterpause has no /api, and every
+	// lobby load says so in the log while the fields stay free.
+	if url := os.Getenv("SCHMETTERPAUSE_URL"); url != "" {
+		client, err := schmetterpause.New(schmetterpause.Config{BaseURL: url, Token: os.Getenv("SCHMETTERPAUSE_TOKEN")})
+		if err != nil {
+			return cfg, fmt.Errorf("SCHMETTERPAUSE_URL: %w", err)
+		}
+		cfg.Roster = client
 	}
 
 	cfg.Seed = time.Now().UnixNano()

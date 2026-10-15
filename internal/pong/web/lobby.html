@@ -14,6 +14,10 @@
         output { font-family: var(--font-mono); color: var(--fg); }
         .start { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
         #start-error:empty { display: none; }
+        .lengths { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+        .length { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.3rem 0.7rem; color: var(--fg); border: 1px solid var(--line); border-radius: 999px; cursor: pointer; }
+        .length:has(input:checked) { border-color: var(--accent-text); }
+        .length input { margin: 0; }
     </style>
 </head>
 <body>
@@ -50,10 +54,21 @@
                 <span>Taster prüfen<small>die echten Taster am Tisch: die Seite sagt an, was zu drücken ist, und vergleicht, was ankommt. Namen, Computer und Fehler gelten hier nicht.</small></span></label>
         </div>
 
+        {{/* The names Schmetterpause knows, as suggestions: a field still
+             takes any name, and a game is never reported, whoever plays it. */}}
         <div class="grid2" style="margin-top: 1rem">
-            <label>Name A <input type="text" name="name_a" maxlength="20" placeholder="Links · Spieler · Pong A"></label>
-            <label>Name B <input type="text" name="name_b" maxlength="20" placeholder="Rechts · Computer · Pong B"></label>
+            <label>Name A <input type="text" name="name_a" maxlength="20" placeholder="Links · Spieler · Pong A"{{if .Players}} list="players" autocomplete="off"{{end}}></label>
+            <label>Name B <input type="text" name="name_b" maxlength="20" placeholder="Rechts · Computer · Pong B"{{if .Players}} list="players" autocomplete="off"{{end}}></label>
         </div>
+        {{if .Players}}<datalist id="players">{{range .Players}}<option value="{{.}}">{{end}}</datalist>
+        <p class="muted" style="margin: 0.4rem 0 0">Spieler aus Schmetterpause stehen zur Auswahl, sobald du ins Feld tippst. Das Ergebnis zählt trotzdem nicht für die Liga.</p>
+        {{else if .PlayersErr}}<p class="muted" style="margin: 0.4rem 0 0">Die Spieler aus Schmetterpause sind gerade nicht abrufbar. Namen gehen trotzdem.</p>{{end}}
+
+        <h2 style="margin-top: 1.2rem">Länge</h2>
+        <div class="lengths">
+            {{range .Lengths}}<label class="length"><input type="radio" name="best_of" value="{{.BestOf}}"{{if .Checked}} checked{{end}}> {{.Label}}</label>{{end}}
+        </div>
+        <p class="muted" style="margin: 0.4rem 0 0">Jeder Satz geht bis 11, mit zwei Punkten Vorsprung.</p>
 
         <h2 style="margin-top: 1.2rem">Computer</h2>
         <p class="muted" style="margin-top: 0">B spielt gegen dich, A und B spielen gegeneinander. Die Stufe füllt die Regler, danach sind sie frei.</p>
@@ -73,7 +88,7 @@
 
         <div class="start" style="margin-top: 1.2rem">
             <button type="submit">Spiel starten</button>
-            <span class="muted">Gespielt wird Best of {{.BestOf}}, mit Einspielen und Seitenwechsel. Gemeldet wird nichts an Schmetterpause.</span>
+            <span class="muted">Gespielt wird mit Einspielen und Seitenwechsel. Gemeldet wird nichts an Schmetterpause.</span>
         </div>
         <div id="start-error"></div>
     </form>

@@ -1377,7 +1377,7 @@ wrong half must report exactly that.
 | `HTTP_ADDR` | `:8081` | Listen address. Not `:8080`, so it runs next to a local zaehlwerk. `task chain:pong` uses `ZW_PONG_PORT` (`8087`), because `:8081` is the simulator's there |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARN`, `ERROR` |
 | `ZAEHLWERK_URL` | `http://localhost:8080` | The zaehlwerk it plays against. Only the service calls it, never a browser |
-| `PONG_BEST_OF` | `3` | Any odd number |
+| `PONG_BEST_OF` | `3` | Any odd number. The length of attract mode's demos and the screensaver's, and the one the lobby starts on. The lobby also offers a single set (`1`), best of 3 and best of 5. Every set goes to 11 |
 | `PONG_BOT_SKILL` | `mittel` | `leicht`, `mittel` or `schwer` for both bots, or `leicht,schwer` for Pong A and Pong B. A shot misses 30, 15 or 6 times in a hundred |
 | `PONG_FAULTS` | none | Faults for every game, e.g. `wrong_half=0.05,resend=0.1,correct=true`: names from the table above with a share from 0 to 1, and `correct`. An unknown name or a share out of range stops the service at startup |
 | `PONG_SEED` | the clock | The n-th game of a service started with the same seed draws the same rallies. A clock seed is logged at startup, so a run can be repeated |
@@ -1385,6 +1385,8 @@ wrong half must report exactly that.
 | `PONG_ATTRACT_PACE` | `1s` | The demo's pause between two reports |
 | `PONG_BROWSER_IDLE` | `10m` | How long a browser game waits for a press before it ends itself and its match |
 | `PONG_CHECK_TIMEOUT` | `10s` | How long a button check's prompt waits for its press before it counts as missing |
+| `SCHMETTERPAUSE_URL` | none | The lobby offers Schmetterpause's players as names, read from `/api/players` on every load. Names only: the game is still a demo and nothing is reported (ADR-0008). A name longer than 20 characters is left out. Unset, the name fields are free text only, as before |
+| `SCHMETTERPAUSE_TOKEN` | none | The bearer token for that `/api`, the one zaehlwerk holds. Without it the list is not readable, and the lobby says so and still starts games |
 
 Every duration is a Go duration and must be above zero; anything else stops
 the service at startup.

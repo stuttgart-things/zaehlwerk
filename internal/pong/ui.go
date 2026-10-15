@@ -2,6 +2,7 @@ package pong
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 )
@@ -50,10 +52,16 @@ type lobbyView struct {
 	Running *View
 	// Attract is attract mode as the lobby tells it; nil when it is off.
 	Attract *attractView
-	BestOf  int
 	Bots    [2]botView
 	Faults  []faultField
 	Correct bool
+	// Lengths is the choice of how long a game lasts.
+	Lengths []lengthOption
+	// Players is the names Schmetterpause knows, offered in the name
+	// fields; empty when the coupling is off or the list could not be read.
+	Players []string
+	// PlayersErr says the list is missing although the coupling is on.
+	PlayersErr bool
 }
 
 // botView is one bot's sliders in the lobby.
@@ -99,11 +107,11 @@ var faultLabels = map[FaultKind]string{
 var faultOrder = []FaultKind{FaultWrongHalf, FaultResend, FaultBounce, FaultLost,
 	FaultGhost, FaultWrongPhase, FaultCounterReset}
 
-func (s *Server) lobby(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) lobby(w http.ResponseWriter, r *http.Request) {
 	v := lobbyView{
-		BestOf:  s.cfg.BestOf,
 		Bots:    [2]botView{newBotView("a", s.cfg.Skills[0].Name), newBotView("b", s.cfg.Skills[1].Name)},
 		Correct: s.cfg.Faults.Correct,
+		Lengths: lengthOptions(s.cfg.BestOf),
 	}
 	f := s.cfg.Faults
 	shares := f.shares()
@@ -117,8 +125,40 @@ func (s *Server) lobby(w http.ResponseWriter, _ *http.Request) {
 	}
 	s.mu.Unlock()
 	v.Attract = s.attractView(time.Now())
+	v.Players, v.PlayersErr = s.playerNames(r.Context())
 	render(w, "lobby", v)
 }
+
+// playerNames is who the lobby offers, read from Schmetterpause on every load
+// and never cached, as zaehlwerk's scoring page reads it (ADR-0004). Names
+// only, for what a game is called: a pong game is a demo, and nothing it plays
+// is reported (ADR-0008). A name longer than a game takes is left out rather
+// than cut, because a cut name would be nobody's. A list that cannot be read
+// leaves the fields free, as they are without the coupling.
+func (s *Server) playerNames(ctx context.Context) ([]string, bool) {
+	if s.cfg.Roster == nil {
+		return nil, false
+	}
+	ctx, cancel := context.WithTimeout(ctx, rosterTimeout)
+	defer cancel()
+	players, err := s.cfg.Roster.Players(ctx)
+	if err != nil {
+		s.log.Warn("the lobby offers no players, Schmetterpause did not answer", "error", err)
+		return nil, true
+	}
+	names := make([]string, 0, len(players))
+	for _, p := range players {
+		if p.DisplayName != "" && utf8.RuneCountInString(p.DisplayName) <= maxNameRunes {
+			names = append(names, p.DisplayName)
+		}
+	}
+	slices.SortFunc(names, func(a, b string) int { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) })
+	return names, false
+}
+
+// rosterTimeout bounds the lobby's wait for the list. The page is the thing
+// somebody is waiting for; without names it still starts a game.
+const rosterTimeout = 2 * time.Second
 
 // attractView is attract mode in the lobby: on, and when the next demo starts,
 // or why none is waiting.
@@ -188,7 +228,7 @@ func (s *Server) startFromLobby(w http.ResponseWriter, r *http.Request) {
 		s.lobbyError(w, "Das Formular kam nicht an.", err)
 		return
 	}
-	cfg, faults, err := lobbyForm(r)
+	cfg, faults, err := lobbyForm(r, s.cfg.BestOf)
 	if err != nil {
 		s.lobbyError(w, "Das geht so nicht:", err)
 		return
@@ -279,8 +319,39 @@ func (s *Server) joinError(w http.ResponseWriter, r *http.Request, status int, m
 	_, _ = w.Write([]byte(html))
 }
 
-// lobbyForm reads the lobby's form into a browser game.
-func lobbyForm(r *http.Request) (GameConfig, Faults, error) {
+// lobbyLengths are the lengths the lobby offers: a single set to eleven, the
+// quick game at a screen, and the two lengths a match at the table has. The
+// service's PONG_BEST_OF is offered too when it is none of them, and is what
+// the lobby starts with.
+var lobbyLengths = []int{1, 3, 5}
+
+// lengthOption is one length in the lobby.
+type lengthOption struct {
+	BestOf  int
+	Label   string
+	Checked bool
+}
+
+func lengthOptions(def int) []lengthOption {
+	lengths := slices.Clone(lobbyLengths)
+	if !slices.Contains(lengths, def) {
+		lengths = append(lengths, def)
+		slices.Sort(lengths)
+	}
+	opts := make([]lengthOption, 0, len(lengths))
+	for _, n := range lengths {
+		label := fmt.Sprintf("Best of %d", n)
+		if n == 1 {
+			label = "1 Satz"
+		}
+		opts = append(opts, lengthOption{BestOf: n, Label: label, Checked: n == def})
+	}
+	return opts
+}
+
+// lobbyForm reads the lobby's form into a browser game. def is the service's
+// PONG_BEST_OF, which the lobby offers too.
+func lobbyForm(r *http.Request, def int) (GameConfig, Faults, error) {
 	var bots [2]*BotParams
 	mode := r.FormValue("mode")
 	if mode == ModeCheck {
@@ -310,6 +381,13 @@ func lobbyForm(r *http.Request) (GameConfig, Faults, error) {
 	cfg, err := browserGame(mode, [2]string{r.FormValue("name_a"), r.FormValue("name_b")}, bots)
 	if err != nil {
 		return cfg, Faults{}, err
+	}
+	if raw := r.FormValue("best_of"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || (!slices.Contains(lobbyLengths, n) && n != def) {
+			return cfg, Faults{}, fmt.Errorf("best of %q: want one the lobby offers", raw)
+		}
+		cfg.BestOf = n
 	}
 
 	var f Faults
