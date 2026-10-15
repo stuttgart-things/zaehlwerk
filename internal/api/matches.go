@@ -133,6 +133,11 @@ func (s *Server) currentMatch(w http.ResponseWriter, r *http.Request) {
 
 // undo is not gated on the match still running. Taking back a wrongly awarded
 // match point is exactly when it is needed.
+//
+// It is not safe to retry: it carries no source and no event id, so a second
+// request after a lost answer takes back a second point. It is for the page
+// and for people; a device that retries sends "action": "undo" through ingest
+// instead (ADR-0012).
 func (s *Server) undo(w http.ResponseWriter, r *http.Request) {
 	m, ok := s.lookup(w, r)
 	if !ok {
