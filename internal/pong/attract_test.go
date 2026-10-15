@@ -73,14 +73,20 @@ func newAttract(t *testing.T, zaehlwerkURL string, edit func(*Config)) (*pongFix
 }
 
 // demo waits for attract mode to start a demo and returns it.
+//
+// Not before the demo is in the games GET /games/{id} answers from. The
+// service holds it as running before its match exists, and has its match
+// before launch files it under its id, so a test asking by id in between got
+// a 404, which failed inside this wait and left it to time out (#141).
 func (f *pongFixture) demo() View {
 	f.t.Helper()
 	var v View
 	require.Eventually(f.t, func() bool {
 		f.pong.mu.Lock()
 		g := f.pong.running
+		filed := g != nil && f.pong.games[g.ID] == g
 		f.pong.mu.Unlock()
-		if g == nil || !g.cfg.Attract || g.matchIDNow() == "" {
+		if !filed || !g.cfg.Attract || g.matchIDNow() == "" {
 			return false
 		}
 		v = g.View()
