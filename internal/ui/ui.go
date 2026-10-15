@@ -94,6 +94,11 @@ type Server struct {
 	// points and nobody else's.
 	hub       *live.Hub
 	heartbeat time.Duration
+
+	// sides is the side select on the watch screen, nil when check-in is
+	// off. The screen is then what it was before check-in existed.
+	sides      *sides
+	resultHold time.Duration
 }
 
 // Option configures a Server.
@@ -152,12 +157,13 @@ func redact(raw string) string {
 
 func New(registry *match.Registry, lifecycle Lifecycle, opts ...Option) *Server {
 	s := &Server{
-		registry:  registry,
-		lifecycle: lifecycle,
-		log:       slog.Default(),
-		now:       time.Now,
-		mux:       http.NewServeMux(),
-		heartbeat: DefaultHeartbeat,
+		registry:   registry,
+		lifecycle:  lifecycle,
+		log:        slog.Default(),
+		now:        time.Now,
+		mux:        http.NewServeMux(),
+		heartbeat:  DefaultHeartbeat,
+		resultHold: DefaultResultHold,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -173,6 +179,7 @@ func New(registry *match.Registry, lifecycle Lifecycle, opts ...Option) *Server 
 	s.mux.HandleFunc("GET /ui/watch", s.watch)
 	s.mux.HandleFunc("GET /ui/watch/{$}", s.watch)
 	s.mux.HandleFunc("GET /ui/watch/next", s.watchNext)
+	s.mux.HandleFunc("GET /ui/watch/sides", s.watchSides)
 
 	s.mux.HandleFunc("POST /ui/matches", s.createMatch)
 	s.mux.HandleFunc("POST /ui/matches/{id}/point", s.point)
@@ -247,6 +254,9 @@ func (s *Server) watch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	v.Stream = v.Match != nil && s.hub != nil
+	if v.Follow && v.Match == nil && s.sides != nil {
+		v.Sides = s.sides.view()
+	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// Same as the scoring page: a screen left on across a deploy would keep
@@ -255,20 +265,28 @@ func (s *Server) watch(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "watch", v)
 }
 
-// watchNext tells a following spectator view whether a different match is now
-// running, by sending it back to /ui/watch.
+// watchNext tells a following spectator view whether to load /ui/watch
+// again: because a different match is now running, or, with the side select
+// on, because the match it shows is over and the table is free for the next
+// pair.
 //
 // Polled rather than pushed: the stream a page holds is one match's, and the
-// hub has no channel for "a match started". A finished match is left on the
-// screen until the next one starts, which is what somebody looking up from
-// the next table wants to see.
+// hub has no channel for "a match started". Without the side select, a
+// finished match is left on the screen until the next one starts, which is
+// what somebody looking up from the next table wants to see. With it, the
+// score stays up for the hold, and a check-in ends the hold at once, because
+// whoever is checking in wants to see their name in a column.
 func (s *Server) watchNext(w http.ResponseWriter, r *http.Request) {
+	shown := r.URL.Query().Get("match")
 	m, err := s.registry.Current()
-	if err != nil || m.ID == r.URL.Query().Get("match") {
-		w.WriteHeader(http.StatusNoContent)
-		return
+	switch {
+	case err == nil && m.ID != shown:
+		w.Header().Set("HX-Redirect", "/ui/watch")
+	case err != nil && shown != "" && s.sides != nil:
+		if s.sides.claimed() || !s.sides.held(shown, s.now(), s.resultHold) {
+			w.Header().Set("HX-Redirect", "/ui/watch")
+		}
 	}
-	w.Header().Set("HX-Redirect", "/ui/watch")
 	w.WriteHeader(http.StatusNoContent)
 }
 
