@@ -8,13 +8,18 @@ import (
 	"net/http"
 )
 
-// The mark and the mascot are schmetterpause's (web/static/img there), for the
-// same reason the tokens are: this is the same product family, and a page that
-// scores a match there should be recognisably the same animal here. Copied
-// rather than linked to that instance, because the coupling is optional
-// (invariant 4) and a logo that disappears when SCHMETTERPAUSE_URL is unset, or
-// on a network that cannot reach it, is a broken image on every page load. A
-// new drawing over there is worth carrying over here.
+// The mark (mark-32.png, mark-180.png) is schmetterpause's (web/static/img
+// there), for the same reason the tokens are: this is the same product family,
+// and a page that scores a match there should be recognisably the same animal
+// here. Copied rather than linked to that instance, because the coupling is
+// optional (invariant 4) and a logo that disappears when SCHMETTERPAUSE_URL is
+// unset, or on a network that cannot reach it, is a broken image on every page
+// load. A new mark over there is worth carrying over here.
+//
+// The mascot is not a copy: it is the same cat in another role, the referee
+// with stopwatch and whistle, because here it keeps the score rather than
+// plays. Its layers carry the same ids as schmetterpause's drawing (fur,
+// fur-dark, ink, eyes).
 //
 //go:embed static
 var staticFiles embed.FS
@@ -39,9 +44,9 @@ func staticHandler() http.Handler {
 // mascotSVG is the drawing again, for inlining into a page.
 //
 // Inlined rather than an <img src>, because an SVG loaded through <img> is a
-// document of its own that the page's CSS cannot reach, and the blade takes
-// its colour from --paddle outside it. Served as a file as well, for anything
-// that only wants to show it.
+// document of its own that the page's CSS cannot reach, and the whistle's
+// cord takes its colour from --paddle outside it. Served as a file as well,
+// for anything that only wants to show it.
 //
 //go:embed static/mascot.svg
 var mascotSVG string
@@ -64,7 +69,7 @@ var paddleColours = []string{
 // templateFuncs is what the templates may call beyond the built-ins.
 var templateFuncs = template.FuncMap{
 	"mascot": func() template.HTML { return template.HTML(mascotSVG) }, //nolint:gosec // our own embedded file, not input
-	// A fresh blade on every render. There is no player behind the mascot
+	// A fresh cord on every render. There is no player behind the mascot
 	// here whose colour it could keep, so it simply changes now and then.
 	"paddle": func() template.CSS {
 		return template.CSS("--paddle: " + paddleColours[rand.IntN(len(paddleColours))]) //nolint:gosec // decoration, not a secret
