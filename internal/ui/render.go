@@ -53,6 +53,9 @@ type view struct {
 	// Follow is set on the spectator view opened without ?match: it moves on
 	// to the next match by itself, where a pinned one stays put.
 	Follow bool
+	// Sides is the side select, set on a following watch screen when no
+	// match is running and check-in is on.
+	Sides *sidesView
 }
 
 // RosterPlayer is one option in the name pickers.

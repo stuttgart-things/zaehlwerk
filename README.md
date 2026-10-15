@@ -64,6 +64,7 @@ go run ./cmd/zaehlwerk-api
 | `CHECKIN_TIMEOUT` | `5m` | How long a lone check-in holds its half (ADR-0010). Check-in by fob is on with `SCHMETTERPAUSE_URL` and `CHECKIN_TOKEN`, by phone with `SCHMETTERPAUSE_URL` and `SCHMETTERPAUSE_TOKEN` |
 | `CHECKIN_START` | `serve_rally` | The phase a checked-in match starts in: `serve_rally` or `warmup`. The first serve is always played for |
 | `CHECKIN_CHANGE_ENDS` | `false` | `true` has the players of a checked-in match change ends |
+| `WATCH_RESULT_HOLD` | `1m` | With check-in on, how long `/ui/watch` leaves a finished match up before the side select comes back. A check-in cuts it short |
 | `SCHMETTERPAUSE_REPORT_DELAY` | `15s` | Grace period between a won match and its report (ADR-0007). An undo in it withholds the report, and the result that holds when it is over is the one sent. `0` reports at once; a value that is not a duration stops the start |
 
 State is in memory and deliberately so — a match lasts twenty minutes and the
@@ -472,6 +473,31 @@ itself when the next one starts, leaving a finished match up until then.
 `/ui/watch?match=<id>` stays on that match. The score comes over the same
 stream as the board, `GET /ui/matches/{id}/stream?view=watch`, rendered without
 buttons and without the timeline.
+
+#### The side select
+
+With check-in on, a free table is not an empty screen. `/ui/watch` shows a
+column per half, the way a football game lets two players pick their end
+before kick-off (#128):
+
+- **Each column says who holds that half**, by fob or by phone, polled from
+  the desk every two seconds (`GET /ui/watch/sides`). A player who moves
+  shows up in the other column. Two claims start the match, and the next poll
+  sends the screen to the score.
+- **With check-in by phone on**, each free column has a QR code for
+  Schmetterpause's `/table/left` or `/table/right` and the same link in plain
+  text below it. The codes are built from `SCHMETTERPAUSE_URL`, so that has
+  to be an address a phone reaches, not a cluster-internal one. A taken
+  column drops its code. With only fobs, the columns say to hold a fob to the
+  reader.
+- **A finished match stays up for `WATCH_RESULT_HOLD`**, then the side select
+  comes back. A check-in in the meantime brings it back at once. Without
+  check-in, a finished match stays up until the next one starts, as before.
+
+The codes are fixed, the same URLs as the sheet Schmetterpause prints at
+`/qr/table`. Anybody who knows the link can check themselves in from their
+desk; Schmetterpause ADR-0026 accepts that for now, and a code that changes
+every few seconds on this screen is where it would go next.
 
 **It looks like schmetterpause and is laid out for a phone first.** The page
 started as a copy of the led-catcher simulator's look, which was right for a

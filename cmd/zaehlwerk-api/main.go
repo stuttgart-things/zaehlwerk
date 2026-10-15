@@ -139,6 +139,24 @@ func run() error {
 		apiOpts = append(apiOpts,
 			api.WithCheckin(desk, os.Getenv("CHECKIN_TOKEN")),
 			api.WithPhoneCheckin(desk, os.Getenv("SCHMETTERPAUSE_TOKEN")))
+		// The watch screen shows the halves when the table is free (#128).
+		// The QR codes point at Schmetterpause's /table pages, so they are
+		// only drawn when Schmetterpause can claim a half here, which is
+		// the same condition the phone path has. SCHMETTERPAUSE_URL is the
+		// address this service calls, and a phone has to reach it too: it
+		// has to be the public one for the codes to work.
+		phoneBase := ""
+		if os.Getenv("SCHMETTERPAUSE_TOKEN") != "" {
+			phoneBase = spClient.BaseURL()
+		}
+		uiOpts = append(uiOpts, ui.WithSides(desk, os.Getenv("CHECKIN_TOKEN") != "", phoneBase))
+		if raw := os.Getenv("WATCH_RESULT_HOLD"); raw != "" {
+			if d, err := time.ParseDuration(raw); err == nil && d > 0 {
+				uiOpts = append(uiOpts, ui.WithResultHold(d))
+			} else {
+				log.Warn("ignoring WATCH_RESULT_HOLD, not a positive duration", "value", raw)
+			}
+		}
 	}
 
 	if spClient != nil {
