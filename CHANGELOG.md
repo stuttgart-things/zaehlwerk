@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.2](https://github.com/stuttgart-things/zaehlwerk/compare/v0.21.1...v0.21.2) (2026-10-15)
+
+
+### Bug Fixes
+
+* **piezo:** log durations as text, not nanoseconds ([#136](https://github.com/stuttgart-things/zaehlwerk/issues/136)) ([f71d9c7](https://github.com/stuttgart-things/zaehlwerk/commit/f71d9c7d4f3541fcb8862e051ebf6b56040d081a))
+
 ## [0.21.1](https://github.com/stuttgart-things/zaehlwerk/compare/v0.21.0...v0.21.1) (2026-10-15)
 
 
