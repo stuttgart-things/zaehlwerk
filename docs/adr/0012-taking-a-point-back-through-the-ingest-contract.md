@@ -40,9 +40,14 @@ An ingest event can say `"action": "undo"` instead of scoring:
 - With nothing to take back, the undo is recorded and changes nothing
   (`Ignored`), so a retry of it stays a duplicate rather than becoming an undo
   later.
-- An undo may follow the point that won the match, in the same batch or in the
-  next request: that is the mis-press at the table. A match ended by hand
-  takes no events, undo included.
+- An undo may follow the point that won the match, in the same batch or in a
+  later request that names the match: that is the mis-press at the table. A
+  match ended by hand takes no events, undo included.
+- A request without `match_id` goes to the running match, as a point does, and
+  a won match is no longer running. So a hub that knows no match id can take
+  back the match point only in the burst that scored it. Resolving an undo to
+  a won match as well would change what "the current match" means for every
+  device, and is left to its own decision.
 - An action other than `undo` is a 400, and so is a `delta` other than 0 or 1.
   0 stays the piezo's hit that is not a point; 1 is a point.
 
