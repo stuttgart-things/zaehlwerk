@@ -846,7 +846,9 @@ reference for it:
   - some rallies go out as `delta: 0`
   - some events go out twice, and it stops with an error if the second one
     changes the score
-  - some points are taken back through the undo route
+  - some points are taken back with the undo event on its own counter
+    (ADR-0012), and some of those go out twice too, and it stops with an
+    error if the second one takes back another point
 - It never counts. The score always comes from the response.
 
 By default the board starts the match itself, through the page's form. It

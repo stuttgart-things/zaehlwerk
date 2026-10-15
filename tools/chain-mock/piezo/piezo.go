@@ -48,7 +48,8 @@ type Config struct {
 	Ambiguous float64
 	// Resend is the share of events sent twice, as an unacknowledged send is.
 	Resend float64
-	// Undo is the share of points taken back, as the correction button does.
+	// Undo is the share of points taken back, as the correction button does,
+	// with the undo event (ADR-0012). Resend applies to it as to a rally.
 	Undo    float64
 	Seed    int64
 	Matches int // matches to play before exiting; 0 keeps going
@@ -312,12 +313,17 @@ func (b *Board) play(ctx context.Context, st scorer.State) error {
 // ingestBody is the ADR-0002 event, with the match the board joined. Four
 // fields and an id, and nothing a sensor measured: peaks and curves go to the
 // firmware's log sink, not here.
+//
+// A correction is the same body with Action "undo" and no player or delta
+// (ADR-0012): a pointer, because a rally's delta 0 has to be sent and an
+// undo's delta must not be.
 type ingestBody struct {
 	MatchID string `json:"match_id"`
 	Source  string `json:"source"`
-	Player  string `json:"player"`
-	Delta   int    `json:"delta"`
+	Player  string `json:"player,omitempty"`
+	Delta   *int   `json:"delta,omitempty"`
 	EventID uint64 `json:"event_id"`
+	Action  string `json:"action,omitempty"`
 }
 
 func (b *Board) rally(ctx context.Context, st scorer.State) error {
@@ -335,7 +341,7 @@ func (b *Board) rally(ctx context.Context, st scorer.State) error {
 
 	b.eventID++
 	ev := ingestBody{MatchID: st.MatchID, Source: b.cfg.Source,
-		Player: string(player), Delta: delta, EventID: b.eventID}
+		Player: string(player), Delta: &delta, EventID: b.eventID}
 
 	after, err := b.ingest(ctx, ev)
 	if err != nil {
@@ -360,14 +366,29 @@ func (b *Board) rally(ctx context.Context, st scorer.State) error {
 	}
 
 	if delta == 1 && !after.Complete && b.rnd.Float64() < ctl.Undo {
-		back, status, err := b.call(ctx, http.MethodPost, "/matches/"+st.MatchID+"/undo", nil)
+		// A correction counts on the board's own counter, so its resend is
+		// a duplicate like a rally's. POST /matches/{id}/undo has no counter
+		// and would take back a second point (ADR-0012,
+		// zaehlwerk-firmware#67).
+		b.eventID++
+		undo := ingestBody{MatchID: st.MatchID, Source: b.cfg.Source, Action: "undo", EventID: b.eventID}
+		back, err := b.ingest(ctx, undo)
 		if err != nil {
 			return err
 		}
-		if status != http.StatusOK {
-			return fmt.Errorf("POST /matches/%s/undo: %d", st.MatchID, status)
+		b.log.Info("correction", "event_id", undo.EventID, "points", back.Points, "sets", back.Sets)
+
+		if b.rnd.Float64() < ctl.Resend {
+			again, err := b.ingest(ctx, undo)
+			if err != nil {
+				return err
+			}
+			if again.Points != back.Points || again.Sets != back.Sets {
+				return fmt.Errorf("undo %d sent again took back another point: %v %v to %v %v",
+					undo.EventID, back.Points, back.Sets, again.Points, again.Sets)
+			}
+			b.log.Info("resent", "event_id", undo.EventID, "points", again.Points)
 		}
-		b.log.Info("correction", "points", back.Points, "sets", back.Sets)
 	}
 	return nil
 }

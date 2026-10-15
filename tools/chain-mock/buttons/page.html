@@ -551,7 +551,7 @@
         <label><input type="number" name="resend" min="0" max="100" value="{{pct .Piezo.Resend}}">
             <span>% resent<small>the same event twice, as after a lost ACK</small></span></label>
         <label><input type="number" name="undo" min="0" max="100" value="{{pct .Piezo.Undo}}">
-            <span>% taken back<small>through POST /undo, as the correction button does</small></span></label>
+            <span>% taken back<small>as an undo event on the board's counter, as the correction button does</small></span></label>
     </form>
     <p class="muted" style="margin-bottom:0">Pause it to try the buttons without a second scorer.
         Paused here is a runtime switch; in a cluster, EDGE_ESP_MOCK_REPLICAS is the hard one.</p>
