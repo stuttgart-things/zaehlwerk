@@ -244,7 +244,7 @@ under the same `source` + `event_id` contract as a point
 ```bash
 curl -s -X POST localhost:8080/ingest/checkin \
   -H 'content-type: application/json' -H "authorization: Bearer $CHECKIN_TOKEN" \
-  -d '{"source": "hub-1", "event_id": 41, "half": "left", "uid": "04:A3:1B:22"}'
+  -d '{"source": "hub-1", "event_id": 41, "half": "left", "uid": "04:BD:76:62:A5:EE:B4"}'
 # {"outcome":"claimed","half":"left","name":"Anna","left":"Anna"}
 
 curl -s localhost:8080/checkin       # who holds which half, by name
@@ -809,8 +809,10 @@ and the page then offers the retry that ADR-0004 promises. `MODE=accept` lets
 that retry through.
 
 It also answers `POST /api/identities/rfid/resolve` for check-in (ADR-0010).
-Anna's fob is `04:A3:1B:22`, Bernd's `04:5C:7E:91`, Clara's
-`04:11:22:33:44:55:66`; `DE:AD:BE:EF` belongs to nobody and is an empty 404.
+Each player's fob is the one the table mock offers for them, derived from the
+player id (`tools/chain-mock/fobuid`): Anna's is `04:BD:76:62:A5:EE:B4`,
+Bernd's `04:B4:54:F8:2C:58:57`, Clara's `04:F6:22:2A:11:06:EE`.
+`DE:AD:BE:EF` belongs to nobody and is an empty 404.
 Every resolve records a check-in, and a result proven by two of them is checked
 the way the real one checks it: each belongs to its side, they are at different
 halves, neither is older than three hours, and a check-in that already carries
@@ -926,10 +928,22 @@ task chain:piezo JOIN=1      # the board, with its control endpoint on :8085
 task chain:buttons PIEZO=1   # the page, with a piezo section
 ```
 
-The reader at the hub is on the page too (zaehlwerk-firmware#63). "hold Anna's
-fob", then a press on a half within five seconds, sends
-`POST /ingest/checkin` for that half instead of a point; two halves start the
-match. It needs a zaehlwerk that resolves fobs, so run it against the fake:
+The reader at the hub is on the page too (zaehlwerk-firmware#63). Hold a fob
+until its ring is full, and the reader's green LED blinks with a countdown
+while the half buttons ask for a press. A press on a half within five seconds
+sends `POST /ingest/checkin` for that half instead of a point; two halves start
+the match. The LED then says what zaehlwerk answered: green with the name, red
+for an unknown fob or a busy table.
+
+The page offers a fob for every player of the Schmetterpause in
+`SCHMETTERPAUSE_URL`, fetched when the page is loaded, plus "a new fob" and "a
+stranger's badge" that belong to nobody. The fake has each player's fob on its
+roster already. A real Schmetterpause keeps only an HMAC of a UID and cannot
+say whose a fob is, so there the fob for a player is unknown until that player
+links it in „Anhänger koppeln“ (any fob held while the window is open becomes
+theirs). The list under the reader says what the last check-in with each fob
+answered, never what its label claims. It needs a zaehlwerk that resolves
+fobs, so run it against the fake:
 
 ```bash
 task chain:schmetterpause    # the fake, with its fobs
@@ -937,8 +951,8 @@ task chain:run               # zaehlwerk with check-in on
 task chain:buttons           # then hold a fob and press
 ```
 
-"a stranger's badge" is a card nobody owns. The log names fobs by their label
-and never writes a UID, as the firmware must not. "API response lost" sends
+The log names fobs by their label and never writes a UID, as the firmware must
+not; neither does the page. "API response lost" sends
 the check-in twice with one event id, and the second answer is the first one
 repeated, with nothing resolved again.
 
@@ -999,6 +1013,8 @@ accident cannot be resumed.
 | `BUTTONS_DEVICE` | `button` | `display` starts with a screen per half instead; the page can switch either way |
 | `PIEZO_CONTROL_URL` | — | a piezo board's control endpoint (its `PIEZO_CONTROL_ADDR`). Unset, the page has no piezo section |
 | `CHECKIN_TOKEN` | — | what the hub sends as a bearer with a check-in; zaehlwerk's `CHECKIN_TOKEN`. `task chain:run` and `task chain:buttons` share one |
+| `SCHMETTERPAUSE_URL` | — | where the page reads the players it offers a fob for; zaehlwerk's own. Unset, it offers only the two fobs nobody owns |
+| `SCHMETTERPAUSE_TOKEN` | — | the bearer for that list; zaehlwerk's own |
 
 It also ships as `ghcr.io/stuttgart-things/zaehlwerk-buttons`, built from
 `tools/chain-mock/cmd/buttons` with the same tags as the board. It serves

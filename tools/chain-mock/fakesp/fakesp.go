@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/stuttgart-things/zaehlwerk/tools/chain-mock/fobuid"
 )
 
 // Package fakesp is a Schmetterpause that answers the routes zaehlwerk calls,
@@ -55,13 +57,20 @@ type Person struct {
 
 // DefaultRoster is fixed so the Taskfile can name ids without asking first.
 // Olga is the observer: offered as an operator, never as a side, which is the
-// distinction Schmetterpause ADR-0022 and ADR-0023 draw. The fobs are fixed
-// for the same reason; DE:AD:BE:EF belongs to nobody.
+// distinction Schmetterpause ADR-0022 and ADR-0023 draw. Each player's fob is
+// fobuid.For(id), the one the table mock offers for them, so a fob held on
+// that page is known here without linking; DE:AD:BE:EF belongs to nobody.
 var DefaultRoster = []Person{
-	{ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), DisplayName: "Anna", TTR: 1520, Fob: "04:A3:1B:22"},
-	{ID: uuid.MustParse("22222222-2222-4222-8222-222222222222"), DisplayName: "Bernd", TTR: 1480, Fob: "04:5C:7E:91"},
-	{ID: uuid.MustParse("33333333-3333-4333-8333-333333333333"), DisplayName: "Clara", TTR: 1610, Fob: "04:11:22:33:44:55:66"},
+	player("11111111-1111-4111-8111-111111111111", "Anna", 1520),
+	player("22222222-2222-4222-8222-222222222222", "Bernd", 1480),
+	player("33333333-3333-4333-8333-333333333333", "Clara", 1610),
 	{ID: uuid.MustParse("44444444-4444-4444-8444-444444444444"), DisplayName: "Olga", Observer: true},
+}
+
+// player is a roster entry who plays, with the fob the table mock has for
+// them.
+func player(id, name string, ttr int) Person {
+	return Person{ID: uuid.MustParse(id), DisplayName: name, TTR: ttr, Fob: fobuid.For(id)}
 }
 
 // resultBody is POST /api/results as Schmetterpause decodes it. The ids are

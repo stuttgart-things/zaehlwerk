@@ -88,7 +88,7 @@ func TestOneHalfByFobAndOneByPhoneReportWithoutAnOperator(t *testing.T) {
 	tb := newTable(t)
 
 	req, err := http.NewRequest(http.MethodPost, tb.zw+"/ingest/checkin",
-		strings.NewReader(`{"source":"hub","event_id":1,"half":"left","uid":"04:A3:1B:22"}`))
+		strings.NewReader(`{"source":"hub","event_id":1,"half":"left","uid":"04:BD:76:62:A5:EE:B4"}`))
 	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+hubToken)
 	resp, err := http.DefaultClient.Do(req)

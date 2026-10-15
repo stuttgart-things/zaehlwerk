@@ -11,8 +11,10 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/stuttgart-things/zaehlwerk/internal/schmetterpause"
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 	"github.com/stuttgart-things/zaehlwerk/tools/chain-mock/piezo"
 )
@@ -26,12 +28,19 @@ var page = template.Must(template.New("").Funcs(template.FuncMap{
 	"name":  func(st scorer.State, half string) string { return st.Players[index(playerOn(half, st.SetNumber))] },
 	"pct":   func(share float64) int { return int(share*100 + 0.5) },
 	"ago":   func(t time.Time) string { return time.Since(t).Round(time.Second).String() },
+	"share": func(left time.Duration) int { return int(100 * left / FobWindow) },
 	"sides": func() []string { return []string{"A", "B"} },
 }).ParseFS(pageFS, "page.html"))
 
 // maxHold caps a press posted by the page. Longer than anybody holds a button,
 // short enough that a stuck pointer does not read as a gesture.
 const maxHold = 10 * time.Second
+
+// Roster is where the page gets the players it offers a fob for: the
+// Schmetterpause zaehlwerk reports to.
+type Roster interface {
+	Players(ctx context.Context) ([]schmetterpause.Player, error)
+}
 
 // Server is the page. Use [NewServer].
 type Server struct {
@@ -42,14 +51,31 @@ type Server struct {
 	zaehlwerkUI string
 	// piezo is nil when PIEZO_CONTROL_URL is unset.
 	piezo *piezoClient
-	log   *slog.Logger
-	mux   *http.ServeMux
+	// roster is nil when SCHMETTERPAUSE_URL is unset: the page then offers
+	// only the fobs that belong to nobody.
+	roster Roster
+	log    *slog.Logger
+	mux    *http.ServeMux
+
+	// fobs is the list the page was last drawn with, and fobsErr why it has
+	// no players in it. A press on a fob is looked up here, so the fob held is
+	// the one that was on the page, not one from a list fetched since.
+	fobsMu  sync.Mutex
+	fobs    []Fob
+	fobsErr string
+}
+
+// WithRoster gives the page the players to offer a fob for.
+func (s *Server) WithRoster(roster Roster) *Server {
+	s.roster = roster
+	return s
 }
 
 // NewServer serves the page. piezoURL is a piezo board's control endpoint;
 // empty leaves the piezo section off the page.
 func NewServer(rig *Rig, zaehlwerkUI, piezoURL string, log *slog.Logger) *Server {
-	s := &Server{rig: rig, zaehlwerkUI: zaehlwerkUI, piezo: newPiezoClient(piezoURL), log: log, mux: http.NewServeMux()}
+	s := &Server{rig: rig, zaehlwerkUI: zaehlwerkUI, piezo: newPiezoClient(piezoURL), log: log, mux: http.NewServeMux(),
+		fobs: FobsFor(nil)}
 	s.mux.HandleFunc("GET /{$}", s.index)
 	s.mux.HandleFunc("GET /live", s.live)
 	s.mux.HandleFunc("POST /press", s.press)
@@ -59,6 +85,7 @@ func NewServer(rig *Rig, zaehlwerkUI, piezoURL string, log *slog.Logger) *Server
 	s.mux.HandleFunc("POST /settings", s.settings)
 	s.mux.HandleFunc("POST /clear", s.clear)
 	s.mux.HandleFunc("POST /fob", s.holdFob)
+	s.mux.HandleFunc("GET /reader", s.reader)
 	s.mux.HandleFunc("POST /piezo", s.setPiezo)
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
@@ -78,10 +105,11 @@ type view struct {
 	Entries     []Entry
 	ZaehlwerkUI string
 	Sources     [2]string
-	// Fobs are the ones the page can hold to the reader, and FobHeld the one
-	// waiting for a press.
-	Fobs    []Fob
-	FobHeld string
+	// Fobs are the ones the page can hold to the reader, and FobsError why
+	// none of them is a player's.
+	Fobs      []Fob
+	FobsError string
+	Reader    readerView
 
 	// PiezoOn is whether the page has a piezo section at all. Piezo is nil
 	// when the board did not answer, and PiezoError says why.
@@ -97,9 +125,11 @@ func (s *Server) view(ctx context.Context) view {
 		Entries:     s.rig.Entries(),
 		ZaehlwerkUI: s.zaehlwerkUI,
 		Sources:     [2]string{s.rig.buttons["A"].source, s.rig.buttons["B"].source},
-		Fobs:        Fobs,
-		FobHeld:     s.rig.FobHeld(),
 	}
+	s.fobsMu.Lock()
+	v.Fobs, v.FobsError = s.fobs, s.fobsErr
+	s.fobsMu.Unlock()
+	v.Reader = s.readerView()
 	st, ok, err := s.rig.Current(ctx)
 	if err != nil {
 		v.APIError = err.Error()
@@ -124,8 +154,94 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string) {
 	}
 }
 
-func (s *Server) index(w http.ResponseWriter, r *http.Request) { s.render(w, r, "page") }
-func (s *Server) live(w http.ResponseWriter, r *http.Request)  { s.render(w, r, "live") }
+// index draws the whole page, with the roster as it is now.
+func (s *Server) index(w http.ResponseWriter, r *http.Request) {
+	s.refreshFobs(r.Context())
+	s.render(w, r, "page")
+}
+
+// refreshFobs asks the roster for the players again. On an error the page
+// keeps the fobs that belong to nobody and says why there are no others.
+func (s *Server) refreshFobs(ctx context.Context) {
+	if s.roster == nil {
+		s.setFobs(FobsFor(nil), "no player list: SCHMETTERPAUSE_URL is unset")
+		return
+	}
+	players, err := s.roster.Players(ctx)
+	if err != nil {
+		s.log.Warn("fetching the players for the fobs", "error", err)
+		s.setFobs(FobsFor(nil), "no player list: "+err.Error())
+		return
+	}
+	s.setFobs(FobsFor(players), "")
+}
+
+func (s *Server) setFobs(fobs []Fob, why string) {
+	s.fobsMu.Lock()
+	s.fobs, s.fobsErr = fobs, why
+	s.fobsMu.Unlock()
+}
+
+// fob is the fob with key from the list the page was drawn with.
+func (s *Server) fob(key string) (Fob, bool) {
+	s.fobsMu.Lock()
+	defer s.fobsMu.Unlock()
+	for _, f := range s.fobs {
+		if f.Key == key {
+			return f, true
+		}
+	}
+	return Fob{}, false
+}
+
+// fobLine is one fob in the reader's list: its label and what the last
+// check-in with it said.
+type fobLine struct {
+	Label  string
+	Status string
+	// Known is a fob Schmetterpause named an owner for, Unknown one it said
+	// it does not know. Neither is a fob nobody tried yet.
+	Known, Unknown bool
+}
+
+// readerView is the reader partial: the LED, the countdown and the list.
+type readerView struct {
+	Reader
+	Fobs []fobLine
+}
+
+func (s *Server) readerView() readerView {
+	v := readerView{Reader: s.rig.Reader()}
+	answers := s.rig.FobAnswers()
+	s.fobsMu.Lock()
+	fobs := s.fobs
+	s.fobsMu.Unlock()
+	for _, f := range fobs {
+		line := fobLine{Label: f.Label, Status: "not tried yet"}
+		if a, ok := answers[f.Key]; ok {
+			switch {
+			case a.Owner != "":
+				line.Status, line.Known = "Schmetterpause: "+a.Owner+"'s", true
+			case a.Outcome == "unknown":
+				line.Status, line.Unknown = "Schmetterpause: unknown", true
+			default:
+				line.Status = "last answer: " + a.Outcome
+			}
+		}
+		v.Fobs = append(v.Fobs, line)
+	}
+	return v
+}
+
+// reader is the reader partial alone, polled while the page is open. It asks
+// neither zaehlwerk nor the roster: the rig knows all it shows.
+func (s *Server) reader(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := page.ExecuteTemplate(w, "reader", s.readerView()); err != nil {
+		s.log.Error("rendering the reader", "error", err)
+	}
+}
+func (s *Server) live(w http.ResponseWriter, r *http.Request) { s.render(w, r, "live") }
 
 func (s *Server) press(w http.ResponseWriter, r *http.Request) {
 	held, err := heldFrom(r)
@@ -163,11 +279,13 @@ func (s *Server) tap(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) holdFob(w http.ResponseWriter, r *http.Request) {
-	if err := s.rig.HoldFob(r.PostFormValue("fob")); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	fob, ok := s.fob(r.PostFormValue("fob"))
+	if !ok {
+		http.Error(w, "no such fob on the page: reload it", http.StatusBadRequest)
 		return
 	}
-	s.render(w, r, "live")
+	s.rig.HoldFob(fob)
+	s.reader(w, r)
 }
 
 func (s *Server) screens(w http.ResponseWriter, r *http.Request) { s.render(w, r, "screens") }
@@ -297,9 +415,20 @@ func RunFromEnv(ctx context.Context, log *slog.Logger) error {
 
 	rig := New(api, env("BUTTONS_SOURCE", "button-mock"), settings, log)
 	rig.SetCheckinToken(os.Getenv("CHECKIN_TOKEN"))
+	pages := NewServer(rig, public+"/ui", strings.TrimRight(os.Getenv("PIEZO_CONTROL_URL"), "/"), log)
+
+	// The players to offer a fob for, from the Schmetterpause zaehlwerk
+	// reports to: the same two variables, so one pair configures both.
+	if spURL := strings.TrimRight(os.Getenv("SCHMETTERPAUSE_URL"), "/"); spURL != "" {
+		sp, err := schmetterpause.New(schmetterpause.Config{BaseURL: spURL, Token: os.Getenv("SCHMETTERPAUSE_TOKEN")})
+		if err != nil {
+			return fmt.Errorf("SCHMETTERPAUSE_URL: %w", err)
+		}
+		pages.WithRoster(sp)
+	}
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           NewServer(rig, public+"/ui", strings.TrimRight(os.Getenv("PIEZO_CONTROL_URL"), "/"), log),
+		Handler:           pages,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -308,7 +437,8 @@ func RunFromEnv(ctx context.Context, log *slog.Logger) error {
 	log.Info("buttons up", "addr", addr, "api", api, "device", settings.Device, "long_press", settings.LongPress,
 		"both_window", settings.BothWindow, "piezo_control", os.Getenv("PIEZO_CONTROL_URL"),
 		// Whether a token is set, never the token.
-		"checkin_token", os.Getenv("CHECKIN_TOKEN") != "")
+		"checkin_token", os.Getenv("CHECKIN_TOKEN") != "",
+		"schmetterpause", os.Getenv("SCHMETTERPAUSE_URL"), "schmetterpause_token", os.Getenv("SCHMETTERPAUSE_TOKEN") != "")
 
 	select {
 	case err := <-errs:
