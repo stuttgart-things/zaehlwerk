@@ -62,6 +62,8 @@ type View struct {
 	Driver string `json:"driver"`
 	// Attract is a demo started by attract mode rather than by anybody.
 	Attract bool `json:"attract,omitempty"`
+	// Screensaver is a demo started by the screensaver page (ADR-0013).
+	Screensaver bool `json:"screensaver,omitempty"`
 	// Mode and Bots are a browser game's: "pvp", "pvc" or "cvc", and the bot
 	// playing as player a and b, or none for a person.
 	Mode string        `json:"mode,omitempty"`
@@ -113,7 +115,11 @@ type GameConfig struct {
 	// Attract is a demo the service started by itself on a free table. It
 	// gives the table to any game somebody asks for.
 	Attract bool
-	Skills  [2]Skill
+	// Screensaver is a demo a screen at the table started by itself
+	// (ADR-0013): a browser game between two bots that gives way as attract
+	// mode's does.
+	Screensaver bool
+	Skills      [2]Skill
 	// Pace is the pause between two reports: zero for a test, a second or so
 	// for somebody watching the panel.
 	Pace time.Duration
@@ -125,6 +131,11 @@ type GameConfig struct {
 	// field so the tests do not sit through the minute.
 	ResetQuiet time.Duration
 }
+
+// demo is a game nobody asked for: attract mode's or the screensaver's. It
+// gives the table to a game somebody asks for and to anybody counting into it
+// (ADR-0008, ADR-0013).
+func (c GameConfig) demo() bool { return c.Attract || c.Screensaver }
 
 // Game is one headless bot match: two bots, rallies drawn by skill, every
 // result reported to zaehlwerk and checked against the truth.
@@ -761,7 +772,7 @@ func (g *Game) diverged(d Divergence) {
 	g.divergences = append(g.divergences, d)
 	g.changed()
 	g.mu.Unlock()
-	if g.cfg.Attract {
+	if g.cfg.demo() {
 		// Any divergence, not only an unexplained one: a demo has no faults
 		// to explain it. Only a demo gives way like this; a game somebody
 		// plays reports its divergences, which is what it is for.
@@ -872,6 +883,7 @@ func (g *Game) View() View {
 		Players:     g.cfg.Players,
 		Driver:      g.cfg.Driver,
 		Attract:     g.cfg.Attract,
+		Screensaver: g.cfg.Screensaver,
 		Mode:        g.cfg.Mode,
 		Bots:        g.cfg.Bots,
 		LastPress:   lastPress,

@@ -226,15 +226,19 @@ func (s *Server) startDemo(again func()) {
 	}
 }
 
-// yield ends a running demo, so that a game somebody asked for can have the
-// table. Called with s.starting held: no other start comes between the demo
-// stopping and the new game taking its place, and the demo cannot start again
-// in between because starting it takes the same lock.
-func (s *Server) yield() {
+// yield ends a running demo, so that next can have the table. Called with
+// s.starting held: no other start comes between the demo stopping and the new
+// game taking its place, and the demo cannot start again in between because
+// starting it takes the same lock.
+//
+// A game somebody asked for ends either kind of demo. A screensaver ends only
+// attract mode's: two screens at one table would otherwise take the table
+// from each other in turn, and the one that is playing keeps it (ADR-0013).
+func (s *Server) yield(next GameConfig) {
 	s.mu.Lock()
 	g := s.running
 	s.mu.Unlock()
-	if g == nil || !g.cfg.Attract {
+	if g == nil || !g.cfg.demo() || (next.Screensaver && g.cfg.Screensaver) {
 		return
 	}
 	g.stop(errYielded)

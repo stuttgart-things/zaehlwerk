@@ -1,0 +1,29 @@
+{{define "screensaver"}}<!DOCTYPE html>
+<html lang="de">
+<head>
+    {{template "head"}}
+    <title>Zählwerk Pong · Bildschirmschoner</title>
+    <style>
+        body { display: grid; place-items: center; min-height: 100vh; }
+        .saver { text-align: center; font-size: clamp(1.2rem, 3vw, 2.4rem); color: var(--fg-soft); }
+        .saver p { margin: 0.4rem 0; }
+    </style>
+</head>
+<body>
+{{/* Starts a demo the moment the page loads (ADR-0013). Whoever opened it,
+     or the watch screen that holds it, asked for exactly that. */}}
+<main class="saver" id="saver" hx-post="/ui/screensaver" hx-trigger="load" hx-swap="innerHTML">
+    <p>Gleich spielen die Computer …</p>
+</main>
+</body>
+</html>
+{{end}}
+
+{{/* No demo: the table is taken, or zaehlwerk cannot be reached. Asked again
+     every half minute, so the screen picks up by itself once the table is
+     free again. */}}
+{{define "screensaver-wait"}}
+<p>{{.}}</p>
+<p class="muted">Der Bildschirmschoner versucht es gleich noch einmal.</p>
+<div hx-post="/ui/screensaver" hx-trigger="load delay:30s" hx-target="#saver" hx-swap="innerHTML"></div>
+{{end}}

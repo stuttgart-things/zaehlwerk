@@ -96,8 +96,9 @@
 
   // Sound: a short tock on paddle and table. Off is remembered per browser.
   let audio = null;
-  let muted = false;
-  try { muted = localStorage.getItem('pong-muted') === '1'; } catch (e) { /* default on */ }
+  // The screensaver starts quiet, whatever this browser chose for games (#120).
+  let muted = root.dataset.quiet === '1';
+  try { muted = muted || localStorage.getItem('pong-muted') === '1'; } catch (e) { /* default on */ }
   const muteButton = document.getElementById('mute');
   const endButton = document.getElementById('end');
   const showMute = () => { if (muteButton) muteButton.textContent = muted ? 'Ton an' : 'Ton aus'; };

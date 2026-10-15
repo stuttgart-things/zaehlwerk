@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/stuttgart-things/zaehlwerk/internal/checkin"
+	"github.com/stuttgart-things/zaehlwerk/internal/match"
+	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 )
 
 // desk stands in for *checkin.Desk: who holds which half, set by the test.
@@ -192,4 +194,136 @@ func TestTheHoldRecordsAreBounded(t *testing.T) {
 		sd.held(strings.Repeat("x", i+1), now, time.Minute)
 	}
 	require.LessOrEqual(t, len(sd.over), maxOver)
+}
+
+const pongBase = "https://pong.example.com"
+
+// demo starts a match the way zaehlwerk-pong does: no result, gives way.
+func (f *fixture) demo() *match.Match {
+	f.t.Helper()
+	m, _, err := f.registry.CreateFor(scorer.Config{Players: [2]string{"Pong A", "Pong B"}}, match.Setup{Demo: true})
+	require.NoError(f.t, err)
+	return m
+}
+
+func saverFixture(t *testing.T, d *desk, c *clock) *fixture {
+	t.Helper()
+	return newFixture(t, WithSides(d, true, spBase), WithClock(c.Now),
+		WithScreensaver(pongBase+"/", 3*time.Minute))
+}
+
+// The table idle for the wait: pong takes the screen, the codes stay in the
+// corners, and the poll says it is the screensaver's.
+func TestAnIdleTableHandsTheScreenToTheScreensaver(t *testing.T) {
+	c := &clock{now: time.Date(2026, 10, 15, 6, 0, 0, 0, time.UTC)}
+	f := saverFixture(t, &desk{}, c)
+
+	_, body := f.do(http.MethodGet, "/ui/watch", nil)
+	require.Contains(t, body, "Pick your side", "the wait starts when the table is first seen free")
+	require.NotContains(t, body, "<iframe")
+
+	c.add(3*time.Minute - time.Second)
+	_, body = f.do(http.MethodGet, "/ui/watch/sides", nil)
+	require.NotContains(t, body, "<iframe")
+
+	c.add(time.Second)
+	_, body = f.do(http.MethodGet, "/ui/watch/sides", nil)
+	require.Contains(t, body, `<iframe class="saver" src="https://pong.example.com/screensaver"`)
+	require.Equal(t, 2, strings.Count(body, `class="qr qr-small"`), "a code in each corner")
+	require.Contains(t, body, `hx-get="/ui/watch/sides?saver=1"`)
+	require.NotContains(t, body, "Pick your side")
+
+	// While it should stay, its poll changes nothing: a swap would load the
+	// game again.
+	rec, body := f.do(http.MethodGet, "/ui/watch/sides?saver=1", nil)
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	require.Empty(t, body)
+}
+
+// Somebody checks in: the columns come back at once, with their name.
+func TestACheckInEndsTheScreensaver(t *testing.T) {
+	c := &clock{now: time.Date(2026, 10, 15, 6, 0, 0, 0, time.UTC)}
+	d := &desk{}
+	f := saverFixture(t, d, c)
+	f.do(http.MethodGet, "/ui/watch/sides", nil)
+	c.add(time.Hour)
+
+	d.set("Anna", "")
+	rec, body := f.do(http.MethodGet, "/ui/watch/sides?saver=1", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, body, "Waiting for an opponent")
+	require.Contains(t, body, "Anna")
+	require.NotContains(t, body, "<iframe")
+
+	// And the wait starts over once the half is free again.
+	d.set("", "")
+	_, body = f.do(http.MethodGet, "/ui/watch/sides", nil)
+	require.NotContains(t, body, "<iframe")
+	c.add(3 * time.Minute)
+	_, body = f.do(http.MethodGet, "/ui/watch/sides", nil)
+	require.Contains(t, body, "<iframe")
+}
+
+// The screensaver's own match is a demo. It does not send the screen to its
+// score, and neither does any other demo while the side select is on.
+func TestADemoDoesNotTakeTheScreenFromTheSideSelect(t *testing.T) {
+	c := &clock{now: time.Date(2026, 10, 15, 6, 0, 0, 0, time.UTC)}
+	f := saverFixture(t, &desk{}, c)
+	f.do(http.MethodGet, "/ui/watch/sides", nil)
+	c.add(time.Hour)
+	f.demo()
+
+	rec, _ := f.do(http.MethodGet, "/ui/watch/sides?saver=1", nil)
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	require.Empty(t, rec.Header().Get("HX-Redirect"))
+
+	rec, _ = f.do(http.MethodGet, "/ui/watch/next?match=", nil)
+	require.Empty(t, rec.Header().Get("HX-Redirect"))
+
+	_, body := f.do(http.MethodGet, "/ui/watch", nil)
+	require.NotContains(t, body, "Pong A")
+	require.Contains(t, body, "<iframe")
+}
+
+// A real match, started from the page or by two check-ins, takes the screen
+// from the screensaver.
+func TestARealMatchEndsTheScreensaver(t *testing.T) {
+	c := &clock{now: time.Date(2026, 10, 15, 6, 0, 0, 0, time.UTC)}
+	f := saverFixture(t, &desk{}, c)
+	f.do(http.MethodGet, "/ui/watch/sides", nil)
+	c.add(time.Hour)
+	f.demo()
+	f.match("Anna", "Bernd")
+
+	rec, _ := f.do(http.MethodGet, "/ui/watch/sides?saver=1", nil)
+	require.Equal(t, "/ui/watch", rec.Header().Get("HX-Redirect"))
+	_, body := f.do(http.MethodGet, "/ui/watch", nil)
+	require.Contains(t, body, "Anna")
+	require.NotContains(t, body, "<iframe")
+
+	// The match holds the table, so the wait starts again only after it.
+	_, err := f.registry.Current()
+	require.NoError(t, err)
+}
+
+func TestWithoutPongTheSideSelectStaysUp(t *testing.T) {
+	c := &clock{now: time.Date(2026, 10, 15, 6, 0, 0, 0, time.UTC)}
+	f := newFixture(t, WithSides(&desk{}, true, spBase), WithClock(c.Now), WithScreensaver("", time.Minute))
+	f.do(http.MethodGet, "/ui/watch/sides", nil)
+	c.add(time.Hour)
+
+	_, body := f.do(http.MethodGet, "/ui/watch/sides", nil)
+	require.Contains(t, body, "Pick your side")
+	require.NotContains(t, body, "<iframe")
+}
+
+// Without check-in, the watch screen follows a demo as it always has: attract
+// mode at a fair is something to watch.
+func TestWithoutCheckInADemoIsStillFollowed(t *testing.T) {
+	f := newFixture(t, WithScreensaver(pongBase, time.Minute))
+	f.demo()
+
+	_, body := f.do(http.MethodGet, "/ui/watch", nil)
+	require.Contains(t, body, "Pong A")
+	require.NotContains(t, body, "<iframe")
 }

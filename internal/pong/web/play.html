@@ -44,9 +44,19 @@
                       background: var(--panel); border-radius: var(--radius-sm); padding: 0.7rem; margin: 0.6rem 0; }
         .row { display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; }
         #check { display: grid; gap: 1rem; }
+
+        /* The screensaver (ADR-0013): a screen at the table, nobody at the
+           keyboard. The table as large as the screen allows and the score
+           above it; the lobby link, the controls and the comparison with the
+           truth are for somebody testing, not for a passer-by. */
+        body.saver header, body.saver .controls, body.saver .truth, body.saver .to-lobby { display: none; }
+        body.saver main { max-width: none; height: 100vh; padding: 1vh 1vw; gap: 1vh;
+                          grid-template-rows: auto minmax(0, 1fr); }
+        body.saver .stage { display: grid; place-items: center; min-height: 0; padding: 0; background: none; border: 0; }
+        body.saver canvas { width: auto; height: 100%; max-width: 100%; object-fit: contain; }
     </style>
 </head>
-<body>
+<body{{if .Board.Screensaver}} class="saver"{{end}}>
 <header>
     <h1>Zählwerk Pong</h1>
     <a href="/">Lobby</a>
@@ -56,7 +66,7 @@
     <section class="card score" id="score" sse-swap="score" hx-swap="innerHTML">{{template "score" .Board}}</section>
 
     {{if .Board.Mode}}
-    <section class="card stage" id="pong" data-game="{{.Board.ID}}" data-mode="{{.Board.Mode}}" data-bots="{{.Bots}}">
+    <section class="card stage" id="pong" data-game="{{.Board.ID}}" data-mode="{{.Board.Mode}}" data-bots="{{.Bots}}"{{if .Board.Screensaver}} data-quiet="1"{{end}}>
         {{/* Filled by game.js on the host's page only: the code is not in the
              page or the view, which anybody can read, but asked for with the
              host's token. */}}
@@ -73,6 +83,7 @@
     </section>
     <script src="/static/tab.js"></script>
     <script src="/static/game.js"></script>
+    {{if .Board.Screensaver}}<script src="/static/saver.js"></script>{{end}}
     {{end}}
 
     {{if .Board.Check}}
@@ -108,7 +119,7 @@
         {{if .Right.Waiting}}<span class="tag">wartet auf Taste</span>{{end}}
     </div>
 </div>
-{{if .Over}}<p style="text-align: center; margin: 0"><a class="button" href="/">Zur Lobby</a></p>{{end}}
+{{if .Over}}<p class="to-lobby" style="text-align: center; margin: 0"><a class="button" href="/">Zur Lobby</a></p>{{end}}
 {{end}}
 
 {{define "truth"}}

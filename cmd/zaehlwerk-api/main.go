@@ -157,6 +157,7 @@ func run() error {
 				log.Warn("ignoring WATCH_RESULT_HOLD, not a positive duration", "value", raw)
 			}
 		}
+		uiOpts = append(uiOpts, screensaver(log)...)
 	}
 
 	if spClient != nil {
@@ -567,4 +568,27 @@ func env(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// screensaver hands an idle side select to the pong screensaver (ADR-0013):
+// PONG_URL is the address of zaehlwerk-pong as a browser at the table reaches
+// it, and WATCH_SCREENSAVER_AFTER how long the table has to be free first.
+// Unset, the side select stays up for as long as the table is free. This
+// service never calls pong; the screen's browser does.
+func screensaver(log *slog.Logger) []ui.Option {
+	pong := os.Getenv("PONG_URL")
+	if pong == "" {
+		log.Info("screensaver disabled, PONG_URL not configured")
+		return nil
+	}
+	after := ui.DefaultScreensaverAfter
+	if raw := os.Getenv("WATCH_SCREENSAVER_AFTER"); raw != "" {
+		if d, err := time.ParseDuration(raw); err == nil && d > 0 {
+			after = d
+		} else {
+			log.Warn("ignoring WATCH_SCREENSAVER_AFTER, not a positive duration", "value", raw)
+		}
+	}
+	log.Info("screensaver enabled", "pong", pong, "after", after.String())
+	return []ui.Option{ui.WithScreensaver(pong, after)}
 }

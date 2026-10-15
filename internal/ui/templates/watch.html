@@ -261,6 +261,40 @@
             font-size: clamp(0.9rem, 1.8vw, 1.6rem);
             color: var(--muted);
         }
+
+        /* The screensaver takes the whole screen, over the top bar too: it
+           is a game to watch, not a page about one. */
+        iframe.saver {
+            position: fixed;
+            inset: 0;
+            width: 100vw;
+            height: 100vh;
+            border: 0;
+            background: var(--bg);
+        }
+        /* The codes stay in the bottom corners, small, so somebody walking
+           up can check in without waiting for the columns. Not over the
+           middle, where the table is. */
+        .saver-strip {
+            position: fixed;
+            left: 1.5vw;
+            right: 1.5vw;
+            bottom: 1.5vh;
+            display: flex;
+            justify-content: space-between;
+            pointer-events: none;
+        }
+        .saver-half {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.4vh;
+            padding: 0.6vh;
+            background: color-mix(in srgb, var(--bg) 80%, transparent);
+            border-radius: var(--radius-sm);
+        }
+        .saver-half .half-label { font-size: clamp(0.7rem, 1.2vw, 1.1rem); }
+        .qr.qr-small { width: min(16vh, 14vw); }
     </style>
 </head>
 <body>
@@ -319,10 +353,7 @@
 <div class="phase">{{.}}</div>
 {{- end}}
 {{- else if .Sides}}
-{{/* Polled, because a claim is not a transition and the hub does not carry
-     it. The answer is the columns again, or a redirect once two claims
-     have started the match. */}}
-<div class="sides" hx-get="/ui/watch/sides" hx-trigger="every 2s" hx-swap="innerHTML">
+<div class="sides" id="sides">
   {{- template "sides" .}}
 </div>
 {{- else}}
@@ -339,6 +370,24 @@
 
 {{define "sides"}}
 {{- with .Sides}}
+{{- if .Screensaver}}
+{{/* The table has been idle for a while: pong plays on the whole screen
+     (ADR-0013), with the codes still in the corners for anybody walking up.
+     The poll carries ?saver, and is answered with a 204 for as long as the
+     screensaver should stay, so the game is not loaded again every time. A
+     check-in or a real match swaps the game out, and the game's page ends
+     its demo as it goes. */}}
+<iframe class="saver" src="{{.Screensaver}}" title="Pong screensaver"></iframe>
+<div class="saver-strip">
+  {{- range .Halves}}
+  <div class="saver-half">
+    {{- with .Link}}<svg class="qr qr-small" viewBox="0 0 {{.QRSize}} {{.QRSize}}" role="img" aria-label="QR code for {{.Text}}" shape-rendering="crispEdges"><path d="{{.QRPath}}" fill="#000"/></svg>{{end}}
+    <span class="half-label">{{.Label}}</span>
+  </div>
+  {{- end}}
+</div>
+<div hidden hx-get="/ui/watch/sides?saver=1" hx-trigger="every 2s" hx-target="#sides" hx-swap="innerHTML"></div>
+{{- else}}
 <h1 class="sides-title">{{if .Waiting}}Waiting for an opponent{{else}}Pick your side{{end}}</h1>
 <div class="halves">
   {{- range .Halves}}
@@ -362,5 +411,11 @@
   {{- else if .Phone}}Scan the code of your side and press the button on your phone.
   {{- else}}Hold your fob to the reader and press your side's button.{{end -}}
 </p>
+{{/* Polled, because a claim is not a transition and the hub does not carry
+     it. The answer is the columns again, the screensaver once the table has
+     been idle long enough, or a redirect once two claims have started the
+     match. */}}
+<div hidden hx-get="/ui/watch/sides" hx-trigger="every 2s" hx-target="#sides" hx-swap="innerHTML"></div>
+{{- end}}
 {{- end}}
 {{end}}
