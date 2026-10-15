@@ -56,6 +56,9 @@ type view struct {
 	// Sides is the side select, set on a following watch screen when no
 	// match is running and check-in is on.
 	Sides *sidesView
+	// Nav is the scoring page's navigation: the watch screen and the
+	// services deployed next to this one.
+	Nav []navLink
 }
 
 // RosterPlayer is one option in the name pickers.

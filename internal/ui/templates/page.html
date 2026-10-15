@@ -101,15 +101,37 @@
             color: var(--fg-soft);
         }
 
-        .watch-link {
-            flex: none;
+        /* The services as a row of pills under the top bar: one tap each
+           on a phone, and wrapping rather than scrolling when there are
+           more than fit. */
+        .services {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            width: 100%;
+            max-width: 46rem;
+            margin: 0 auto;
+            padding: 0.75rem max(1rem, env(safe-area-inset-right)) 0 max(1rem, env(safe-area-inset-left));
+        }
+
+        .services a {
             font-size: 0.85rem;
             font-weight: 600;
+            padding: 0.35rem 0.85rem;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            background: var(--card);
             color: var(--accent-text);
             text-decoration: none;
         }
 
-        .watch-link:hover, .watch-link:focus-visible { text-decoration: underline; }
+        .services a:hover, .services a:focus-visible { border-color: var(--accent-text); }
+
+        /* Four of them fit one row on a phone only a little tighter. */
+        @media (max-width: 34rem) {
+            .services { gap: 0.4rem; }
+            .services a { font-size: 0.8rem; padding: 0.3rem 0.65rem; }
+        }
 
         main { flex: 1; padding-top: 1rem; padding-bottom: 1.5rem; }
 
@@ -579,13 +601,17 @@
     <header class="topbar">
         <a class="brand" href="/ui" title="Start page: the match the table is scoring now"><img class="brand-logo" src="/ui/static/mark-180.png" width="28" height="28" alt=""><span>Zähl<span class="brand-mark">werk</span></span></a>
         <span class="tagline">Table tennis · live score</span>
-        {{/* A new tab, because the screen it is for is usually another
-             device, and this one is still keeping score. */}}
-        <a class="watch-link" href="/ui/watch" target="_blank" rel="noopener" title="The score without the buttons, for a screen everybody can see">Watch</a>
         <span class="source" title="This page's source. Each page counts for itself, so two phones on one match never share a counter.">
             <span id="source-badge">&hellip;</span>
         </span>
     </header>
+
+    {{/* The services around the table, so nobody has to know their
+         addresses. New tabs, because the screen or the game is usually
+         another device, and this page is still keeping score. */}}
+    <nav class="services" aria-label="Services">
+        {{range .Nav}}<a href="{{.Href}}" target="_blank" rel="noopener" title="{{.Title}}">{{.Label}}</a>{{end}}
+    </nav>
 
     <main>
         {{template "live" .}}

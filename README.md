@@ -65,7 +65,8 @@ go run ./cmd/zaehlwerk-api
 | `CHECKIN_START` | `serve_rally` | The phase a checked-in match starts in: `serve_rally` or `warmup`. The first serve is always played for |
 | `CHECKIN_CHANGE_ENDS` | `false` | `true` has the players of a checked-in match change ends |
 | `WATCH_RESULT_HOLD` | `1m` | With check-in on, how long `/ui/watch` leaves a finished match up before the side select comes back. A check-in cuts it short |
-| `PONG_URL` | — | zaehlwerk-pong as a browser at the table reaches it. With the side select on, an idle table hands the watch screen to its `/screensaver` (ADR-0013). This service never calls it. Unset, the side select stays up |
+| `PONG_URL` | — | zaehlwerk-pong as a browser at the table reaches it. The scoring page links it as *Pong*, and with the side select on, an idle table hands the watch screen to its `/screensaver` (ADR-0013). This service never calls it. Unset, there is no link and the side select stays up |
+| `BUTTONS_URL` | — | The table mock's page (zaehlwerk-buttons), linked as *Buttons* on the scoring page. Only linked, never called. Unset, there is no link |
 | `WATCH_SCREENSAVER_AFTER` | `3m` | How long the table has to be free, with nobody checked in, before the screensaver takes the watch screen |
 | `SCHMETTERPAUSE_REPORT_DELAY` | `15s` | Grace period between a won match and its report (ADR-0007). An undo in it withholds the report, and the result that holds when it is over is the one sent. `0` reports at once; a value that is not a duration stops the start |
 

@@ -101,6 +101,9 @@ type Server struct {
 	resultHold time.Duration
 	// saver is where an idle side select goes, nil without PONG_URL.
 	saver *screensaver
+	// buttons and pong are the table mock's and the game's pages, empty when
+	// they are not deployed. Only linked, never called.
+	buttons, pong string
 }
 
 // Option configures a Server.
@@ -145,6 +148,40 @@ func WithSchmetterpause(roster Roster, handover Handover) Option {
 // shown, never called: the calls go through the Roster and Handover.
 func WithReportsTo(baseURL string) Option {
 	return func(s *Server) { s.reportsTo = redact(baseURL) }
+}
+
+// WithServiceLinks puts the table mock's page and the game's lobby in the
+// scoring page's navigation, next to the watch screen, so the services around
+// the table are found from the one page everybody already has open. An empty
+// URL leaves its link out: the service is not deployed. Both are addresses for
+// a browser; this service never calls either.
+func WithServiceLinks(buttonsURL, pongURL string) Option {
+	return func(s *Server) {
+		s.buttons = redact(strings.TrimRight(buttonsURL, "/"))
+		s.pong = redact(strings.TrimRight(pongURL, "/"))
+	}
+}
+
+// navLink is one entry in the scoring page's navigation.
+type navLink struct {
+	Label, Href, Title string
+}
+
+// nav is the navigation: the watch screen always, and each service that is
+// deployed. Each opens in a new tab, because the page it is opened from is
+// usually still keeping score.
+func (s *Server) nav() []navLink {
+	links := []navLink{{Label: "Watch", Href: "/ui/watch", Title: "The score without the buttons, for a screen everybody can see"}}
+	if s.buttons != "" {
+		links = append(links, navLink{Label: "Buttons", Href: s.buttons, Title: "The table mock: two emulated buttons, the fob reader and the piezo board"})
+	}
+	if s.pong != "" {
+		links = append(links, navLink{Label: "Pong", Href: s.pong + "/", Title: "Table tennis on a screen, scored by Zählwerk. Every game is a demo"})
+	}
+	if s.reportsTo != "" {
+		links = append(links, navLink{Label: "Schmetterpause", Href: s.reportsTo, Title: "Where a finished match is reported: the league, the standings, the players"})
+	}
+	return links
 }
 
 // redact drops a password from the URL, should anyone put one there: the
@@ -222,6 +259,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	v.Stream = v.Match != nil && s.hub != nil
 	s.fillRoster(r.Context(), &v)
 	v.ReportsTo = s.reportsTo
+	v.Nav = s.nav()
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// The page carries its own script and the SSE wiring, so a tab left open

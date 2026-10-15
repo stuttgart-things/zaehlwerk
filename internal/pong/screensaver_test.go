@@ -210,3 +210,14 @@ func get(t *testing.T, url string) string {
 	require.NoError(t, err)
 	return string(body)
 }
+
+// The name in the header is the way back to the lobby, on every page that has
+// a header.
+func TestThePongNameLeadsToTheLobby(t *testing.T) {
+	p := newPong(t, newTable(t).url, 1)
+	game := startBrowser(t, p, map[string]any{"mode": ModePvC})
+
+	for _, path := range []string{"/", "/play/" + game.id, "/join"} {
+		require.Contains(t, get(t, p.url+path), `<a class="home" href="/"`, path)
+	}
+}
