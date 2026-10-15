@@ -404,6 +404,7 @@ func lobbyForm(r *http.Request, def int) (GameConfig, Faults, error) {
 		*shares[kind] = v
 	}
 	f.Correct = r.FormValue("correct") != ""
+	cfg.Diagonal = r.FormValue("diagonal") != ""
 	return cfg, f, f.Validate()
 }
 
@@ -468,7 +469,7 @@ func (s *Server) boardStream(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) script(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("file")
-	if name != "game.js" && name != "check.js" && name != "tab.js" && name != "saver.js" {
+	if name != "game.js" && name != "serve.js" && name != "check.js" && name != "tab.js" && name != "saver.js" {
 		http.NotFound(w, r)
 		return
 	}

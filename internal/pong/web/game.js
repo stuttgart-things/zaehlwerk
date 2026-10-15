@@ -55,6 +55,7 @@
   const NET = T.x + T.w / 2, HALF = T.w / 2;
   const PADDLE_X = [T.x - 36, T.x + T.w + 36];
   const PADDLE_HALF = 34, BALL_R = 6;
+  const diag = root.dataset.diagonal === '1' && window.pongServe ? window.pongServe(T) : null; // web/serve.js
   const SPIN = 0.25;         // the one spin parameter: paddle speed at contact, as curve
   const START_SPEED = 520;   // px/s along the table
   const MAX_SPEED = 1050;
@@ -213,12 +214,14 @@
     ball = {
       x: PADDLE_X[h] + dir * 8, y: y, z: 14, x0: PADDLE_X[h], xEnd: PADDLE_X[1 - h] + dir * 60,
       vx: dir * speed, vy: serve ? (Math.random() - 0.5) * 60 : off * 150 + (Math.random() - 0.5) * 30,
-      spin: -paddleVy * SPIN, bounces: bounces, next: 0, hitter: h, net: net, touched: false, passed: false,
+      spin: -paddleVy * SPIN, bounces: bounces, next: 0, hitter: h, net: net, touched: false, passed: false, serve: serve,
     };
+    if (serve && diag) ball.vy = diag.vy(h, ball.x, y, bounces[0], bounces[1], ball.vx, ball.spin, paddleVy);
   }
 
   function serve(h) {
     if (resting !== h || awaiting || ball) return;
+    if (diag && st && st.phase !== 'warmup' && !diag.from(h, paddles[h].y)) return botAt(h) || say('Aufschlag aus deiner rechten Hälfte');
     resting = null;
     tock(800);
     shot(h, paddles[h].y, START_SPEED, 0, paddles[h].vy, true);
@@ -247,6 +250,7 @@
       const bx = b.bounces[b.next++];
       tock(1100);
       if (b.y < T.y || b.y > T.y + T.h || bx < T.x || bx > T.x + T.w) return end(1 - b.hitter, 'AUS');
+      if (diag && b.serve && !diag.fair(b.hitter, b.next - 1, b.y)) return end(1 - b.hitter, 'FALSCHE HÄLFTE');
       if (b.next === b.bounces.length && b.touched) {
         ball = null;
         resting = b.hitter;
@@ -308,7 +312,7 @@
   // no faster than its speed, to where the ball will cross plus its aim error.
   function bot(h, params, dt, now) {
     const p = paddles[h];
-    let target = T.y + T.h / 2;
+    let target = diag && resting === h ? diag.stance(h) : T.y + T.h / 2;
     if (ball && ball.hitter !== h) {
       if (!p.since) p.since = now;
       // A faster ball is harder to meet in the middle.
