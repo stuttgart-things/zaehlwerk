@@ -166,6 +166,10 @@ func run() error {
 			ui.WithReportsTo(spClient.BaseURL()))
 	}
 
+	// The scoring page links the services around the table. Addresses for
+	// a browser only: this service never calls either.
+	uiOpts = append(uiOpts, ui.WithServiceLinks(os.Getenv("BUTTONS_URL"), os.Getenv("PONG_URL")))
+
 	apiSrv := api.New(registry, apiOpts...)
 	srv := &http.Server{
 		Addr:    env("HTTP_ADDR", defaultAddr),
