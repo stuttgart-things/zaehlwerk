@@ -10,7 +10,8 @@
 #      board stops with an error if it does, and zaehlwerk logs the duplicate
 #   3. a result refused by Schmetterpause gets there on the page's retry
 #   4. a match point given to the wrong player and undone in the grace period
-#      is never reported, and the right result is, once (ADR-0007)
+#      is never reported, and the right result is, once (ADR-0007); the undo
+#      is an ingest event sent twice, and takes back one point (ADR-0012)
 #   5. zaehlwerk-pong plays headless best of threes, one of them to a deciding
 #      set with its change of ends at five, and its truth and zaehlwerk
 #      agree after every rally (ADR-0006)
@@ -157,7 +158,17 @@ for _ in $(seq 10); do press b; done
 # 9:10, and the point a should have levelled with goes to b, who wins 9:11.
 press b
 [ "$(curl -sf "$ZW/matches/$match" | jq -r .complete)" = true ] || fail "the wrong match point did not win the match"
-curl -sf -X POST "$ZW/matches/$match/undo" >/dev/null || fail "the undo was refused"
+# The undo as a device sends it, and once more as its retry after a lost
+# answer. A second point taken back would leave 9:9, and the three presses
+# below would end it 11:9, not 12:10.
+event=$((event + 1))
+for _ in 1 2; do
+  curl -sf -X POST "$ZW/ingest/web" -H 'Content-Type: application/json' \
+    -d "{\"match_id\":\"$match\",\"source\":\"e2e-undo\",\"action\":\"undo\",\"event_id\":$event}" >/dev/null ||
+    fail "the undo was refused"
+done
+[ "$(curl -sf "$ZW/matches/$match" | jq -c .points)" = '[9,10]' ] ||
+  fail "the undo and its retry left $(curl -sf "$ZW/matches/$match" | jq -c .points), want [9,10]"
 grep -q '"msg":"report withheld, the match was reopened"' "$WORK/zw.log" ||
   fail "zaehlwerk did not withhold the report on the undo"
 # The right point, and a wins 12:10.
@@ -606,7 +617,7 @@ last=$(curl -sf "$SP/results" | jq -c '.[-1]')
 echo "   match $match: Clara by fob, Bernd by phone, $(jq -c .sets <<<"$last") reported with both check-ins and no operator"
 
 echo "ok: 5 results, $resent resends, $duplicates duplicates, retry after refuse," \
-  "an undone match point withheld," \
+  "an undone match point withheld, its retried undo taking back one," \
   "$games Pong games with no unexplained divergence, ends changed at five in the decider," \
   "one of them on two devices," \
   "2 button checks, a match started by two fobs, one by a fob and a phone"

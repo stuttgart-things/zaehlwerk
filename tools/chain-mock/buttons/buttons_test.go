@@ -134,21 +134,25 @@ func TestALostRadioAckScoresOnceWithOrWithoutTheHub(t *testing.T) {
 	}
 }
 
-// Except for an undo: zaehlwerk cannot tell its retry from a second one, so
-// only the hub stands between a lost ACK and two points taken back.
-func TestALostRadioAckOnALongPressTakesTwoBackWithoutTheHub(t *testing.T) {
+// An undo too, since it carries the press's id (ADR-0012): the repeat the
+// hub lets through is a duplicate at zaehlwerk.
+func TestALostRadioAckOnALongPressTakesOneBackWithoutTheHub(t *testing.T) {
 	r := rig(t, zaehlwerk(t), func(s *Settings) { s.RadioAckLost, s.HubDedup = true, false })
 
 	press(t, r, "A", 100*time.Millisecond)
 	press(t, r, "A", 100*time.Millisecond)
 	press(t, r, "A", 2*time.Second)
 
-	require.Eventually(t, func() bool { return points(t, r) == [2]int{0, 0} }, time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return points(t, r) == [2]int{1, 0} }, time.Second, 5*time.Millisecond)
+	// Eventually could catch the moment between two undos; by now both
+	// have had many times the window to run.
+	time.Sleep(200 * time.Millisecond)
+	require.Equal(t, [2]int{1, 0}, points(t, r))
 }
 
-// The gap the mock exists to show. When undo gets an event id in the ingest
-// contract, this becomes a test that it takes back one.
-func TestARetriedUndoTakesBackTwoPoints(t *testing.T) {
+// The gap the mock was built to show, closed by #68: the hub's undo is an
+// ingest event, and its retry is a duplicate.
+func TestARetriedUndoTakesBackOnePoint(t *testing.T) {
 	r := rig(t, zaehlwerk(t), func(s *Settings) { s.APIResponseLost = true })
 
 	press(t, r, "B", 100*time.Millisecond)
@@ -156,7 +160,11 @@ func TestARetriedUndoTakesBackTwoPoints(t *testing.T) {
 	require.Equal(t, [2]int{0, 2}, points(t, r), "a retried point is a duplicate and scores once")
 
 	press(t, r, "B", 2*time.Second)
-	require.Eventually(t, func() bool { return points(t, r) == [2]int{0, 0} }, time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return points(t, r) == [2]int{0, 1} }, time.Second, 5*time.Millisecond)
+	// Eventually could catch the moment between two undos; by now both
+	// have had many times the window to run.
+	time.Sleep(200 * time.Millisecond)
+	require.Equal(t, [2]int{0, 1}, points(t, r))
 }
 
 // No id downstream can tell a bounce from a second press.
@@ -348,15 +356,15 @@ func TestALostRadioAckOnADisplayUndoIsCaughtByTheHub(t *testing.T) {
 	require.Equal(t, [2]int{1, 0}, points(t, r))
 }
 
-// Still #68: an undo the hub retries against the API takes back two.
-func TestARetriedUndoFromADisplayTakesBackTwoPoints(t *testing.T) {
+// The same for a display: the retried undo is a duplicate (#68).
+func TestARetriedUndoFromADisplayTakesBackOnePoint(t *testing.T) {
 	r := rig(t, zaehlwerk(t), func(s *Settings) { s.Device, s.APIResponseLost = DeviceDisplay, true })
 
 	tap(t, r, "A", Point)
 	tap(t, r, "A", Point)
 	tap(t, r, "A", Undo)
 
-	require.Equal(t, [2]int{0, 0}, points(t, r))
+	require.Equal(t, [2]int{1, 0}, points(t, r))
 }
 
 func TestThePageDrawsScreensForADisplayAndReloadsWhenTheDeviceChanges(t *testing.T) {
