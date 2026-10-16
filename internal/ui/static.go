@@ -8,18 +8,18 @@ import (
 	"net/http"
 )
 
-// The mark (mark-32.png, mark-180.png) is schmetterpause's (web/static/img
-// there), for the same reason the tokens are: this is the same product family,
-// and a page that scores a match there should be recognisably the same animal
-// here. Copied rather than linked to that instance, because the coupling is
+// The mark (mark-32.png, mark-180.png) and the mascot are Zählwerk's own
+// drawings of schmetterpause's cat: the same animal, because this is the same
+// product family and a page that scores a match there should be recognisably
+// the same here, but in Zählwerk's role — the referee with stopwatch and
+// whistle, because here it keeps the score rather than plays. The mascot's
+// layers carry the same ids as schmetterpause's drawing (fur, fur-dark, ink,
+// eyes).
+//
+// Embedded rather than linked to that instance, because the coupling is
 // optional (invariant 4) and a logo that disappears when SCHMETTERPAUSE_URL is
 // unset, or on a network that cannot reach it, is a broken image on every page
-// load. A new mark over there is worth carrying over here.
-//
-// The mascot is not a copy: it is the same cat in another role, the referee
-// with stopwatch and whistle, because here it keeps the score rather than
-// plays. Its layers carry the same ids as schmetterpause's drawing (fur,
-// fur-dark, ink, eyes).
+// load.
 //
 //go:embed static
 var staticFiles embed.FS
