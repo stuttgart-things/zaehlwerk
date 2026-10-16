@@ -294,24 +294,24 @@ var errStopped = errors.New("ended in the browser")
 
 // run plays the match to its end and watches the table while it does. table
 // is /live/stream, already past the event that said the table was free.
-func (g *Game) run(ctx context.Context, table <-chan TableEvent) {
+// stopped is the game's own context, which g.stop cancels with the reason the
+// game is being stopped for, and which table is read under.
+func (g *Game) run(stopped context.Context, table <-chan TableEvent) {
 	defer close(g.done)
 	// After the status is set and before done closes, so a press waiting
 	// for its answer gets the last state and finds the game over.
 	defer func() { g.driver.Over(g.current()) }()
 
-	ctx, cancel := context.WithCancelCause(ctx)
+	ctx, cancel := context.WithCancelCause(stopped)
 	defer cancel(nil)
 	var err error
 	if g.cfg.Driver == DriverCheck {
 		err = g.runCheck(ctx, table)
 	} else {
-		go g.watch(ctx, cancel, table)
+		go g.watch(ctx, stopped, cancel, table)
 		err = g.play(ctx)
 	}
-	if cause := context.Cause(ctx); err != nil && cause != nil && !errors.Is(cause, context.Canceled) {
-		err = cause
-	}
+	err = endCause(err, stopped, ctx)
 
 	switch {
 	case err == nil && g.cfg.Driver == DriverCheck:
@@ -353,6 +353,25 @@ func (g *Game) run(ctx context.Context, table <-chan TableEvent) {
 	g.finish(StatusFailed, err.Error())
 }
 
+// endCause is why the game ended. Whoever stopped the game said why, and that
+// reason wins over anything the game saw as a consequence: stopping closes the
+// table's stream too, and a game that read the close first would otherwise end
+// as having lost sight of the table. It can read it first, because a context
+// closes its own Done before it cancels its children: the stream, read under
+// stopped, can be gone while ctx still says nothing happened (#141). After
+// that, the cause the game's own context carries, as before.
+func endCause(err error, stopped, ctx context.Context) error {
+	if err == nil {
+		return nil
+	}
+	for _, c := range []context.Context{stopped, ctx} {
+		if cause := context.Cause(c); cause != nil && !errors.Is(cause, context.Canceled) {
+			return cause
+		}
+	}
+	return err
+}
+
 // watch reads the table while the game plays. A snapshot of another match
 // means that match is now current: somebody started it, and it is theirs. Its
 // own match ending on zaehlwerk ends the game, and a stream that closes leaves
@@ -364,7 +383,10 @@ func (g *Game) run(ctx context.Context, table <-chan TableEvent) {
 // made way for a real match ends displaced, as it always has. A won match
 // sends no match_ended but also a no_match after its last point; watch stops
 // at the point, which play has as its answer, so a won game stays won.
-func (g *Game) watch(ctx context.Context, cancel context.CancelCauseFunc, table <-chan TableEvent) {
+//
+// stopped is the game's own context, which the stream is read under: a stream
+// that closes because the game is being stopped is not one that got lost.
+func (g *Game) watch(ctx, stopped context.Context, cancel context.CancelCauseFunc, table <-chan TableEvent) {
 	ended := false
 	for {
 		select {
@@ -375,7 +397,8 @@ func (g *Game) watch(ctx context.Context, cancel context.CancelCauseFunc, table 
 			case !ok:
 				// Also closed when ctx ends. Only the first cause counts, and
 				// a game that won or is stopping is not one that got lost.
-				if ctx.Err() == nil {
+				// stopped is asked too: it is done before ctx is (endCause).
+				if ctx.Err() == nil && stopped.Err() == nil {
 					if ended {
 						cancel(errMatchEnded)
 						return
