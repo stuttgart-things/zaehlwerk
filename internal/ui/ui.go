@@ -171,7 +171,10 @@ type navLink struct {
 // deployed. Each opens in a new tab, because the page it is opened from is
 // usually still keeping score.
 func (s *Server) nav() []navLink {
-	links := []navLink{{Label: "Watch", Href: "/ui/watch", Title: "The score without the buttons, for a screen everybody can see"}}
+	links := []navLink{
+		{Label: "Watch", Href: watchScreen.path, Title: "The score without the buttons, for a screen everybody can see"},
+		{Label: "Live", Href: liveScreen.path, Title: "Only the real matches at this table, for the big screen next to it: no demos, no screensaver"},
+	}
 	if s.buttons != "" {
 		links = append(links, navLink{Label: "Buttons", Href: s.buttons, Title: "The table mock: two emulated buttons, the fob reader and the piezo board"})
 	}
@@ -215,10 +218,12 @@ func New(registry *match.Registry, lifecycle Lifecycle, opts ...Option) *Server 
 
 	s.mux.Handle("GET /ui/static/", staticHandler())
 
-	s.mux.HandleFunc("GET /ui/watch", s.watch)
-	s.mux.HandleFunc("GET /ui/watch/{$}", s.watch)
-	s.mux.HandleFunc("GET /ui/watch/next", s.watchNext)
-	s.mux.HandleFunc("GET /ui/watch/sides", s.watchSides)
+	for _, sc := range []screen{watchScreen, liveScreen} {
+		s.mux.HandleFunc("GET "+sc.path, s.watch(sc))
+		s.mux.HandleFunc("GET "+sc.path+"/{$}", s.watch(sc))
+		s.mux.HandleFunc("GET "+sc.path+"/next", s.watchNext(sc))
+		s.mux.HandleFunc("GET "+sc.path+"/sides", s.watchSides(sc))
+	}
 
 	s.mux.HandleFunc("POST /ui/matches", s.createMatch)
 	s.mux.HandleFunc("POST /ui/matches/{id}/point", s.point)
@@ -269,6 +274,30 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "page", v)
 }
 
+// screen is one of the two spectator pages. They show the same match the
+// same way and differ in what they show besides one.
+//
+// /ui/watch is the screen that shows whatever the table is doing, a demo
+// included when nobody can check in, and hands an idle table to the pong
+// screensaver. /ui/live is for a large screen next to a real table, where
+// players check in by fob or phone: it shows their match and nothing that
+// merely plays itself — never a demo, never the screensaver. With nothing
+// running it shows the side select, or that the table is free.
+type screen struct {
+	path string
+	// demos says the screen follows a demo when the side select is off.
+	// With it on, no screen does: the halves are what a free table shows.
+	demos bool
+	// saver says an idle side select may hand this screen to the pong
+	// screensaver.
+	saver bool
+}
+
+var (
+	watchScreen = screen{path: "/ui/watch", demos: true, saver: true}
+	liveScreen  = screen{path: "/ui/live"}
+)
+
 // watch renders the spectator view: the same match as the scoring page, for a
 // screen nobody touches.
 //
@@ -276,39 +305,40 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 // stray tap on a TV or a tablet on the wall cannot score: there is nothing on
 // it that posts. It resolves the match the way [Server.index] does — the
 // running one, or ?match — and only the running one is followed.
-func (s *Server) watch(w http.ResponseWriter, r *http.Request) {
-	v := view{}
+func (s *Server) watch(sc screen) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		v := view{Screen: sc.path, Live: sc == liveScreen}
 
-	if id := r.URL.Query().Get("match"); id != "" {
-		m, err := s.registry.Get(id)
-		if err != nil {
-			v.Error = err.Error()
+		if id := r.URL.Query().Get("match"); id != "" {
+			m, err := s.registry.Get(id)
+			if err != nil {
+				v.Error = err.Error()
+			} else {
+				v.Match = s.matchView(m, kindOf(m.Scorer.State()))
+			}
 		} else {
-			v.Match = s.matchView(m, kindOf(m.Scorer.State()))
+			v.Follow = true
+			if m, ok := s.current(sc); ok {
+				v.Match = s.matchView(m, kindOf(m.Scorer.State()))
+			}
 		}
-	} else {
-		v.Follow = true
-		if m, ok := s.current(); ok {
-			v.Match = s.matchView(m, kindOf(m.Scorer.State()))
+
+		v.Stream = v.Match != nil && s.hub != nil
+		if v.Follow && v.Match == nil && s.sides != nil {
+			v.Sides = s.sidesNow(sc)
 		}
-	}
 
-	v.Stream = v.Match != nil && s.hub != nil
-	if v.Follow && v.Match == nil && s.sides != nil {
-		v.Sides = s.sidesNow()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		// Same as the scoring page: a screen left on across a deploy would keep
+		// swapping into markup the release no longer serves.
+		w.Header().Set("Cache-Control", "no-store")
+		s.render(w, "watch", v)
 	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	// Same as the scoring page: a screen left on across a deploy would keep
-	// swapping into markup the release no longer serves.
-	w.Header().Set("Cache-Control", "no-store")
-	s.render(w, "watch", v)
 }
 
-// watchNext tells a following spectator view whether to load /ui/watch
-// again: because a different match is now running, or, with the side select
-// on, because the match it shows is over and the table is free for the next
-// pair.
+// watchNext tells a following spectator view whether to load the page again:
+// because a different match is now running, or, with the side select on,
+// because the match it shows is over and the table is free for the next pair.
 //
 // Polled rather than pushed: the stream a page holds is one match's, and the
 // hub has no channel for "a match started". Without the side select, a
@@ -316,18 +346,20 @@ func (s *Server) watch(w http.ResponseWriter, r *http.Request) {
 // what somebody looking up from the next table wants to see. With it, the
 // score stays up for the hold, and a check-in ends the hold at once, because
 // whoever is checking in wants to see their name in a column.
-func (s *Server) watchNext(w http.ResponseWriter, r *http.Request) {
-	shown := r.URL.Query().Get("match")
-	m, running := s.current()
-	switch {
-	case running && m.ID != shown:
-		w.Header().Set("HX-Redirect", "/ui/watch")
-	case !running && shown != "" && s.sides != nil:
-		if s.sides.claimed() || !s.sides.held(shown, s.now(), s.resultHold) {
-			w.Header().Set("HX-Redirect", "/ui/watch")
+func (s *Server) watchNext(sc screen) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		shown := r.URL.Query().Get("match")
+		m, running := s.current(sc)
+		switch {
+		case running && m.ID != shown:
+			w.Header().Set("HX-Redirect", sc.path)
+		case !running && shown != "" && s.sides != nil:
+			if s.sides.claimed() || !s.sides.held(shown, s.now(), s.resultHold) {
+				w.Header().Set("HX-Redirect", sc.path)
+			}
 		}
+		w.WriteHeader(http.StatusNoContent)
 	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // createMatch starts a match from the form at the bottom of the page and

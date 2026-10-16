@@ -121,6 +121,8 @@ type sidesView struct {
 	// Screensaver is the pong screensaver's address once the table has been
 	// idle long enough, and the screen shows it instead of the columns.
 	Screensaver string
+	// Screen is the path of the page the columns are on, which they poll.
+	Screen string
 }
 
 type halfView struct {
@@ -198,13 +200,13 @@ type screensaver struct {
 	after time.Duration
 }
 
-// current is the running match the watch screen follows. With the side select
+// current is the running match the screen sc follows. With the side select
 // on, a demo is not one: a free table shows the halves and their codes, not
 // bots, and the screensaver is a demo the screen itself asked for. Without it
-// the screen follows a demo as it always has.
-func (s *Server) current() (*match.Match, bool) {
+// /ui/watch follows a demo as it always has, and /ui/live still does not.
+func (s *Server) current(sc screen) (*match.Match, bool) {
 	m, err := s.registry.Current()
-	if err != nil || (s.sides != nil && m.Demo) {
+	if err != nil || (m.Demo && (s.sides != nil || !sc.demos)) {
 		return nil, false
 	}
 	return m, true
@@ -234,11 +236,15 @@ func (sd *sides) busy() {
 	sd.mu.Unlock()
 }
 
-// sidesNow is the side select as it should be now: the columns, or the
-// screensaver once the table has been idle long enough.
-func (s *Server) sidesNow() *sidesView {
+// sidesNow is the side select as it should be now on the screen sc: the
+// columns, or, on a screen that takes it, the screensaver once the table has
+// been idle long enough.
+func (s *Server) sidesNow(sc screen) *sidesView {
 	v := s.sides.view()
-	if s.saver != nil && s.sides.idle(s.now(), s.saver.after) {
+	v.Screen = sc.path
+	// Asked on every screen, since the clock is the table's, and heeded only
+	// on one that takes the screensaver.
+	if s.saver != nil && s.sides.idle(s.now(), s.saver.after) && sc.saver {
 		v.Screensaver = s.saver.url
 	}
 	return v
@@ -252,23 +258,25 @@ func (s *Server) sidesNow() *sidesView {
 // match's transitions, and a claim is not one. The screensaver's poll says
 // so with ?saver, and while the screensaver should stay it gets a 204, which
 // htmx does not swap: swapping it for itself would load the game again.
-func (s *Server) watchSides(w http.ResponseWriter, r *http.Request) {
-	if s.sides == nil {
-		http.NotFound(w, r)
-		return
+func (s *Server) watchSides(sc screen) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.sides == nil {
+			http.NotFound(w, r)
+			return
+		}
+		if _, running := s.current(sc); running {
+			s.sides.busy()
+			w.Header().Set("HX-Redirect", sc.path)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		v := s.sidesNow(sc)
+		if r.URL.Query().Has("saver") && v.Screensaver != "" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		s.render(w, "sides", view{Sides: v})
 	}
-	if _, running := s.current(); running {
-		s.sides.busy()
-		w.Header().Set("HX-Redirect", "/ui/watch")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	v := s.sidesNow()
-	if r.URL.Query().Has("saver") && v.Screensaver != "" {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	s.render(w, "sides", view{Sides: v})
 }

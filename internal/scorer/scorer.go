@@ -465,6 +465,28 @@ func (s *Scorer) Rules() (bestOf, pointsPerSet int) {
 	return s.cfg.BestOf, s.cfg.PointsPerSet
 }
 
+// Stake says what the next point decides at st: who takes the set with it,
+// and whether that set is also the match. An empty Player means it decides
+// neither — no lead at the edge of a set, a phase in which nobody plays a
+// point, or a match that is over.
+//
+// It takes a state rather than reading the current one, so that a screen
+// rendering a transition from a stream asks about the score that transition
+// carried. A method rather than a function of the state alone, because the
+// answer depends on the rules and the scorer stays the only thing with an
+// opinion about them. Only one player can hold it, since it needs a lead.
+func (s *Scorer) Stake(st State) (p Player, match bool) {
+	if st.Complete || st.Phase != PhasePlaying {
+		return "", false
+	}
+	for i, pts := range st.Points {
+		if pts+1 >= s.cfg.PointsPerSet && pts+1-st.Points[1-i] >= winBy {
+			return playerAt(i), st.Sets[i]+1 == s.setsToWin
+		}
+	}
+	return "", false
+}
+
 // State returns the current state of the match.
 func (s *Scorer) State() State {
 	s.mu.Lock()

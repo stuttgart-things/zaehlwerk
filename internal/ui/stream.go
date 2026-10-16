@@ -96,6 +96,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 			// added here: without it the card would go at match_won, the
 			// moment it has something to say.
 			v.Match.Reported = s.reportView(m, ev.State)
+			stake(v.Match, m, ev.State)
 
 			if ev.Kind != live.KindSnapshot {
 				rows = append([]logRow{s.logRow(kind, ev.State)}, rows...)
