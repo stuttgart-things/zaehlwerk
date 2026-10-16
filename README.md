@@ -483,6 +483,16 @@ from the set says **set point**, or **match point** when that set would end the
 match — what a room watching a close set waits for. The scorer decides it from
 its rules, so it is right for best of 1, 3 or 5 and for the advantage at 10:10.
 
+Next to the sets stands the referee, the mascot, with its whistle's cord in
+the colour of whoever leads: the winner once the match is over, else more sets,
+else more points in the set in play, and the drawing's own gold while it is
+level. Each name is underlined in its side's colour, which is the key. For a
+player schmetterpause knows, that colour is the blade their mascot carries
+there: schmetterpause derives it from the player id, and this screen makes the
+same sum. A match with free-text names gets light blue on the left and pink on
+the right, and two players who share a blade there are told apart here by
+moving the right-hand one on to the next colour.
+
 #### The live screen
 
     GET /ui/live

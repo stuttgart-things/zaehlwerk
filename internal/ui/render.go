@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
+	"hash/fnv"
 	"html/template"
 	"math"
 	"net/http"
@@ -87,6 +88,10 @@ type matchView struct {
 	Complete      bool
 	Running       bool
 	CompletedSets [][2]int
+	// Cord is the referee's cord, as a --paddle declaration: the colour of
+	// whoever leads, or of the winner, and empty while the match is level,
+	// when the cord keeps the drawing's own gold.
+	Cord template.CSS
 	// Panel is the title this score is pitched to the matrix as — the whole of
 	// what the panel shows. It is here so that the page and the panel can be
 	// disagreed with in the same glance.
@@ -109,6 +114,9 @@ type sideView struct {
 	// screens show it: a spectator across the room wants to know what the
 	// next rally is worth, the person keeping score does not.
 	Stake string
+	// Blade is this side's colour, as a --blade declaration: the one the
+	// player's mascot carries in schmetterpause. See [blades].
+	Blade template.CSS
 }
 
 // logRow is one transition, in the words the panel gets it in: the title the
@@ -126,7 +134,76 @@ func (s *Server) matchView(m *match.Match, kind scorer.TransitionKind) *matchVie
 	v := s.stateView(st, m.Running(), kind)
 	v.Reported = s.reportView(m, st)
 	stake(v, m, st)
+	paint(v, m, st)
 	return v
+}
+
+// paint gives each side its colour and the referee's cord the colour of the
+// side that leads at st.
+func paint(v *matchView, m *match.Match, st scorer.State) {
+	a, b := blades(m.Handover)
+	v.A.Blade = template.CSS("--blade: " + a)
+	v.B.Blade = template.CSS("--blade: " + b)
+	switch leader(st) {
+	case scorer.PlayerA:
+		v.Cord = template.CSS("--paddle: " + a)
+	case scorer.PlayerB:
+		v.Cord = template.CSS("--paddle: " + b)
+	}
+}
+
+// blades is the colour of each side.
+//
+// For a player schmetterpause knows it is the blade their mascot carries
+// there: schmetterpause derives it from the player id (PaddleClass in its
+// internal/templates/view.go) as FNV-1a over the seven colours, and the same
+// sum here gives the same colour, with nothing stored on either side. A match
+// with free-text names has no ids, and gets the widest-apart pair in the
+// palette, light blue on the left and pink on the right.
+//
+// Two players can share a colour there; here they would share the cord, and
+// the cord would say nothing. So b moves on to the next colour when they do.
+func blades(h match.Handover) (a, b string) {
+	i, j := 0, 4
+	if h.HomeID != "" && h.AwayID != "" {
+		i, j = blade(h.HomeID), blade(h.AwayID)
+	}
+	if i == j {
+		j = (j + 1) % len(paddleColours)
+	}
+	return paddleColours[i], paddleColours[j]
+}
+
+// blade is the index schmetterpause's PaddleClass picks for a player id.
+func blade(id string) int {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(id))
+	return int(h.Sum32() % uint32(len(paddleColours)))
+}
+
+// leader is who is ahead at st: the winner of a finished match, else the
+// side with more sets, else the side with more points in the set in play.
+// Empty while it is level.
+func leader(st scorer.State) scorer.Player {
+	switch {
+	case st.Complete:
+		return st.Winner
+	case st.Sets[0] != st.Sets[1]:
+		return ahead(st.Sets)
+	default:
+		return ahead(st.Points)
+	}
+}
+
+func ahead(n [2]int) scorer.Player {
+	switch {
+	case n[0] > n[1]:
+		return scorer.PlayerA
+	case n[1] > n[0]:
+		return scorer.PlayerB
+	default:
+		return ""
+	}
 }
 
 // stake marks the side the next point would give the set or the match, at the

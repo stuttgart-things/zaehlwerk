@@ -50,6 +50,10 @@ var mascotSVG = static.Mascot
 // the page — violet is "press me", green and red are good and bad. The
 // drawing's own gold, the cord's fallback, sits too close to the fur to be
 // one of them.
+//
+// The order is schmetterpause's paddle-0 to paddle-6 and has to stay so: a
+// player's colour is picked by index from their id (see [blades]), and a
+// reordering here would dress them differently on the two screens.
 var paddleColours = []string{
 	"#3aa6ff", // light blue
 	"#2f6fd0", // blue
