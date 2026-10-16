@@ -614,3 +614,13 @@ func TestTheBladeIsOneOfTheMeasuredColours(t *testing.T) {
 
 	require.Greater(t, len(seen), 1, "fifty page loads and the blade never changed")
 }
+
+// The images' package keeps its Go file next to them; the embed takes the
+// images only, so the source is not served as one.
+func TestTheImagesPackageServesNoSource(t *testing.T) {
+	f := newFixture(t)
+
+	rec, _ := f.do(http.MethodGet, "/ui/static/static.go", nil)
+
+	require.Equal(t, http.StatusNotFound, rec.Code)
+}

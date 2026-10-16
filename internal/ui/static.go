@@ -1,11 +1,11 @@
 package ui
 
 import (
-	"embed"
 	"html/template"
-	"io/fs"
 	"math/rand/v2"
 	"net/http"
+
+	"github.com/stuttgart-things/zaehlwerk/internal/ui/static"
 )
 
 // The mark (mark-32.png, mark-180.png) and the mascot are Zählwerk's own
@@ -21,20 +21,15 @@ import (
 // unset, or on a network that cannot reach it, is a broken image on every page
 // load.
 //
-//go:embed static
-var staticFiles embed.FS
+// The files and their embed live in package static, so that zaehlwerk-pong can
+// serve the mark too.
 
 // staticHandler serves the embedded images under /ui/static/.
 //
 // Cached for a day rather than forever: the names carry no hash, so a redrawn
 // mascot has to reach a browser eventually without anybody clearing a cache.
 func staticHandler() http.Handler {
-	sub, err := fs.Sub(staticFiles, "static")
-	if err != nil {
-		// Only reachable if the embed directive above names another directory.
-		panic(err)
-	}
-	files := http.StripPrefix("/ui/static/", http.FileServerFS(sub))
+	files := http.StripPrefix("/ui/static/", http.FileServerFS(static.FS))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		files.ServeHTTP(w, r)
@@ -47,9 +42,7 @@ func staticHandler() http.Handler {
 // document of its own that the page's CSS cannot reach, and the whistle's
 // cord takes its colour from --paddle outside it. Served as a file as well,
 // for anything that only wants to show it.
-//
-//go:embed static/mascot.svg
-var mascotSVG string
+var mascotSVG = static.Mascot
 
 // paddleColours are the blades schmetterpause gives its players
 // (web/static/css/app.css there), picked by measurement: far enough from each
