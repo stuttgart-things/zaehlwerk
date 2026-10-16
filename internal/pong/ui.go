@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
+	"github.com/stuttgart-things/zaehlwerk/internal/ui/static"
 )
 
 // The page around the game is htmx and SSE, the way zaehlwerk's scoring page
@@ -44,6 +45,8 @@ func (s *Server) routeUI() {
 	s.mux.HandleFunc("GET /play/{id}", s.playPage)
 	s.mux.HandleFunc("GET /ui/games/{id}/stream", s.boardStream)
 	s.mux.HandleFunc("GET /static/{file}", s.script)
+	s.mux.HandleFunc("GET /static/mark-32.png", s.mark)
+	s.mux.HandleFunc("GET /static/mark-180.png", s.mark)
 }
 
 // lobbyView is the start page.
@@ -483,6 +486,21 @@ func (s *Server) script(w http.ResponseWriter, r *http.Request) {
 	// keeps a browser from playing yesterday's game against today's service.
 	w.Header().Set("Cache-Control", "no-cache")
 	_, _ = w.Write(js)
+}
+
+// mark serves Zählwerk's mark, the favicon and the home-screen icon, from the
+// same files the scoring page serves: the game is Zählwerk's too, and a tab
+// with the browser's blank page icon is the one tab nobody finds again.
+func (s *Server) mark(w http.ResponseWriter, r *http.Request) {
+	png, err := static.FS.ReadFile(strings.TrimPrefix(r.URL.Path, "/static/"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	// A day, as on the scoring page: the names carry no hash.
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(png)
 }
 
 // boardView is the banner, the score and truth against zaehlwerk.
