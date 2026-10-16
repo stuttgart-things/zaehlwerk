@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.23.0...v0.24.0) (2026-10-16)
+
+
+### Features
+
+* a live screen for the table, with the sets so far and the set or match point ([#147](https://github.com/stuttgart-things/zaehlwerk/issues/147)) ([7c92280](https://github.com/stuttgart-things/zaehlwerk/commit/7c92280cc6f027d7f3d3e41d78d27d4c0b60ad44))
+
 ## [0.23.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.22.0...v0.23.0) (2026-10-16)
 
 
