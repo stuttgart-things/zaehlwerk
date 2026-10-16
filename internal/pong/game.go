@@ -68,6 +68,9 @@ type View struct {
 	// playing as player a and b, or none for a person.
 	Mode string        `json:"mode,omitempty"`
 	Bots [2]*BotParams `json:"bots,omitempty"`
+	// Diagonal is a browser game served as in doubles: from the server's
+	// right half court into the receiver's (web/serve.js).
+	Diagonal bool `json:"diagonal,omitempty"`
 	// LastPress is the browser's last press taken, so a page that reloads
 	// numbers on from there.
 	LastPress uint64   `json:"last_press,omitempty"`
@@ -106,6 +109,9 @@ type GameConfig struct {
 	// itself does not use them.
 	Mode string
 	Bots [2]*BotParams
+	// Diagonal has the serve go corner to corner, as in doubles. The page
+	// judges it, as it judges every rally; the service only passes it on.
+	Diagonal bool
 	// Idle ends a browser game nobody presses in; zero is browserIdle.
 	Idle time.Duration
 	// CheckTimeout is how long a button check's prompt waits for its press,
@@ -909,6 +915,7 @@ func (g *Game) View() View {
 		Screensaver: g.cfg.Screensaver,
 		Mode:        g.cfg.Mode,
 		Bots:        g.cfg.Bots,
+		Diagonal:    g.cfg.Diagonal,
 		LastPress:   lastPress,
 		Skills:      g.cfg.Skills,
 		Rallies:     g.rallies,

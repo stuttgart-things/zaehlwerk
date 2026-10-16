@@ -180,6 +180,8 @@ type startBody struct {
 	Players [2]string     `json:"players"`
 	Mode    string        `json:"mode"`
 	Bots    [2]*BotParams `json:"bots"`
+	// Diagonal serves as in doubles; a browser game's too.
+	Diagonal bool `json:"diagonal"`
 }
 
 // started is the answer to a start: the game, and for a browser game the
@@ -211,8 +213,8 @@ func (s *Server) startGame(w http.ResponseWriter, r *http.Request) {
 	cfg := GameConfig{Pace: DefaultPace}
 	switch body.Driver {
 	case "", DriverBots:
-		if body.Players != ([2]string{}) || body.Mode != "" || body.Bots != ([2]*BotParams{}) {
-			fail(w, http.StatusBadRequest, errors.New("players, mode and bots are for a browser game"))
+		if body.Players != ([2]string{}) || body.Mode != "" || body.Bots != ([2]*BotParams{}) || body.Diagonal {
+			fail(w, http.StatusBadRequest, errors.New("players, mode, bots and diagonal are for a browser game"))
 			return
 		}
 	case DriverBrowser:
@@ -225,10 +227,11 @@ func (s *Server) startGame(w http.ResponseWriter, r *http.Request) {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
+		cfg.Diagonal = body.Diagonal
 	case DriverCheck:
 		if body.Pace != "" || body.Faults != nil || body.Players != ([2]string{}) || body.Mode != "" ||
-			body.Bots != ([2]*BotParams{}) {
-			fail(w, http.StatusBadRequest, errors.New("a button check takes no pace, faults, players, mode or bots"))
+			body.Bots != ([2]*BotParams{}) || body.Diagonal {
+			fail(w, http.StatusBadRequest, errors.New("a button check takes no pace, faults, players, mode, bots or diagonal"))
 			return
 		}
 		cfg = checkGame()

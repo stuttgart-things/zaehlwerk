@@ -69,6 +69,9 @@
             {{range .Lengths}}<label class="length"><input type="radio" name="best_of" value="{{.BestOf}}"{{if .Checked}} checked{{end}}> {{.Label}}</label>{{end}}
         </div>
         <p class="muted" style="margin: 0.4rem 0 0">Jeder Satz geht bis 11, mit zwei Punkten Vorsprung.</p>
+        <label style="margin-top: 0.8rem"><span><input type="checkbox" name="diagonal">
+            Diagonaler Aufschlag, wie im Doppel</span>
+            <small class="muted">aus der eigenen rechten Hälfte in die rechte Hälfte gegenüber, über die Mittellinie. Landet er in der falschen Hälfte, ist der Punkt weg.</small></label>
 
         <h2 style="margin-top: 1.2rem">Computer</h2>
         <p class="muted" style="margin-top: 0">B spielt gegen dich, A und B spielen gegeneinander. Die Stufe füllt die Regler, danach sind sie frei.</p>

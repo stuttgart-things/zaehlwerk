@@ -1119,6 +1119,18 @@ Against the computer and on two devices either set of keys works, and `Space`
 serves. In the warm-up both sides play freely and confirm with their key; in a change of ends
 the paddles and names swap once both have pressed at their new half.
 
+**The diagonal serve.** Ticked in the lobby, or `"diagonal": true` with
+`POST /games` for a browser game, the serve goes as in doubles: from the
+server's right half court into the receiver's, across the centre line. From
+above with player a's end on the left, that is the lower half on the left and
+the upper half on the right. A server in the wrong half is told so and keeps
+the ball; a serve whose first bounce is not in the server's right half, or
+whose second is not in the receiver's, loses the point (`FALSCHE HÄLFTE`). The
+closer to the centre line the server stands, the flatter the serve has to be,
+and a paddle moving at the serve throws it off its line. Bots take the ball to
+their right half first. The page judges it, as it judges every rally; the rule
+is `web/serve.js`, loaded only for such a game.
+
 The page decides rallies and nothing else. Every rally won and every ready key
 is a press, `POST /games/{id}/presses` with `{"rally": n, "kind": "rally" |
 "ready", "half": "left" | "right"}`, numbered from 1 without gaps; the same
