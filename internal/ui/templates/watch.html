@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0a0a12">
     <link rel="icon" type="image/png" sizes="32x32" href="/ui/static/mark-32.png">
     <link rel="apple-touch-icon" href="/ui/static/mark-180.png">
-    <title>Zählwerk · watch</title>
+    <title>Zählwerk · {{if .Live}}live{{else}}watch{{end}}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400..700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -105,6 +105,9 @@
 
         .state-serve { color: var(--accent-ink); background: var(--accent); }
         .state-won { color: var(--bg); background: var(--ok); }
+        /* What the next rally is worth: the one thing besides the score a
+           room watching a close set waits for, so it is loud. */
+        .state-stake { color: var(--bg); background: var(--warn); }
 
         /* Bounded by both axes: on a wide TV the height runs out first, on a
            tablet held upright the width does. Two digits have to fit either. */
@@ -151,6 +154,10 @@
             border-radius: 999px;
             font-variant-numeric: tabular-nums;
         }
+        .chip b { color: var(--fg); }
+        /* The set in play, after the finished ones: dashed, since it is not
+           a result yet. */
+        .chip-now { border-style: dashed; border-color: var(--accent); }
 
         .phase {
             text-align: center;
@@ -300,7 +307,7 @@
 <body>
     <header class="topbar">
         <span class="brand"><img class="brand-logo" src="/ui/static/mark-180.png" width="28" height="28" alt=""><span>Zähl<span class="brand-mark">werk</span></span></span>
-        <span class="tagline">Table tennis · live score</span>
+        <span class="tagline">Table tennis · {{if .Live}}live at the table{{else}}live score{{end}}</span>
     </header>
 
     <main class="watch"{{if .Stream}} hx-ext="sse" sse-connect="/ui/matches/{{.Match.ID}}/stream?view=watch"{{end}}>
@@ -314,7 +321,7 @@
          because the stream it holds belongs to one match and ends with it.
          ?match= pins a match and never moves. */}}
     {{- if .Follow}}
-    <div hx-get="/ui/watch/next?match={{with .Match}}{{.ID}}{{end}}" hx-trigger="every 5s" hx-swap="none"></div>
+    <div hx-get="{{.Screen}}/next?match={{with .Match}}{{.ID}}{{end}}" hx-trigger="every 5s" hx-swap="none"></div>
     {{- end}}
 </body>
 </html>
@@ -328,6 +335,7 @@
     <div class="status">
       {{- if .Match.A.Winner}}<span class="state state-won">won</span>
       {{- else if .Match.A.Serving}}<span class="state state-serve">serves</span>{{end -}}
+      {{- with .Match.A.Stake}} <span class="state state-stake">{{.}}</span>{{end -}}
     </div>
     <div class="points">{{.Match.A.Points}}</div>
     <div class="sets">sets <b>{{.Match.A.Sets}}</b></div>
@@ -337,17 +345,22 @@
     <div class="status">
       {{- if .Match.B.Winner}}<span class="state state-won">won</span>
       {{- else if .Match.B.Serving}}<span class="state state-serve">serves</span>{{end -}}
+      {{- with .Match.B.Stake}} <span class="state state-stake">{{.}}</span>{{end -}}
     </div>
     <div class="points">{{.Match.B.Points}}</div>
     <div class="sets">sets <b>{{.Match.B.Sets}}</b></div>
   </div>
 </div>
 
+{{/* The sets so far, in order, with the set in play last: what a
+     spectator who looks up mid-match needs to read the score in front of
+     them. The side that took a set is the bold number. */}}
 <div class="meta">
   {{- if .Match.Complete}}<span>final</span>
   {{- else if not .Match.Running}}<span>ended</span>
   {{- else}}<span>set {{.Match.SetNumber}}</span>{{end}}
-  {{- range .Match.CompletedSets}}<span class="chip">{{index . 0}}:{{index . 1}}</span>{{end}}
+  {{- range .Match.CompletedSets}}<span class="chip">{{if gt (index . 0) (index . 1)}}<b>{{index . 0}}</b>:{{index . 1}}{{else}}{{index . 0}}:<b>{{index . 1}}</b>{{end}}</span>{{end}}
+  {{- if and .Match.Running (not .Match.Complete) .Match.CompletedSets}}<span class="chip chip-now">{{.Match.A.Points}}:{{.Match.B.Points}}</span>{{end}}
 </div>
 {{- with .Match.Phase}}
 <div class="phase">{{.}}</div>
@@ -386,7 +399,7 @@
   </div>
   {{- end}}
 </div>
-<div hidden hx-get="/ui/watch/sides?saver=1" hx-trigger="every 2s" hx-target="#sides" hx-swap="innerHTML"></div>
+<div hidden hx-get="{{.Screen}}/sides?saver=1" hx-trigger="every 2s" hx-target="#sides" hx-swap="innerHTML"></div>
 {{- else}}
 <h1 class="sides-title">{{if .Waiting}}Waiting for an opponent{{else}}Pick your side{{end}}</h1>
 <div class="halves">
@@ -415,7 +428,7 @@
      it. The answer is the columns again, the screensaver once the table has
      been idle long enough, or a redirect once two claims have started the
      match. */}}
-<div hidden hx-get="/ui/watch/sides" hx-trigger="every 2s" hx-target="#sides" hx-swap="innerHTML"></div>
+<div hidden hx-get="{{.Screen}}/sides" hx-trigger="every 2s" hx-target="#sides" hx-swap="innerHTML"></div>
 {{- end}}
 {{- end}}
 {{end}}

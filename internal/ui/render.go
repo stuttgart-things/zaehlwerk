@@ -59,6 +59,10 @@ type view struct {
 	// Nav is the scoring page's navigation: the watch screen and the
 	// services deployed next to this one.
 	Nav []navLink
+	// Screen is the spectator page being rendered, /ui/watch or /ui/live,
+	// for the polls that page makes. Live is set on the second.
+	Screen string
+	Live   bool
 }
 
 // RosterPlayer is one option in the name pickers.
@@ -100,6 +104,11 @@ type sideView struct {
 	Sets    int
 	Serving bool
 	Winner  bool
+	// Stake is "set point" or "match point" when the next point would give
+	// this side the set or the match, and empty otherwise. Only the watch
+	// screens show it: a spectator across the room wants to know what the
+	// next rally is worth, the person keeping score does not.
+	Stake string
 }
 
 // logRow is one transition, in the words the panel gets it in: the title the
@@ -116,7 +125,26 @@ func (s *Server) matchView(m *match.Match, kind scorer.TransitionKind) *matchVie
 	st := m.Scorer.State()
 	v := s.stateView(st, m.Running(), kind)
 	v.Reported = s.reportView(m, st)
+	stake(v, m, st)
 	return v
+}
+
+// stake marks the side the next point would give the set or the match, at the
+// score st. Like the handover it needs the match around the state, here for
+// the rules, so [Server.stateView] cannot do it.
+func stake(v *matchView, m *match.Match, st scorer.State) {
+	p, won := m.Scorer.Stake(st)
+	if p == "" {
+		return
+	}
+	side := &v.A
+	if p == scorer.PlayerB {
+		side = &v.B
+	}
+	side.Stake = "set point"
+	if won {
+		side.Stake = "match point"
+	}
 }
 
 // reportView is what became of the handover of m, against the score st. Nil

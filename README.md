@@ -477,6 +477,29 @@ itself when the next one starts, leaving a finished match up until then.
 stream as the board, `GET /ui/matches/{id}/stream?view=watch`, rendered without
 buttons and without the timeline.
 
+Under the score is the match so far: each finished set with the winner's
+number in bold, and the set in play after them. The card of a side one point
+from the set says **set point**, or **match point** when that set would end the
+match — what a room watching a close set waits for. The scorer decides it from
+its rules, so it is right for best of 1, 3 or 5 and for the advantage at 10:10.
+
+#### The live screen
+
+    GET /ui/live
+
+The same screen for a large display next to a real table, where players check
+in by fob or phone: it shows their match and nothing that merely plays itself.
+
+- **It never follows a demo**, not even without check-in, where `/ui/watch`
+  does. A pong game or attract mode leaves it on the free table.
+- **It never hands the screen to the pong screensaver.** An idle table keeps
+  the side select up, with its codes, or says no match is running.
+- Everything else is `/ui/watch`'s: the result hold, the codes, `?match=<id>`
+  to pin a match, the polls (`GET /ui/live/next`, `GET /ui/live/sides`), which
+  stay on the live screen's path.
+
+The scoring page links both screens.
+
 #### The side select
 
 With check-in on, a free table is not an empty screen. `/ui/watch` shows a
