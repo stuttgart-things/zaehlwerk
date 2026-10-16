@@ -97,6 +97,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 			// moment it has something to say.
 			v.Match.Reported = s.reportView(m, ev.State)
 			stake(v.Match, m, ev.State)
+			paint(v.Match, m, ev.State)
 
 			if ev.Kind != live.KindSnapshot {
 				rows = append([]logRow{s.logRow(kind, ev.State)}, rows...)

@@ -86,6 +86,9 @@
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+            /* The player's blade, under the name: the key to the referee's
+               cord, which takes the colour of whoever leads. */
+            border-bottom: 0.12em solid var(--blade, transparent);
         }
 
         /* Held to one line whether or not there is a badge, so the number does
@@ -182,6 +185,7 @@
            line of text in a dark room. */
         .empty .mascot { width: min(30vh, 40vw); margin-bottom: 1rem; }
         .mascot svg { display: block; width: 100%; height: auto; }
+        .referee { display: block; width: clamp(3rem, 12vh, 8rem); height: auto; flex: none; }
         .empty .hint { font-size: 0.5em; color: var(--muted); }
         .error { text-align: center; color: var(--bad); }
 
@@ -330,7 +334,7 @@
 {{define "spectator"}}
 {{- if .Match}}
 <div class="score">
-  <div class="side{{if .Match.A.Serving}} serving{{end}}{{if .Match.A.Winner}} winner{{end}}">
+  <div class="side{{if .Match.A.Serving}} serving{{end}}{{if .Match.A.Winner}} winner{{end}}" style="{{.Match.A.Blade}}">
     <div class="name">{{.Match.A.Name}}</div>
     <div class="status">
       {{- if .Match.A.Winner}}<span class="state state-won">won</span>
@@ -340,7 +344,7 @@
     <div class="points">{{.Match.A.Points}}</div>
     <div class="sets">sets <b>{{.Match.A.Sets}}</b></div>
   </div>
-  <div class="side{{if .Match.B.Serving}} serving{{end}}{{if .Match.B.Winner}} winner{{end}}">
+  <div class="side{{if .Match.B.Serving}} serving{{end}}{{if .Match.B.Winner}} winner{{end}}" style="{{.Match.B.Blade}}">
     <div class="name">{{.Match.B.Name}}</div>
     <div class="status">
       {{- if .Match.B.Winner}}<span class="state state-won">won</span>
@@ -356,6 +360,13 @@
      spectator who looks up mid-match needs to read the score in front of
      them. The side that took a set is the bold number. */}}
 <div class="meta">
+  {{- /* The referee, its cord in the colour of whoever leads: the room
+       reads who is ahead from across it, and the gold of the drawing
+       while it is level. Referenced rather than inlined, because this
+       partial goes out with every point and the drawing is 16 KB; the
+       cord's --paddle still reaches into it, as custom properties
+       inherit through <use>. */}}
+  <svg class="referee" viewBox="0 0 410 420" aria-hidden="true"{{with .Match.Cord}} style="{{.}}"{{end}}><use href="/ui/static/mascot.svg#mascot"/></svg>
   {{- if .Match.Complete}}<span>final</span>
   {{- else if not .Match.Running}}<span>ended</span>
   {{- else}}<span>set {{.Match.SetNumber}}</span>{{end}}
