@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.23.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.22.0...v0.23.0) (2026-10-16)
+
+
+### Features
+
+* a diagonal serve in pong, as in doubles ([#144](https://github.com/stuttgart-things/zaehlwerk/issues/144)) ([654cdae](https://github.com/stuttgart-things/zaehlwerk/commit/654cdae76238f984d985ba79bded08682469a395))
+* the mascot referees the match ([#143](https://github.com/stuttgart-things/zaehlwerk/issues/143)) ([f7d33f9](https://github.com/stuttgart-things/zaehlwerk/commit/f7d33f974eccfcaf9bace28f98b228d5e31b1f2a))
+
+
+### Bug Fixes
+
+* a stopped game keeps its reason, and the table stream sends no press twice ([#145](https://github.com/stuttgart-things/zaehlwerk/issues/145)) ([3af18a7](https://github.com/stuttgart-things/zaehlwerk/commit/3af18a7f25e03354aae548d5da841433afeefa5d))
+
 ## [0.22.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.21.2...v0.22.0) (2026-10-15)
 
 
