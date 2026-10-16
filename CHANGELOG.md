@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.25.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.24.0...v0.25.0) (2026-10-16)
+
+
+### Features
+
+* pong's pages carry Zählwerk's mark as their favicon ([#150](https://github.com/stuttgart-things/zaehlwerk/issues/150)) ([2b7437b](https://github.com/stuttgart-things/zaehlwerk/commit/2b7437bb33ba603b860b84cf730331345c5f6291))
+* the referee cat as Zählwerk's mark, and a larger mascot on an empty board ([#149](https://github.com/stuttgart-things/zaehlwerk/issues/149)) ([dc8fb18](https://github.com/stuttgart-things/zaehlwerk/commit/dc8fb187db5009423ad03907a732aeb6a7708b0f))
+* the referee's cord takes the colour of whoever leads ([#151](https://github.com/stuttgart-things/zaehlwerk/issues/151)) ([8bedc54](https://github.com/stuttgart-things/zaehlwerk/commit/8bedc54843fa5beccf2b5635443063224bca517f))
+
 ## [0.24.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.23.0...v0.24.0) (2026-10-16)
 
 
