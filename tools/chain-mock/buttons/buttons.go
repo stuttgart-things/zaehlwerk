@@ -11,7 +11,8 @@
 // The layers are kept apart the way the hardware keeps them apart, and every
 // step is logged under the layer that took it:
 //
-//	button  decides the gesture from how long it was held, numbers the frame
+//	button  decides the gesture from how long it was held, or from which of
+//	        its two keys was pressed, and numbers the frame
 //	radio   ESP-NOW: a frame arrives, or arrives twice when its ACK was lost
 //	hub     drops repeated frames, pairs two long presses, maps a half to a
 //	        player, and calls zaehlwerk
@@ -49,8 +50,9 @@ const (
 	BothLong Gesture = "both_long"
 
 	// Point and Undo are what a display device sends (zaehlwerk-firmware#61,
-	// prototype B): two zones on a screen, so the frame carries the intent
-	// rather than a press the hub has to interpret.
+	// prototype B), and what a button with two keys sends (the decision in
+	// #61, #2): two zones or two keys, so the frame carries the intent rather
+	// than a press the hub has to interpret.
 	Point Gesture = "point"
 	Undo  Gesture = "undo"
 )
@@ -61,7 +63,16 @@ const (
 	DevicePushButton = "button"
 	// DeviceDisplay is a small screen per half with a "+1" and an "undo" zone.
 	DeviceDisplay = "display"
+	// DeviceTwoKeys is two push buttons per half, a point key and an undo key
+	// (zaehlwerk-firmware#2 as rewritten after #61). Still a button that
+	// wakes, sends and sleeps, so it bounces like one, but it times nothing.
+	DeviceTwoKeys = "keys"
 )
+
+// knownDevice is whether d is one of the devices the page can put on the table.
+func knownDevice(d string) bool {
+	return d == DevicePushButton || d == DeviceDisplay || d == DeviceTwoKeys
+}
 
 // Frame is the ESP-NOW payload, in the fields zaehlwerk-firmware#58 lists for
 // lib/protocol. Shown on the page as JSON so the payload can be argued about
@@ -78,7 +89,7 @@ type Frame struct {
 
 // Settings are what the page lets a person change while pressing.
 type Settings struct {
-	// Device is DevicePushButton or DeviceDisplay.
+	// Device is DevicePushButton, DeviceDisplay or DeviceTwoKeys.
 	Device string
 
 	// LongPress is the hold after which a press is a long one.
@@ -356,9 +367,46 @@ func (r *Rig) PressBoth(ctx context.Context, held time.Duration) error {
 	return nil
 }
 
-// press is the button's half: decide, number, and put on the air. It returns
-// the frames as the hub will receive them, duplicates included.
+// PressKey is a person pressing one of the two keys on side: Point or Undo.
+func (r *Rig) PressKey(ctx context.Context, side string, key Gesture) error {
+	if key != Point && key != Undo {
+		return fmt.Errorf("a key is point or undo, not %q", key)
+	}
+	frames, err := r.wake(side, func(Settings) (Gesture, string) {
+		// Which key woke it is the whole decision: the button reads the pin,
+		// not a clock, so there is no threshold for a press to fall short of.
+		return key, fmt.Sprintf("%s key pressed, nothing timed", key)
+	})
+	if err != nil {
+		return err
+	}
+	for _, f := range frames {
+		r.receive(ctx, f)
+	}
+	return nil
+}
+
+// press is the one-button half: decide from the hold, number, and put on the
+// air. It returns the frames as the hub will receive them, duplicates included.
 func (r *Rig) press(side string, held time.Duration) ([]Frame, error) {
+	return r.wake(side, func(s Settings) (Gesture, string) {
+		// Decided on the button, not on the hub: the button is the only one
+		// that saw the press start and end, and a gesture made of two
+		// timestamps sent over a radio that loses frames would be guessed at
+		// the far end.
+		g := Short
+		if held >= s.LongPress {
+			g = Long
+		}
+		return g, fmt.Sprintf("held %d ms → %s (long from %d ms)",
+			held.Milliseconds(), g, s.LongPress.Milliseconds())
+	})
+}
+
+// wake is a button on side waking from deep sleep: decide says what the press
+// was and how to log it, and wake numbers the frames and puts them on the air,
+// bounce and resends included, as either kind of push button does.
+func (r *Rig) wake(side string, decide func(Settings) (Gesture, string)) ([]Frame, error) {
 	r.mu.Lock()
 	b, ok := r.buttons[side]
 	s := r.settings
@@ -366,14 +414,7 @@ func (r *Rig) press(side string, held time.Duration) ([]Frame, error) {
 		r.mu.Unlock()
 		return nil, fmt.Errorf("no button on side %q", side)
 	}
-
-	// Decided on the button, not on the hub: the button is the only one that
-	// saw the press start and end, and a gesture made of two timestamps sent
-	// over a radio that loses frames would be guessed at the far end.
-	g := Short
-	if held >= s.LongPress {
-		g = Long
-	}
+	g, what := decide(s)
 
 	wakes := 1
 	if !s.Debounce {
@@ -389,8 +430,7 @@ func (r *Rig) press(side string, held time.Duration) ([]Frame, error) {
 	}
 	r.mu.Unlock()
 
-	r.note("button "+side, fmt.Sprintf("held %d ms → %s (long from %d ms)",
-		held.Milliseconds(), g, s.LongPress.Milliseconds()), false)
+	r.note("button "+side, what, false)
 	if !s.Debounce {
 		r.note("button "+side, fmt.Sprintf("contact bounced and nothing locked it out: woke twice, "+
 			"sent event %d and %d — two presses as far as anybody downstream can tell",
@@ -441,8 +481,8 @@ func (r *Rig) receive(ctx context.Context, f Frame) {
 		st, ok := r.point(ctx, f)
 		r.ack(f, st, ok, "+1")
 	case Undo:
-		r.note("hub", fmt.Sprintf("undo from display %s, at once: the zone says what it means, "+
-			"so there is no window to wait out", f.Side), false)
+		r.note("hub", fmt.Sprintf("undo from %s %s, at once: the frame says what it means, "+
+			"so there is no window to wait out", f.Kind, f.Side), false)
 		st, ok := r.undo(ctx, f)
 		r.ack(f, st, ok, "undo")
 	case Long:

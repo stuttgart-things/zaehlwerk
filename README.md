@@ -1068,6 +1068,15 @@ red:
 - **Both window.** A long press is held back for this long, in case the other
   side follows. Every undo is late by the same amount.
 
+**Two keys instead of one.** *Device: two keys* gives each half a round
+point key and a small square undo key, as zaehlwerk-firmware#2 now plans the
+button after #61. The frame carries the intent (`point` or `undo`), nothing is
+timed, and an undo is taken back at once, with no both-long window and no
+`both_long` at all. It is still a button that wakes on a contact, so *Debounce
+off* and *Radio ACK lost* apply as they do to one key. While a fob waits, the
+point key names the half; the undo key still takes a point back. Switch between
+this and the single button to decide which one to build.
+
 **A display instead of a button.** *Device: display* replaces the two buttons
 with a small screen per half, as zaehlwerk-firmware#61 (prototype B)
 proposes. Each screen has two zones: **+1** scores, and **undo** takes one back
@@ -1090,7 +1099,7 @@ accident cannot be resumed.
 | `BUTTONS_SOURCE` | `button-mock` | the two sources are this with `-a` and `-b` |
 | `BUTTONS_LONG_PRESS` | `1s` | where the page starts |
 | `BUTTONS_BOTH_WINDOW` | `400ms` | where the page starts |
-| `BUTTONS_DEVICE` | `button` | `display` starts with a screen per half instead; the page can switch either way |
+| `BUTTONS_DEVICE` | `button` | `keys` starts with two keys per half, `display` with a screen per half; the page can switch between all three |
 | `PIEZO_CONTROL_URL` | — | a piezo board's control endpoint (its `PIEZO_CONTROL_ADDR`). Unset, the page has no piezo section |
 | `CHECKIN_TOKEN` | — | what the hub sends as a bearer with a check-in; zaehlwerk's `CHECKIN_TOKEN`. `task chain:run` and `task chain:buttons` share one |
 | `SCHMETTERPAUSE_URL` | — | where the page reads the players it offers a fob for; zaehlwerk's own. Unset, it offers only the two fobs nobody owns |

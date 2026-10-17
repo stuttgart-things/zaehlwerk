@@ -401,3 +401,84 @@ func TestThePageRefusesAnUnknownDevice(t *testing.T) {
 	require.NoError(t, resp.Body.Close())
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
+
+func key(t *testing.T, r *Rig, side string, k Gesture) {
+	t.Helper()
+	require.NoError(t, r.PressKey(context.Background(), side, k))
+}
+
+func TestTwoKeysScoreAndTakeBackAtOnce(t *testing.T) {
+	// A window long enough that waiting for it would fail the test.
+	r := rig(t, zaehlwerk(t), func(s *Settings) { s.Device, s.BothWindow = DeviceTwoKeys, 5*time.Second })
+
+	key(t, r, "A", Point)
+	key(t, r, "B", Point)
+	require.Equal(t, [2]int{1, 1}, points(t, r))
+
+	key(t, r, "B", Undo)
+	require.Equal(t, [2]int{1, 0}, points(t, r), "the undo key is not a long press, so no window to wait out")
+}
+
+func TestAKeyIsOnlyPointOrUndo(t *testing.T) {
+	r := rig(t, zaehlwerk(t), func(s *Settings) { s.Device = DeviceTwoKeys })
+	require.Error(t, r.PressKey(context.Background(), "A", Long))
+	require.Error(t, r.PressKey(context.Background(), "C", Point))
+}
+
+// A key is still a contact that bounces: the wake is the event, so a bounce
+// is a second press with its own id, on the undo key as on the point key.
+func TestABouncingUndoKeyWithoutDebounceTakesBackTwo(t *testing.T) {
+	r := rig(t, zaehlwerk(t), func(s *Settings) { s.Device = DeviceTwoKeys })
+	key(t, r, "A", Point)
+	key(t, r, "A", Point)
+	key(t, r, "A", Point)
+
+	r.SetSettings(func() Settings { s := r.Settings(); s.Debounce = false; return s }())
+	key(t, r, "A", Undo)
+
+	require.Equal(t, [2]int{1, 0}, points(t, r))
+}
+
+func TestALostRadioAckOnTheUndoKeyTakesBackOneWithoutTheHub(t *testing.T) {
+	r := rig(t, zaehlwerk(t), func(s *Settings) { s.Device, s.RadioAckLost, s.HubDedup = DeviceTwoKeys, true, false })
+
+	key(t, r, "A", Point)
+	key(t, r, "A", Point)
+	key(t, r, "A", Undo)
+
+	require.Equal(t, [2]int{1, 0}, points(t, r))
+}
+
+func TestThePointKeyChecksInWhileAFobWaitsAndTheUndoKeyDoesNot(t *testing.T) {
+	r := rig(t, zaehlwerk(t), func(s *Settings) { s.Device = DeviceTwoKeys })
+	key(t, r, "A", Point)
+
+	r.HoldFob(FobsFor(nil)[0])
+	key(t, r, "B", Undo)
+	require.Equal(t, [2]int{0, 0}, points(t, r), "the undo key takes back, it names no half")
+	require.True(t, r.Reader().Waiting, "and the fob still waits for a point key")
+}
+
+func TestThePageDrawsTwoKeysPerHalfAndScoresThem(t *testing.T) {
+	zw := zaehlwerk(t)
+	r := rig(t, zw, nil)
+	page := httptest.NewServer(NewServer(r, zw.URL+"/ui", "", quiet))
+	t.Cleanup(page.Close)
+
+	resp, err := http.PostForm(page.URL+"/settings", url.Values{
+		"device": {"keys"}, "long_ms": {"1000"}, "window_ms": {"400"}, "debounce": {"on"}, "hub_dedup": {"on"},
+	})
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	require.Equal(t, "true", resp.Header.Get("HX-Refresh"), "the table changes shape, so the page is drawn again")
+
+	body := get(t, page.URL+"/")
+	require.NotContains(t, body, `class="press"`)
+	require.Contains(t, body, `class="key point"`)
+	require.Contains(t, body, `class="key undo"`)
+
+	post(t, page.URL+"/key", map[string]string{"side": "B", "key": "point"})
+	post(t, page.URL+"/key", map[string]string{"side": "B", "key": "point"})
+	post(t, page.URL+"/key", map[string]string{"side": "B", "key": "undo"})
+	require.Equal(t, [2]int{0, 1}, points(t, r))
+}
