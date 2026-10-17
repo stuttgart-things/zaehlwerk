@@ -30,7 +30,7 @@
     <section class="card">
         <h2>Gerade am Tisch</h2>
         <p>{{index .Players 0}} gegen {{index .Players 1}}
-           {{if .Attract}}als Demo, bis jemand spielen will{{else if eq .Driver "check"}}als Tasterprüfung{{else if eq .Mode "remote"}}auf zwei Geräten{{else if eq .Driver "browser"}}im Browser{{else}}ohne Bildschirm (Bots){{end}}.
+           {{if .Attract}}als Demo, bis jemand spielen will{{else if eq .Driver "server"}}auf dem Server, zum Zuschauen{{else if eq .Driver "check"}}als Tasterprüfung{{else if eq .Mode "remote"}}auf zwei Geräten{{else if eq .Driver "browser"}}im Browser{{else}}ohne Bildschirm (Bots){{end}}.
            <a class="button quiet" href="/play/{{.ID}}">Zuschauen</a>
            {{if and (eq .Mode "remote") .Remote}}{{if not .Remote.Joined}}<a class="button" href="/join">Als Gast beitreten</a>{{end}}{{end}}</p>
     </section>
@@ -69,6 +69,11 @@
             {{range .Lengths}}<label class="length"><input type="radio" name="best_of" value="{{.BestOf}}"{{if .Checked}} checked{{end}}> {{.Label}}</label>{{end}}
         </div>
         <p class="muted" style="margin: 0.4rem 0 0">Jeder Satz geht bis 11, mit zwei Punkten Vorsprung.</p>
+        {{/* ADR-0014: the service plays the rallies, so the game goes on
+             without this tab, and any tab can watch it at any time. */}}
+        <label style="margin-top: 0.8rem"><span><input type="checkbox" name="served">
+            Auf dem Server spielen lassen</span>
+            <small class="muted">nur Computer gegen Computer: das Spiel läuft weiter, auch wenn kein Tab offen ist, und jeder kann jederzeit zuschauen. Ohne diagonalen Aufschlag.</small></label>
         <label style="margin-top: 0.8rem"><span><input type="checkbox" name="diagonal">
             Diagonaler Aufschlag, wie im Doppel</span>
             <small class="muted">aus der eigenen rechten Hälfte in die rechte Hälfte gegenüber, über die Mittellinie. Landet er in der falschen Hälfte, ist der Punkt weg.</small></label>

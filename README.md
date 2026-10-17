@@ -1214,6 +1214,19 @@ a ball in flight is not reported — or "Gastgeber getrennt" on the guest; the
 game still ends by `PONG_BROWSER_IDLE` or by the host's button. `GET /games/{id}`
 says `"remote": {"joined", "locked", "expires_at"}` and never the code.
 
+**Played by the service** ([ADR-0014](docs/adr/0014-bot-games-played-by-the-service.md)).
+A game between two computers in the browser stops when its tab goes to the
+background or closes, because the page plays it. Ticked "Auf dem Server
+spielen lassen" in the lobby, or `"driver": "server"` with `POST /games`, the
+service plays it instead: the physics of `web/game.js`, ported to Go, at 60
+ticks a second. It posts the table to `GET /games/{id}/relay` thirty times a
+second, and every tab that opens `/play/{id}` draws it from there, at any time
+and as many as like; none of them presses anything. The game plays on with no
+tab open, to its last point. The tab that started it keeps a token that only
+ends it: `/presses` answers it with a 409, and the relay of a served game takes
+no frames from outside. It takes mode `cvc` or none, players and bots; pace
+and the diagonal serve are refused, the latter for now.
+
 **How it scores.** A game starts its own match with `POST /matches`: free-text
 names (`Pong A`, `Pong B`), `start: "warmup"`, `change_ends: true` and
 `demo: true` — every Pong match is a demo, whether attract mode, a browser game
@@ -1243,6 +1256,7 @@ divergence, logged with its number.
 ```bash
 curl -s -X POST localhost:8087/games -d '{"pace": "0s"}'   # 201, Location: /games/{id}
 curl -s -X POST localhost:8087/games -d '{"driver": "browser", "mode": "pvc"}'   # 201, with a "token"
+curl -s -X POST localhost:8087/games -d '{"driver": "server"}'   # 201: bots the service plays, watch at /play/{id}
 curl -s localhost:8087/games/{id}
 ```
 
@@ -1590,6 +1604,7 @@ base whose removal can prune somebody else's panel.
 | [0011](docs/adr/0011-check-in-by-phone-through-schmetterpause.md) | Check-in by phone: Schmetterpause claims a half for a player with `POST /checkin/claim` |
 | [0012](docs/adr/0012-taking-a-point-back-through-the-ingest-contract.md) | An undo through the ingest contract: `"action": "undo"` with `source` and `event_id`, safe to retry |
 | [0013](docs/adr/0013-the-screensaver.md) | The screensaver: an idle side select hands the screen to a browser bot game, which gives way like any demo |
+| [0014](docs/adr/0014-bot-games-played-by-the-service.md) | Bot games played by the service: the physics in Go, every tab only watches through the relay |
 
 ## Related
 

@@ -66,7 +66,7 @@
     <section class="card score" id="score" sse-swap="score" hx-swap="innerHTML">{{template "score" .Board}}</section>
 
     {{if .Board.Mode}}
-    <section class="card stage" id="pong" data-game="{{.Board.ID}}" data-mode="{{.Board.Mode}}" data-bots="{{.Bots}}"{{if .Board.Screensaver}} data-quiet="1"{{end}}{{if .Board.Diagonal}} data-diagonal="1"{{end}}>
+    <section class="card stage" id="pong" data-game="{{.Board.ID}}" data-mode="{{.Board.Mode}}" data-driver="{{.Board.Driver}}" data-bots="{{.Bots}}"{{if .Board.Screensaver}} data-quiet="1"{{end}}{{if .Board.Diagonal}} data-diagonal="1"{{end}}>
         {{/* Filled by game.js on the host's page only: the code is not in the
              page or the view, which anybody can read, but asked for with the
              host's token. */}}

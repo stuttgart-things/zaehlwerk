@@ -408,6 +408,15 @@ func lobbyForm(r *http.Request, def int) (GameConfig, Faults, error) {
 	}
 	f.Correct = r.FormValue("correct") != ""
 	cfg.Diagonal = r.FormValue("diagonal") != ""
+	if r.FormValue("served") != "" {
+		// Asked for under "Computer gegen Computer" only, and checked by the
+		// same rules as POST /games.
+		served, err := servedGame(startBody{Mode: mode, Diagonal: cfg.Diagonal})
+		if err != nil {
+			return cfg, f, err
+		}
+		cfg.Driver = served.Driver
+	}
 	return cfg, f, f.Validate()
 }
 
@@ -432,7 +441,7 @@ func (s *Server) playPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := g.View()
-	if v.Driver != DriverBrowser {
+	if v.Driver != DriverBrowser && v.Driver != DriverServer {
 		// A headless game and a button check have no canvas to draw; their
 		// page is the board alone.
 		v.Mode = ""
