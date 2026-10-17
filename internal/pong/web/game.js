@@ -15,8 +15,12 @@
 // with player b's paddle coming from the guest. The guest's page decides
 // nothing: it sends its paddle and its key, and draws the host's frames.
 //
-// At the ~700-line limit of ADR-0009: the next change to the two-device part
-// first moves that part into web/remote.js, served like check.js and tab.js.
+// A game the service plays (ADR-0014) is drawn here the way the guest draws
+// the host's, from the relay, and nothing in this tab decides anything.
+//
+// Past the ~700-line limit of ADR-0009 since ADR-0014: the next change to the
+// two-device part, the relay included, first moves that part into
+// web/remote.js, served like check.js and tab.js.
 (() => {
   'use strict';
   const root = document.getElementById('pong');
@@ -24,6 +28,9 @@
   const id = root.dataset.game;
   const mode = root.dataset.mode; // pvp, pvc, cvc or remote
   const remote = mode === 'remote';
+  // A served game (ADR-0014) is played by the service: every tab draws its
+  // frames from the relay, as a guest draws the host's, and none reports.
+  const served = root.dataset.driver === 'server', relayed = remote || served;
   const bots = JSON.parse(root.dataset.bots || 'null') || [null, null]; // player a, b
   const canvas = root.querySelector('canvas');
   const g = canvas.getContext('2d');
@@ -402,7 +409,7 @@
 
   function update(dt, now) {
     tick++;
-    if (remote && !reporter) follow(now);
+    if (relayed && !reporter) follow(now);
     if (remote && reporter) guestPaddle(now);
     for (const h of [0, 1]) {
       const p = paddles[h];
@@ -503,8 +510,8 @@
     if (view && view.status !== 'playing') centre = view.status === 'won' && st.winner ? 'SIEG ' + st.players[idx(st.winner)] : 'SPIEL BEENDET';
     else if (now < messageUntil) centre = message;
     else if (remote && reporter && view && view.status === 'playing' && !guestHere(now)) centre = guestAt ? 'Gast getrennt – warten' : 'Warten auf den Gast';
-    else if (remote && !reporter && view && view.status === 'playing' && !(now - frameAt < SILENCE_MS)) centre = 'Gastgeber getrennt';
-    else if (!reporter && !guest && !asking && view) centre = 'Zuschauen';
+    else if (relayed && !reporter && view && view.status === 'playing' && !(now - frameAt < SILENCE_MS)) centre = served ? 'Warten auf den Server' : 'Gastgeber getrennt';
+    else if (!reporter && !guest && !asking && view && !served) centre = 'Zuschauen';
     else if (st && st.phase === 'change_ends') centre = 'SEITENWECHSEL';
     if (centre) g.fillText(centre, W / 2, H / 2 + 10);
   }
@@ -514,6 +521,7 @@
     if (!el) return;
     if (!reporter && !guest) {
       el.textContent = asking || !view || view.status !== 'playing' ? ''
+        : served ? 'Die Computer spielen auf dem Server. Der Tab darf zu, das Spiel läuft weiter. M Ton'
         : copied ? 'Dieses Spiel spielt ein anderer Tab. Hier wird nur zugeschaut.'
           : 'Zuschauen: gespielt und gemeldet wird im Tab, der das Spiel gestartet hat.';
       return;
@@ -655,7 +663,7 @@
     document.getElementById('join-state').textContent = r.locked ? 'Gesperrt nach zu vielen falschen Versuchen.' : dead ? 'Abgelaufen.' : '';
     document.getElementById('new-code').hidden = !dead;
   }
-  if (remote) {
+  if (relayed) {
     const relay = new EventSource('/games/' + id + '/relay');
     relay.addEventListener('frame', (e) => onFrame(JSON.parse(e.data)));
     relay.addEventListener('guest', (e) => onGuest(JSON.parse(e.data)));
@@ -666,7 +674,7 @@
   // The part this tab plays, once it has asked whether another tab holds the
   // token. A copy forgets the token, so a reload of it watches too.
   if (asking) {
-    pongTab.claim(id, part, () => reporter || guest).then((mine) => {
+    pongTab.claim(id, part, () => reporter || guest || (served && token !== '')).then((mine) => {
       asking = false;
       if (!mine) {
         copied = true;
@@ -675,8 +683,8 @@
         say('Dieses Spiel spielt ein anderer Tab.', 4000);
       } else if (!view || view.status === 'playing') {
         guest = part === 'guest';
-        reporter = part === 'host';
-        if (endButton && reporter) endButton.hidden = false;
+        reporter = part === 'host' && !served;
+        if (endButton && part === 'host') endButton.hidden = false;
         if (remote && reporter) {
           fetchCode();
           setInterval(showJoin, 1000);

@@ -44,8 +44,13 @@ func (s *Server) press(w http.ResponseWriter, r *http.Request) {
 	}
 	b, isBrowser := g.driver.(*browser)
 	if !isBrowser {
-		// A check presses nothing: the buttons do, through zaehlwerk.
-		fail(w, http.StatusConflict, errors.New("a button check takes no presses, the buttons at the table make them"))
+		// A check presses nothing: the buttons do, through zaehlwerk. A
+		// served game neither: its court does, in the service (ADR-0014).
+		msg := "a button check takes no presses, the buttons at the table make them"
+		if g.cfg.Driver == DriverServer {
+			msg = "a served game takes no presses, the service plays it"
+		}
+		fail(w, http.StatusConflict, errors.New(msg))
 		return
 	}
 

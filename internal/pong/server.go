@@ -101,6 +101,9 @@ type Server struct {
 	// checkGap is the pause between a button check's prompts, zero for
 	// the real one; only the tests set it.
 	checkGap time.Duration
+	// tick paces a served game's court, servedTick unless a test runs it
+	// as fast as it goes.
+	tick time.Duration
 	// heartbeat is how often an idle stream to a page writes a keepalive.
 	heartbeat time.Duration
 	// now is the clock a join code expires by; only the tests set it.
@@ -119,6 +122,7 @@ func New(cfg Config, log *slog.Logger) *Server {
 		games:     make(map[string]*Game),
 		heartbeat: DefaultHeartbeat,
 		idle:      cfg.BrowserIdle,
+		tick:      servedTick,
 		now:       time.Now,
 	}
 	s.mux.HandleFunc("GET /healthz", s.healthz)
@@ -173,10 +177,12 @@ type startBody struct {
 	// out is zero, not the configured one. Absent keeps the configured
 	// faults.
 	Faults *Faults `json:"faults"`
-	// Driver is "bots" (the default), "browser", or "check" for a button
-	// check, which takes nothing else.
+	// Driver is "bots" (the default), "browser", "server" for two bots the
+	// service plays and pages only watch (ADR-0014), or "check" for a
+	// button check, which takes nothing else.
 	Driver string `json:"driver"`
-	// Players, Mode and Bots are a browser game's; see browserGame.
+	// Players, Mode and Bots are a browser game's, and Players and Bots a
+	// served game's; see browserGame.
 	Players [2]string     `json:"players"`
 	Mode    string        `json:"mode"`
 	Bots    [2]*BotParams `json:"bots"`
@@ -228,6 +234,12 @@ func (s *Server) startGame(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		cfg.Diagonal = body.Diagonal
+	case DriverServer:
+		var err error
+		if cfg, err = servedGame(body); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
 	case DriverCheck:
 		if body.Pace != "" || body.Faults != nil || body.Players != ([2]string{}) || body.Mode != "" ||
 			body.Bots != ([2]*BotParams{}) || body.Diagonal {
@@ -236,7 +248,7 @@ func (s *Server) startGame(w http.ResponseWriter, r *http.Request) {
 		}
 		cfg = checkGame()
 	default:
-		fail(w, http.StatusBadRequest, fmt.Errorf("driver %q: want bots, browser or check", body.Driver))
+		fail(w, http.StatusBadRequest, fmt.Errorf("driver %q: want bots, browser, server or check", body.Driver))
 		return
 	}
 	if body.Pace != "" {
@@ -279,6 +291,22 @@ func (s *Server) startGame(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Location", "/games/"+g.ID)
 	writeJSON(w, http.StatusCreated, answer)
+}
+
+// servedGame checks what a served game is started with (ADR-0014): two bots,
+// so mode cvc or none, and nothing the court does not play yet.
+func servedGame(body startBody) (GameConfig, error) {
+	switch {
+	case body.Mode != "" && body.Mode != ModeCvC:
+		return GameConfig{}, fmt.Errorf("mode %q: the service plays bots only, want cvc", body.Mode)
+	case body.Pace != "":
+		return GameConfig{}, errors.New("pace is for a headless game; a served game goes at the speed of its ball")
+	case body.Diagonal:
+		return GameConfig{}, errors.New("the diagonal serve is played in the browser only, not yet on the server")
+	}
+	cfg, err := browserGame(ModeCvC, body.Players, body.Bots)
+	cfg.Driver = DriverServer
+	return cfg, err
 }
 
 // The modes of a browser game, and the lobby's mode for a button check.
@@ -391,13 +419,16 @@ func (s *Server) start(cfg GameConfig) (*Game, error) {
 	cfg.Skills, cfg.Seed = s.cfg.Skills, s.cfg.Seed+n
 	cfg.ResetQuiet, cfg.Idle = s.resetQuiet, s.idle
 	cfg.CheckTimeout, cfg.CheckGap = s.cfg.CheckTimeout, s.checkGap
+	cfg.Tick = s.tick
 	// A demo leaves the driver empty, which is bots, and keeps its pace.
-	if cfg.Driver == DriverBrowser || cfg.Driver == DriverCheck {
+	paged := cfg.Driver == DriverBrowser || cfg.Driver == DriverServer || cfg.Driver == DriverCheck
+	if paged {
 		cfg.Pace = 0
 	}
 	g := newGame(id, cfg, s.client, s.log)
-	// A check's token only ends it: it presses nothing.
-	if cfg.Driver == DriverBrowser || cfg.Driver == DriverCheck {
+	// The token of a check and of a served game only ends it: neither
+	// takes a press.
+	if paged {
 		if g.token, err = newToken(); err != nil {
 			s.mu.Unlock()
 			return nil, err

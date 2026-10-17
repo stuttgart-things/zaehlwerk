@@ -57,7 +57,8 @@ type View struct {
 	Reason  string    `json:"reason,omitempty"`
 	Seed    int64     `json:"seed"`
 	Players [2]string `json:"players"`
-	// Driver is who decides the rallies: "bots" headless, "browser", or
+	// Driver is who decides the rallies: "bots" headless, "browser",
+	// "server" for two bots the service plays on a court (ADR-0014), or
 	// "check" for the buttons at the table.
 	Driver string `json:"driver"`
 	// Attract is a demo started by attract mode rather than by anybody.
@@ -103,7 +104,8 @@ type GameConfig struct {
 	BestOf int
 	// Players are the names on the panel; BotNames when empty.
 	Players [2]string
-	// Driver is DriverBots, DriverBrowser or DriverCheck; empty is bots.
+	// Driver is DriverBots, DriverBrowser, DriverServer or DriverCheck;
+	// empty is bots.
 	Driver string
 	// Mode and Bots are what a browser game shows and plays with; the game
 	// itself does not use them.
@@ -136,6 +138,9 @@ type GameConfig struct {
 	// ResetQuiet is the gap before a counter reset; zero is resetQuiet. A
 	// field so the tests do not sit through the minute.
 	ResetQuiet time.Duration
+	// Tick paces a served game's court; zero runs it as fast as it goes,
+	// which only the tests want.
+	Tick time.Duration
 }
 
 // demo is a game nobody asked for: attract mode's or the screensaver's. It
@@ -166,10 +171,14 @@ type Game struct {
 	// check is a button check's record, nil for every other game. Guarded
 	// by mu.
 	check *checkRun
-	// remote is a game on two devices' code, guest and relay (ADR-0009),
-	// nil for every other game. Set before the game is shared, and guarded
-	// by its own mutex.
+	// remote is a game on two devices' code and guest (ADR-0009), nil for
+	// every other game. Set before the game is shared, and guarded by its
+	// own mutex.
 	remote *remote
+	// relay carries the table to the pages that draw it: from the host of a
+	// game on two devices, or from the court of a served game (ADR-0014).
+	// Nil for every other game.
+	relay *relayBox
 
 	mu          sync.Mutex
 	matchID     string
@@ -212,9 +221,16 @@ func newGame(id string, cfg GameConfig, client *Client, log *slog.Logger) *Game 
 	}
 	var driver Driver = &bots{rnd: rand.New(rand.NewSource(cfg.Seed)), skills: cfg.Skills}
 	var check *checkRun
+	var relay *relayBox
+	if cfg.Mode == ModeRemote {
+		relay = newRelayBox()
+	}
 	switch cfg.Driver {
 	case DriverBrowser:
 		driver = newBrowser(cfg.Idle)
+	case DriverServer:
+		relay = newRelayBox()
+		driver = newServed(cfg.Seed, cfg.Bots, relay, cfg.Tick)
 	case DriverCheck:
 		// Nobody decides a rally in a check: it says what to press and
 		// listens. The driver is there for Over, which a check has nothing
@@ -224,6 +240,7 @@ func newGame(id string, cfg GameConfig, client *Client, log *slog.Logger) *Game 
 	}
 	return &Game{
 		check:       check,
+		relay:       relay,
 		ID:          id,
 		Source:      source,
 		cfg:         cfg,

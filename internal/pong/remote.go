@@ -47,6 +47,7 @@ var (
 	errCodeExpired   = errors.New("the code has expired")
 	errJoined        = errors.New("a guest has already joined")
 	errNotRemote     = errors.New("not a game on two devices")
+	errNoRelay       = errors.New("no relay: neither a game on two devices nor one the service plays")
 )
 
 // remote is what a game on two devices adds to a game: the code, the guest's
@@ -61,18 +62,10 @@ type remote struct {
 	// guest is the guest's token, empty until somebody joins. It stays valid
 	// for the whole game, so a reload carries on.
 	guest string
-
-	// frame and sample are the latest host frame and guest sample, as sent.
-	// Only the latest is kept: a stream that falls behind skips to it rather
-	// than building up a queue. seq counts each, so a stream sends a message
-	// once and the same body sent twice still goes out twice.
-	frame, sample       []byte
-	frameSeq, sampleSeq uint64
-	wake                chan struct{}
 }
 
 func newRemote(now func() time.Time) (*remote, error) {
-	r := &remote{now: now, wake: make(chan struct{})}
+	r := &remote{now: now}
 	if err := r.redraw(); err != nil {
 		return nil, err
 	}
@@ -166,18 +159,34 @@ func (r *remote) isGuest(token string) bool {
 	return r.guest != "" && subtle.ConstantTimeCompare([]byte(token), []byte(r.guest)) == 1
 }
 
-func (r *remote) put(frame bool, raw []byte) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+// relayBox is the latest message in each direction of a game's relay: the
+// table's frame, from the host of a game on two devices or from the service
+// playing a game itself (ADR-0014), and the guest's sample.
+type relayBox struct {
+	mu sync.Mutex
+	// frame and sample are the latest of each, as sent. Only the latest is
+	// kept: a stream that falls behind skips to it rather than building up a
+	// queue. seq counts each, so a stream sends a message once and the same
+	// body sent twice still goes out twice.
+	frame, sample       []byte
+	frameSeq, sampleSeq uint64
+	wake                chan struct{}
+}
+
+func newRelayBox() *relayBox { return &relayBox{wake: make(chan struct{})} }
+
+func (b *relayBox) put(frame bool, raw []byte) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if frame {
-		r.frame = raw
-		r.frameSeq++
+		b.frame = raw
+		b.frameSeq++
 	} else {
-		r.sample = raw
-		r.sampleSeq++
+		b.sample = raw
+		b.sampleSeq++
 	}
-	close(r.wake)
-	r.wake = make(chan struct{})
+	close(b.wake)
+	b.wake = make(chan struct{})
 }
 
 // relayed is the relay as it stands: the latest of each, and a channel closed
@@ -188,10 +197,10 @@ type relayed struct {
 	wake                <-chan struct{}
 }
 
-func (r *remote) latest() relayed {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return relayed{frame: r.frame, sample: r.sample, frameSeq: r.frameSeq, sampleSeq: r.sampleSeq, wake: r.wake}
+func (b *relayBox) latest() relayed {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return relayed{frame: b.frame, sample: b.sample, frameSeq: b.frameSeq, sampleSeq: b.sampleSeq, wake: b.wake}
 }
 
 // remoteGame is a game on two devices that is still playing, or the error
@@ -305,7 +314,7 @@ func (s *Server) paddle(w http.ResponseWriter, r *http.Request) {
 		fail(w, status, err)
 		return
 	}
-	rm.put(false, raw)
+	g.relay.put(false, raw)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -315,8 +324,9 @@ func (s *Server) frames(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rm, status, err := remoteGame(g)
-	if err != nil {
+	// A served game's frames come from its driver only (ADR-0014): it is no
+	// game on two devices, and remoteGame refuses it here.
+	if _, status, err := remoteGame(g); err != nil {
 		fail(w, status, err)
 		return
 	}
@@ -325,7 +335,7 @@ func (s *Server) frames(w http.ResponseWriter, r *http.Request) {
 		fail(w, status, err)
 		return
 	}
-	rm.put(true, raw)
+	g.relay.put(true, raw)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -356,17 +366,18 @@ func relayBody(w http.ResponseWriter, r *http.Request, into any) ([]byte, int, e
 	return compact.Bytes(), 0, nil
 }
 
-// relay is GET /games/{id}/relay: the latest host frame as `frame` and the
-// latest guest sample as `guest`, each sent once, until the page goes. It
-// takes no token, like /games/{id}/events: a third device may watch the ball.
+// relay is GET /games/{id}/relay: the latest frame of the table as `frame`
+// and the latest guest sample as `guest`, each sent once, until the page goes.
+// It takes no token, like /games/{id}/events: a third device may watch the
+// ball, and every tab watches a served game (ADR-0014).
 func (s *Server) relay(w http.ResponseWriter, r *http.Request) {
 	g, ok := s.game(r.PathValue("id"))
 	if !ok {
 		fail(w, http.StatusNotFound, fmt.Errorf("no game %q", r.PathValue("id")))
 		return
 	}
-	if g.remote == nil {
-		fail(w, http.StatusConflict, errNotRemote)
+	if g.relay == nil {
+		fail(w, http.StatusConflict, errNoRelay)
 		return
 	}
 	rc := http.NewResponseController(w)
@@ -384,7 +395,7 @@ func (s *Server) relay(w http.ResponseWriter, r *http.Request) {
 	defer heartbeat.Stop()
 	var sentFrame, sentSample uint64
 	for {
-		now := g.remote.latest()
+		now := g.relay.latest()
 		if now.frameSeq != sentFrame {
 			if err := writeEvent(r.Context(), rc, w, "frame", string(now.frame)); err != nil {
 				return

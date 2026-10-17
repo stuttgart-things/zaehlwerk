@@ -31,6 +31,9 @@ type Driver interface {
 const (
 	DriverBots    = "bots"
 	DriverBrowser = "browser"
+	// DriverServer is two bots on the court the service plays itself
+	// (ADR-0014): no page decides anything, and every page watches.
+	DriverServer = "server"
 )
 
 // bots is the headless driver: two bots whose rallies are drawn by skill.
