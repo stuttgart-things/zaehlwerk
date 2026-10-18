@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.27.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.26.0...v0.27.0) (2026-10-18)
+
+
+### Features
+
+* Demo and Pong replace the three screen links, and the scoring page follows the table ([#156](https://github.com/stuttgart-things/zaehlwerk/issues/156)) ([f568bb7](https://github.com/stuttgart-things/zaehlwerk/commit/f568bb79ace8739756129e7f2c95937fc994102a))
+
 ## [0.26.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.25.0...v0.26.0) (2026-10-17)
 
 
