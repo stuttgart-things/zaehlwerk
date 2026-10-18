@@ -81,6 +81,7 @@ func NewServer(rig *Rig, zaehlwerkUI, piezoURL string, log *slog.Logger) *Server
 	s.mux.HandleFunc("POST /press", s.press)
 	s.mux.HandleFunc("POST /press-both", s.pressBoth)
 	s.mux.HandleFunc("POST /tap", s.tap)
+	s.mux.HandleFunc("POST /key", s.key)
 	s.mux.HandleFunc("GET /screens", s.screens)
 	s.mux.HandleFunc("POST /settings", s.settings)
 	s.mux.HandleFunc("POST /clear", s.clear)
@@ -278,6 +279,14 @@ func (s *Server) tap(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, "screens")
 }
 
+func (s *Server) key(w http.ResponseWriter, r *http.Request) {
+	if err := s.rig.PressKey(r.Context(), r.PostFormValue("side"), Gesture(r.PostFormValue("key"))); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.render(w, r, "live")
+}
+
 func (s *Server) holdFob(w http.ResponseWriter, r *http.Request) {
 	fob, ok := s.fob(r.PostFormValue("fob"))
 	if !ok {
@@ -317,8 +326,8 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 	next.BothWindow = time.Duration(window) * time.Millisecond
 
 	device := r.PostFormValue("device")
-	if device != DevicePushButton && device != DeviceDisplay {
-		http.Error(w, "device: want button or display", http.StatusBadRequest)
+	if !knownDevice(device) {
+		http.Error(w, "device: want button, keys or display", http.StatusBadRequest)
 		return
 	}
 	if device != next.Device {
@@ -409,8 +418,8 @@ func RunFromEnv(ctx context.Context, log *slog.Logger) error {
 	if settings.BothWindow, err = time.ParseDuration(env("BUTTONS_BOTH_WINDOW", "400ms")); err != nil {
 		return fmt.Errorf("BUTTONS_BOTH_WINDOW: %w", err)
 	}
-	if settings.Device = env("BUTTONS_DEVICE", DevicePushButton); settings.Device != DevicePushButton && settings.Device != DeviceDisplay {
-		return fmt.Errorf("BUTTONS_DEVICE: want %s or %s", DevicePushButton, DeviceDisplay)
+	if settings.Device = env("BUTTONS_DEVICE", DevicePushButton); !knownDevice(settings.Device) {
+		return fmt.Errorf("BUTTONS_DEVICE: want %s, %s or %s", DevicePushButton, DeviceTwoKeys, DeviceDisplay)
 	}
 
 	rig := New(api, env("BUTTONS_SOURCE", "button-mock"), settings, log)

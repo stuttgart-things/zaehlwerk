@@ -106,6 +106,41 @@
         button.small:hover { border-color: var(--accent); }
         .both { display: flex; justify-content: center; margin-top: 1rem; }
 
+        /* --- Two keys per half ------------------------------------------ */
+
+        /* Clicked, not held: a key says what it means, so nothing times it.
+           The undo key is smaller, square and red, because under the table
+           it has to be told from the point key by touch alone. */
+        .keys { display: flex; align-items: center; justify-content: center; gap: 1rem; }
+        .key {
+            border: 0;
+            color: #fff;
+            font: 700 1rem var(--font-ui);
+            cursor: pointer;
+            touch-action: manipulation;
+            user-select: none;
+            -webkit-user-select: none;
+            transition: transform 60ms, box-shadow 60ms;
+        }
+        .key.point {
+            width: min(30vw, 8.5rem);
+            aspect-ratio: 1;
+            border-radius: 50%;
+            background: radial-gradient(circle at 35% 30%, #8f78ff, var(--accent) 60%, #4b2fd0);
+            font-size: 1.75rem;
+            box-shadow: 0 0.45rem 0 #34209a, 0 0.7rem 1.4rem rgb(0 0 0 / 0.5);
+        }
+        .key.point:active { transform: translateY(0.35rem); box-shadow: 0 0.1rem 0 #34209a, 0 0.25rem 0.5rem rgb(0 0 0 / 0.5); }
+        .key.undo {
+            width: min(16vw, 4.25rem);
+            aspect-ratio: 1;
+            border-radius: 0.6rem;
+            background: linear-gradient(160deg, #e0566c, #a3243b);
+            font-size: 0.85rem;
+            box-shadow: 0 0.3rem 0 #5e1222, 0 0.5rem 1rem rgb(0 0 0 / 0.5);
+        }
+        .key.undo:active { transform: translateY(0.25rem); box-shadow: 0 0.05rem 0 #5e1222, 0 0.2rem 0.4rem rgb(0 0 0 / 0.5); }
+
         /* --- Score ------------------------------------------------------ */
 
         .score { display: flex; align-items: baseline; justify-content: center; gap: 1rem; font-family: var(--font-mono); }
@@ -264,7 +299,7 @@
         .fob-status li { display: flex; justify-content: space-between; gap: 0.5rem; }
 
         /* While a fob waits, the halves ask for the press that names one. */
-        body.fob-waiting .press, body.fob-waiting .zone.plus { animation: ask 800ms ease-in-out infinite; }
+        body.fob-waiting .press, body.fob-waiting .key.point, body.fob-waiting .zone.plus { animation: ask 800ms ease-in-out infinite; }
         @keyframes ask { 50% { filter: brightness(1.35); outline: 3px solid var(--ok); outline-offset: 4px; } }
 
         @media (max-width: 40rem) {
@@ -280,7 +315,7 @@
 <main>
     <header>
         <h1>Zählwerk table mock</h1>
-        <div class="muted">Two {{if eq .Settings.Device "display"}}screens{{else}}buttons{{end}} under the table and the hub they report to, simulated{{if .PiezoOn}}, and the piezo board next to them{{end}}.
+        <div class="muted">Two {{if eq .Settings.Device "display"}}screens{{else if eq .Settings.Device "keys"}}buttons of two keys each{{else}}buttons{{end}} under the table and the hub they report to, simulated{{if .PiezoOn}}, and the piezo board next to them{{end}}.
             Score into the match running on <a href="{{.ZaehlwerkUI}}" target="_blank" rel="noopener">the zaehlwerk page</a>.</div>
     </header>
 
@@ -292,6 +327,23 @@
             <b>undo</b> takes one back at once — no long press, so no window to wait for. The score on the
             screen is what the hub sent back in the ACK of that screen's own last tap: a device that sleeps
             between taps knows nothing newer. A screen that is always current would have to stay awake and listen.</p>
+        {{else if eq .Settings.Device "keys"}}
+        <div class="table">
+            {{range $i, $side := sides}}
+            <div class="half">
+                <div class="who">half {{$side}}</div>
+                <div class="keys">
+                    <button class="key point" hx-post="/key" hx-vals='{"side":"{{$side}}","key":"point"}' hx-target="#live" hx-swap="outerHTML" aria-label="Point key on half {{$side}}">+1</button>
+                    <button class="key undo" hx-post="/key" hx-vals='{"side":"{{$side}}","key":"undo"}' hx-target="#live" hx-swap="outerHTML" aria-label="Undo key on half {{$side}}">undo</button>
+                </div>
+                <div class="muted mono">{{index $.Sources $i}}</div>
+            </div>
+            {{end}}
+        </div>
+        <p class="muted" style="margin-bottom:0">Two keys per half, as zaehlwerk-firmware#2 now plans it: the
+            round one is a point, the small square one takes the last point back at once. Nothing is timed,
+            so there is no long press, no <code>both_long</code> and no window that delays an undo. Still a
+            button that wakes and sleeps, so debounce and a lost radio ACK apply as they do to one key.</p>
         {{else}}
         <div class="table">
             <div class="half">
@@ -354,9 +406,10 @@
         <form class="settings" hx-post="/settings" hx-trigger="change" hx-target="#live" hx-swap="outerHTML">
             <label><select name="device">
                     <option value="button" {{if eq .Settings.Device "button"}}selected{{end}}>push button</option>
+                    <option value="keys" {{if eq .Settings.Device "keys"}}selected{{end}}>two keys</option>
                     <option value="display" {{if eq .Settings.Device "display"}}selected{{end}}>display</option>
                 </select>
-                <span>Device<small>a button read as short/long, or a screen with two zones (firmware#61)</small></span></label>
+                <span>Device<small>one button read as short/long, two keys (point and undo), or a screen with two zones (firmware#61)</small></span></label>
             <label><input type="number" name="long_ms" id="long_ms" min="100" max="5000" step="50" value="{{ms .Settings.LongPress}}">
                 <span>ms long press<small>held this long, a press is a long one</small></span></label>
             <label><input type="number" name="window_ms" min="0" max="3000" step="50" value="{{ms .Settings.BothWindow}}">
