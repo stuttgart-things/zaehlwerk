@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.28.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.27.0...v0.28.0) (2026-10-18)
+
+
+### Features
+
+* two keys per half on the table mock, beside the single button ([#158](https://github.com/stuttgart-things/zaehlwerk/issues/158)) ([e871154](https://github.com/stuttgart-things/zaehlwerk/commit/e87115446fbdcbd25a6b60f227cceb605164908a))
+
 ## [0.27.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.26.0...v0.27.0) (2026-10-18)
 
 
