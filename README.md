@@ -65,7 +65,7 @@ go run ./cmd/zaehlwerk-api
 | `CHECKIN_START` | `serve_rally` | The phase a checked-in match starts in: `serve_rally` or `warmup`. The first serve is always played for |
 | `CHECKIN_CHANGE_ENDS` | `false` | `true` has the players of a checked-in match change ends |
 | `WATCH_RESULT_HOLD` | `1m` | With check-in on, how long `/ui/watch` leaves a finished match up before the side select comes back. A check-in cuts it short |
-| `PONG_URL` | — | zaehlwerk-pong as a browser at the table reaches it. The scoring page links it as *Pong*, and with the side select on, an idle table hands the watch screen to its `/screensaver` (ADR-0013). This service never calls it. Unset, there is no link and the side select stays up |
+| `PONG_URL` | — | zaehlwerk-pong as a browser at the table reaches it. The scoring page links its lobby as *Pong* and offers *Demo*, which starts a game between two computers that the game service plays (`POST /ui/demo`) and opens it to watch; with the side select on, an idle table hands the watch screen to its `/screensaver` (ADR-0013). This service never calls it. Unset, there are neither and the side select stays up |
 | `BUTTONS_URL` | — | The table mock's page (zaehlwerk-buttons), linked as *Buttons* on the scoring page. Only linked, never called. Unset, there is no link |
 | `WATCH_SCREENSAVER_AFTER` | `3m` | How long the table has to be free, with nobody checked in, before the screensaver takes the watch screen |
 | `SCHMETTERPAUSE_REPORT_DELAY` | `15s` | Grace period between a won match and its report (ADR-0007). An undo in it withholds the report, and the result that holds when it is over is the one sent. `0` reports at once; a value that is not a duration stops the start |
@@ -436,6 +436,13 @@ page joins the match a button would score into, the same one `/ingest/button`
 resolves; a match that has finished is still there, at `/ui?match=<id>` with
 the id `task demo` and `POST /matches` print.
 
+**It follows the table.** Opened without `?match`, the page asks
+`GET /ui/next` every five seconds whether a different match runs now — a pong
+game started from *Demo*, a press on the buttons, another phone — and loads
+again when one does. A finished match whose result still waits to go to
+Schmetterpause keeps the page, so its undo and its retry stay in reach. A page
+opened with `?match` stays on that match.
+
 **The page counts the way a phone does.** A source drawn per page load and an
 `event_id` that goes up by one per click, exactly the contract in
 [ADR-0002](docs/adr/0002-idempotent-ingest-contract.md) — so a double-posted
@@ -508,7 +515,8 @@ in by fob or phone: it shows their match and nothing that merely plays itself.
   to pin a match, the polls (`GET /ui/live/next`, `GET /ui/live/sides`), which
   stay on the live screen's path.
 
-The scoring page links both screens.
+Neither screen is in the scoring page's navigation: each is an address set
+once on a screen at the table.
 
 #### The side select
 
@@ -1226,6 +1234,12 @@ tab open, to its last point. The tab that started it keeps a token that only
 ends it: `/presses` answers it with a 409, and the relay of a served game takes
 no frames from outside. It takes mode `cvc` or none, players and bots; pace
 and the diagonal serve are refused, the latter for now.
+
+`POST /ui/demo` is zaehlwerk's *Demo* button: a served game with the lobby's
+defaults, answered with a redirect to its page and the token in the fragment.
+A game already playing is not refused but shown, without its token; a real
+match at the table is (409), on a page of its own, since it is all the new tab
+shows.
 
 **How it scores.** A game starts its own match with `POST /matches`: free-text
 names (`Pong A`, `Pong B`), `start: "warmup"`, `change_ends: true` and

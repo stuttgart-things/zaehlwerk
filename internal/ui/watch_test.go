@@ -73,14 +73,6 @@ func TestAPinnedSpectatorViewStaysOnItsMatch(t *testing.T) {
 	require.NotContains(t, body, "/ui/watch/next")
 }
 
-func TestTheScoringPageLinksToTheSpectatorView(t *testing.T) {
-	f := newFixture(t)
-
-	_, body := f.do(http.MethodGet, "/ui", nil)
-
-	require.Contains(t, body, `href="/ui/watch"`)
-}
-
 func TestTheSpectatorStreamCarriesTheScoreWithoutButtons(t *testing.T) {
 	f := newStreamFixture(t)
 	r, _ := f.connectTo("/ui/matches/" + f.match.ID + "/stream?view=watch")

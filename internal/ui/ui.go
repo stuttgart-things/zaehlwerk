@@ -150,11 +150,11 @@ func WithReportsTo(baseURL string) Option {
 	return func(s *Server) { s.reportsTo = redact(baseURL) }
 }
 
-// WithServiceLinks puts the table mock's page and the game's lobby in the
-// scoring page's navigation, next to the watch screen, so the services around
-// the table are found from the one page everybody already has open. An empty
-// URL leaves its link out: the service is not deployed. Both are addresses for
-// a browser; this service never calls either.
+// WithServiceLinks puts the table mock's page and the game in the scoring
+// page's navigation, so the services around the table are found from the one
+// page everybody already has open. An empty URL leaves its entries out: the
+// service is not deployed. Both are addresses for a browser; this service never
+// calls either.
 func WithServiceLinks(buttonsURL, pongURL string) Option {
 	return func(s *Server) {
 		s.buttons = redact(strings.TrimRight(buttonsURL, "/"))
@@ -162,24 +162,30 @@ func WithServiceLinks(buttonsURL, pongURL string) Option {
 	}
 }
 
-// navLink is one entry in the scoring page's navigation.
+// navLink is one entry in the scoring page's navigation. Post makes it a
+// button that posts to Href rather than a link to it.
 type navLink struct {
 	Label, Href, Title string
+	Post               bool
 }
 
-// nav is the navigation: the watch screen always, and each service that is
-// deployed. Each opens in a new tab, because the page it is opened from is
-// usually still keeping score.
+// nav is the navigation: each service that is deployed. Each opens in a new
+// tab, because the page it is opened from is usually still keeping score.
+//
+// The spectator screens are not in it. /ui/watch and /ui/live are addresses
+// to set once on a screen at the table, and next to "Pong" they read as three
+// ways to look at the same game. What somebody at this page wants from the
+// game is either something to watch now, which "Demo" starts in one press,
+// or a game of their own, which "Pong" sets up.
 func (s *Server) nav() []navLink {
-	links := []navLink{
-		{Label: "Watch", Href: watchScreen.path, Title: "The score without the buttons, for a screen everybody can see"},
-		{Label: "Live", Href: liveScreen.path, Title: "Only the real matches at this table, for the big screen next to it: no demos, no screensaver"},
+	var links []navLink
+	if s.pong != "" {
+		links = append(links,
+			navLink{Label: "Demo", Href: s.pong + "/ui/demo", Post: true, Title: "Computer against computer, played by the game service: opens it to watch, or the game already playing"},
+			navLink{Label: "Pong", Href: s.pong + "/#new-game", Title: "Set up a game of table tennis on a screen, scored by Zählwerk. Every game is a demo"})
 	}
 	if s.buttons != "" {
 		links = append(links, navLink{Label: "Buttons", Href: s.buttons, Title: "The table mock: two emulated buttons, the fob reader and the piezo board"})
-	}
-	if s.pong != "" {
-		links = append(links, navLink{Label: "Pong", Href: s.pong + "/", Title: "Table tennis on a screen, scored by Zählwerk. Every game is a demo"})
 	}
 	if s.reportsTo != "" {
 		links = append(links, navLink{Label: "Schmetterpause", Href: s.reportsTo, Title: "Where a finished match is reported: the league, the standings, the players"})
@@ -216,6 +222,7 @@ func New(registry *match.Registry, lifecycle Lifecycle, opts ...Option) *Server 
 	s.mux.HandleFunc("GET /ui", s.index)
 	s.mux.HandleFunc("GET /ui/{$}", s.index)
 
+	s.mux.HandleFunc("GET /ui/next", s.next)
 	s.mux.Handle("GET /ui/static/", staticHandler())
 
 	for _, sc := range []screen{watchScreen, liveScreen} {
@@ -262,6 +269,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	}
 
 	v.Stream = v.Match != nil && s.hub != nil
+	v.Follow = following(r)
 	s.fillRoster(r.Context(), &v)
 	v.ReportsTo = s.reportsTo
 	v.Nav = s.nav()
@@ -272,6 +280,47 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	// longer serves.
 	w.Header().Set("Cache-Control", "no-store")
 	s.render(w, "page", v)
+}
+
+// following says whether the page behind r follows the table: opened without
+// ?match. A request htmx makes from the page carries the page's address in
+// HX-Current-URL; anything else is the page itself.
+func following(r *http.Request) bool {
+	if r.Header.Get("HX-Request") == "" {
+		return r.URL.Query().Get("match") == ""
+	}
+	page, err := url.Parse(r.Header.Get("HX-Current-URL"))
+	return err == nil && page.Query().Get("match") == ""
+}
+
+// next tells a following scoring page to load again because a different match
+// now runs at the table: a pong game somebody started, the buttons under the
+// table, another phone. Polled, as the spectator screens poll, because the
+// stream the page holds is one match's (see [Server.watchNext]).
+//
+// A finished match whose result still waits to go to Schmetterpause keeps the
+// page, during the grace period and after a failed handover: that is when its
+// undo and its retry are worth pressing, and they are on this page only.
+func (s *Server) next(w http.ResponseWriter, r *http.Request) {
+	shown := r.URL.Query().Get("match")
+	m, err := s.registry.Current()
+	if err == nil && m.ID != shown && !s.reportWaits(shown) {
+		w.Header().Set("HX-Redirect", "/ui")
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// reportWaits says the match with this id has a result not yet with
+// Schmetterpause.
+func (s *Server) reportWaits(id string) bool {
+	if id == "" {
+		return false
+	}
+	m, err := s.registry.Get(id)
+	if err != nil || !m.Handover.Wanted() {
+		return false
+	}
+	return !m.Report().Done
 }
 
 // screen is one of the two spectator pages. They show the same match the
@@ -367,19 +416,19 @@ func (s *Server) watchNext(sc screen) http.HandlerFunc {
 // the new match.
 func (s *Server) createMatch(w http.ResponseWriter, r *http.Request) {
 	if err := parseForm(w, r); err != nil {
-		s.renderLive(w, view{Error: err.Error()})
+		s.renderLive(w, r, view{Error: err.Error()})
 		return
 	}
 
 	cfg, err := config(r.PostForm)
 	if err != nil {
-		s.renderLive(w, view{Error: err.Error()})
+		s.renderLive(w, r, view{Error: err.Error()})
 		return
 	}
 
 	handover, err := s.handoverFrom(r.PostForm)
 	if err != nil {
-		s.renderLive(w, view{Error: err.Error()})
+		s.renderLive(w, r, view{Error: err.Error()})
 		return
 	}
 
@@ -395,11 +444,11 @@ func (s *Server) createMatch(w http.ResponseWriter, r *http.Request) {
 
 	m, err := s.lifecycle.StartMatch(cfg, handover)
 	if err != nil {
-		s.renderLive(w, view{Error: err.Error()})
+		s.renderLive(w, r, view{Error: err.Error()})
 		return
 	}
 
-	s.renderLive(w, s.liveView(m, kindOf(m.Scorer.State())))
+	s.renderLive(w, r, s.liveView(m, kindOf(m.Scorer.State())))
 }
 
 // report retries a handover that did not get through.
@@ -413,7 +462,7 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.handover == nil {
-		s.renderLive(w, view{Error: "this instance does not report to schmetterpause"})
+		s.renderLive(w, r, view{Error: "this instance does not report to schmetterpause"})
 		return
 	}
 
@@ -422,7 +471,7 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request) {
 		// it; nothing extra to say here that the card will not.
 		s.log.Warn("retrying the handover failed", "match_id", m.ID, "error", err)
 	}
-	s.renderLive(w, s.liveView(m, kindOf(m.Scorer.State())))
+	s.renderLive(w, r, s.liveView(m, kindOf(m.Scorer.State())))
 }
 
 // handoverCard is the result card alone, which asks for itself while the

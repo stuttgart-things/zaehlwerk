@@ -1,0 +1,17 @@
+{{define "demo-refused"}}<!DOCTYPE html>
+<html lang="de">
+<head>
+    {{template "head"}}
+    <title>Zählwerk Pong · Demo</title>
+</head>
+<body>
+<header>
+    <h1><a class="home" href="/" title="Zur Startseite">Zählwerk Pong</a></h1>
+    <a href="/">Lobby</a>
+</header>
+<main>
+    <p class="card error">{{.Message}} <span class="mono muted">{{.Detail}}</span></p>
+</main>
+</body>
+</html>
+{{end}}
