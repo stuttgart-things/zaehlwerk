@@ -114,7 +114,8 @@
             padding: 0.75rem max(1rem, env(safe-area-inset-right)) 0 max(1rem, env(safe-area-inset-left));
         }
 
-        .services a {
+        .services form { margin: 0; display: contents; }
+        .services a, .services button {
             font-size: 0.85rem;
             font-weight: 600;
             padding: 0.35rem 0.85rem;
@@ -125,12 +126,16 @@
             text-decoration: none;
         }
 
-        .services a:hover, .services a:focus-visible { border-color: var(--accent-text); }
+        /* As specific as it takes to beat the button rule further down: Demo
+           posts, but it is one of the links and looks like them. */
+        .services button { font-family: inherit; line-height: inherit; cursor: pointer; }
+        .services a:hover, .services a:focus-visible,
+        .services button:hover, .services button:focus-visible { border-color: var(--accent-text); filter: none; }
 
         /* Four of them fit one row on a phone only a little tighter. */
         @media (max-width: 34rem) {
             .services { gap: 0.4rem; }
-            .services a { font-size: 0.8rem; padding: 0.3rem 0.65rem; }
+            .services a, .services button { font-size: 0.8rem; padding: 0.3rem 0.65rem; }
         }
 
         main { flex: 1; padding-top: 1rem; padding-bottom: 1.5rem; }
@@ -609,9 +614,16 @@
     {{/* The services around the table, so nobody has to know their
          addresses. New tabs, because the screen or the game is usually
          another device, and this page is still keeping score. */}}
+    {{- with .Nav}}
     <nav class="services" aria-label="Services">
-        {{range .Nav}}<a href="{{.Href}}" target="_blank" rel="noopener" title="{{.Title}}">{{.Label}}</a>{{end}}
+        {{- range .}}
+        {{- /* Demo starts a game, so it posts: a link would start one for
+             every crawler and link preview that fetched it. */}}
+        {{- if .Post}}<form action="{{.Href}}" method="post" target="_blank" rel="noopener"><button type="submit" title="{{.Title}}">{{.Label}}</button></form>
+        {{- else}}<a href="{{.Href}}" target="_blank" rel="noopener" title="{{.Title}}">{{.Label}}</a>{{end}}
+        {{- end}}
     </nav>
+    {{- end}}
 
     <main>
         {{template "live" .}}

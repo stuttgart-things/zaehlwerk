@@ -90,14 +90,6 @@ func TestTheLiveScreenMakesWayForTheMatchTheCheckInsStart(t *testing.T) {
 	require.Equal(t, "/ui/live", rec.Header().Get("HX-Redirect"))
 }
 
-func TestTheScoringPageLinksToTheLiveScreen(t *testing.T) {
-	f := newFixture(t)
-
-	_, body := f.do(http.MethodGet, "/ui", nil)
-
-	require.Contains(t, body, `href="/ui/live"`)
-}
-
 // A spectator looking up mid-match reads what the next rally is worth from the
 // card of the side that holds it.
 func TestTheSpectatorViewSaysWhenASetOrTheMatchIsAPointAway(t *testing.T) {

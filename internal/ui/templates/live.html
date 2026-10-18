@@ -9,5 +9,11 @@
       {{- template "log" . -}}
     </div>
   </section>
+  {{- /* Outside the board and the log, which the stream swaps, and inside
+       #live, which starting a match swaps: the id it asks with is always the
+       match on the page. */}}
+  {{- if .Follow}}
+  <div hidden hx-get="/ui/next?match={{with .Match}}{{.ID}}{{end}}" hx-trigger="every 5s" hx-swap="none"></div>
+  {{- end}}
 </div>
 {{end}}

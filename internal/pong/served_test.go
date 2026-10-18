@@ -3,6 +3,7 @@ package pong
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 )
 
@@ -206,4 +208,51 @@ func TestTheCourtKeepsTheConstantsOfGameJS(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, strings.Contains(string(page), fmt.Sprintf(`width="%v" height="%v"`, courtW, courtH)),
 		"the canvas is the court's size")
+}
+
+// zaehlwerk's "Demo" button posts here from its own origin, into a new tab.
+func TestTheDemoButtonStartsAServedGameAndSendsItsTabToWatch(t *testing.T) {
+	p, _ := newLobby(t, nil)
+
+	resp, err := noRedirects.PostForm(p.url+"/ui/demo", nil)
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	require.Equal(t, http.StatusSeeOther, resp.StatusCode)
+
+	p.pong.mu.Lock()
+	require.NotNil(t, p.pong.running)
+	running := p.pong.running.View()
+	token := p.pong.running.token
+	p.pong.mu.Unlock()
+	require.Equal(t, DriverServer, running.Driver, "it goes on in a tab left in the background")
+	require.Equal(t, ModeCvC, running.Mode)
+	require.Equal(t, "/play/"+running.ID+"#"+token, resp.Header.Get("Location"))
+
+	resp, err = noRedirects.PostForm(p.url+"/ui/demo", nil)
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	require.Equal(t, http.StatusSeeOther, resp.StatusCode)
+	require.Equal(t, "/play/"+running.ID, resp.Header.Get("Location"),
+		"a second press watches the game already playing, without its token")
+}
+
+func TestTheDemoButtonNeverTakesTheTableFromARealMatch(t *testing.T) {
+	p, tbl := newLobby(t, nil)
+	_, err := tbl.zaehlwerk.StartMatch(scorer.Config{}, match.Handover{})
+	require.NoError(t, err)
+
+	resp, err := noRedirects.PostForm(p.url+"/ui/demo", nil)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	raw, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	body := string(raw)
+	require.Equal(t, http.StatusConflict, resp.StatusCode)
+	require.Contains(t, body, "echtes Match")
+	require.Contains(t, body, "<!DOCTYPE html>", "a page of its own: it is all the new tab shows")
+}
+
+func TestPongsLinkLandsOnTheLobbysForm(t *testing.T) {
+	p, _ := newLobby(t, nil)
+	require.Contains(t, get(t, p.url+"/"), `id="new-game"`)
 }

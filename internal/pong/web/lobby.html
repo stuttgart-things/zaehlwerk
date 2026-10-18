@@ -38,7 +38,9 @@
 
     {{with .Attract}}{{template "attract" .}}{{end}}
 
-    <form class="card" hx-post="/ui/games" hx-target="#start-error" hx-swap="innerHTML"
+    {{/* #new-game is where zaehlwerk's "Pong" link lands: whoever comes
+         from there wants to set a game up, not read what is running. */}}
+    <form class="card" id="new-game" hx-post="/ui/games" hx-target="#start-error" hx-swap="innerHTML"
           action="/ui/games" method="post">
         <h2>Neues Spiel</h2>
         <div class="modes">

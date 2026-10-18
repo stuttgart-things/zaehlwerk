@@ -40,6 +40,7 @@ func (s *Server) routeUI() {
 	s.mux.HandleFunc("GET /ui/bot", s.botSliders)
 	s.mux.HandleFunc("GET /ui/attract", s.attractCard)
 	s.mux.HandleFunc("POST /ui/games", s.startFromLobby)
+	s.mux.HandleFunc("POST /ui/demo", s.demoButton)
 	s.mux.HandleFunc("GET /join", s.joinPage)
 	s.mux.HandleFunc("POST /ui/join", s.joinFromForm)
 	s.mux.HandleFunc("GET /play/{id}", s.playPage)
@@ -255,6 +256,57 @@ func (s *Server) startFromLobby(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("HX-Redirect", target)
 	w.WriteHeader(http.StatusOK)
+}
+
+// demoButton is zaehlwerk's "Demo" button: a served bot game (ADR-0014) with
+// the lobby's defaults, sent to its page in the tab the button opened. Served,
+// because that tab is the one most likely to be left in the background, and a
+// game the page plays would stand still there. A game already playing is
+// shown instead of being refused: whoever pressed the button wanted something
+// to watch, and that is it. The form comes from another origin; it starts
+// nothing the lobby would not start for anybody, so it needs nothing to prove.
+func (s *Server) demoButton(w http.ResponseWriter, r *http.Request) {
+	cfg, err := servedGame(startBody{})
+	if err != nil {
+		// Only reachable if the bots' names stop passing browserGame's checks.
+		s.demoRefused(w, http.StatusInternalServerError, "Die Demo ließ sich nicht anlegen.", err)
+		return
+	}
+	cfg.Faults = s.cfg.Faults
+
+	g, err := s.start(cfg)
+	if errors.Is(err, errBusy) {
+		s.mu.Lock()
+		running := s.running
+		s.mu.Unlock()
+		if running != nil {
+			http.Redirect(w, r, "/play/"+running.ID, http.StatusSeeOther)
+			return
+		}
+		// Busy with nothing of ours playing: a real match holds the table,
+		// and a demo never takes it from one (ADR-0008).
+		s.demoRefused(w, http.StatusConflict, "Am Tisch läuft ein echtes Match. Die Demo wartet, bis es vorbei ist.", err)
+		return
+	}
+	if err != nil {
+		s.demoRefused(w, http.StatusBadGateway, "Zählwerk ist nicht erreichbar.", err)
+		return
+	}
+	http.Redirect(w, r, "/play/"+g.ID+"#"+g.token, http.StatusSeeOther)
+}
+
+// demoRefused says why the button started nothing, as a whole page: it is the
+// first and only thing the new tab shows.
+func (s *Server) demoRefused(w http.ResponseWriter, status int, msg string, err error) {
+	s.log.Info("the demo button started nothing", "error", err)
+	html, perr := partial("demo-refused", struct{ Message, Detail string }{msg, err.Error()})
+	if perr != nil {
+		http.Error(w, perr.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = w.Write([]byte(html))
 }
 
 func (s *Server) joinPage(w http.ResponseWriter, _ *http.Request) { render(w, "join", nil) }

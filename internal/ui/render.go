@@ -51,14 +51,15 @@ type view struct {
 	Operators []RosterPlayer
 	// ReportsTo is the Schmetterpause base URL, empty when the coupling is off.
 	ReportsTo string
-	// Follow is set on the spectator view opened without ?match: it moves on
-	// to the next match by itself, where a pinned one stays put.
+	// Follow is set on a page opened without ?match, the scoring page as
+	// much as a spectator view: it moves on to the next match by itself,
+	// where a pinned one stays put.
 	Follow bool
 	// Sides is the side select, set on a following watch screen when no
 	// match is running and check-in is on.
 	Sides *sidesView
-	// Nav is the scoring page's navigation: the watch screen and the
-	// services deployed next to this one.
+	// Nav is the scoring page's navigation: the services deployed next to
+	// this one.
 	Nav []navLink
 	// Screen is the spectator page being rendered, /ui/watch or /ui/live,
 	// for the polls that page makes. Live is set on the second.
@@ -386,8 +387,11 @@ func (s *Server) render(w http.ResponseWriter, name string, v view) {
 
 // renderLive answers with the whole live panel, which carries the SSE
 // connection: the browser swaps it by outerHTML and reconnects to whatever
-// match it now holds.
-func (s *Server) renderLive(w http.ResponseWriter, v view) {
+// match it now holds. The panel carries the page's poll for the next match
+// too, so whether it follows is decided again here, from the address of the
+// page that asked.
+func (s *Server) renderLive(w http.ResponseWriter, r *http.Request, v view) {
+	v.Follow = following(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	s.render(w, "live", v)
 }
