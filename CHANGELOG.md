@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.25.0...v0.26.0) (2026-10-17)
+
+
+### Features
+
+* bot games the service plays itself, watched from any tab through the relay ([#154](https://github.com/stuttgart-things/zaehlwerk/issues/154)) ([15a0301](https://github.com/stuttgart-things/zaehlwerk/commit/15a0301839d5b0f25252b4bc4a23d341f2f66fe4))
+
 ## [0.25.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.24.0...v0.25.0) (2026-10-16)
 
 
