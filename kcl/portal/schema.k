@@ -21,7 +21,7 @@ schema Portal:
     namespace: str = "zaehlwerk"
 
     # ── Image ───────────────────────────────────────────────────────────────
-
+    
     # A placeholder for local renders. CI overrides it with the tag the
     # artefact itself carries, as for zaehlwerk's base.
     image: str = "ghcr.io/stuttgart-things/zaehlwerk-portal:latest"
@@ -44,7 +44,6 @@ schema Portal:
     clusterDomain: str = ""
     # Defaults to "<name>.<clusterDomain>" when both are set.
     host: str = ""
-
 
     # ── The parts ───────────────────────────────────────────────────────────
     #
@@ -76,3 +75,4 @@ schema Portal:
     check:
         zaehlwerkURL not in ["", "off"], "zaehlwerkURL cannot be off: the portal is zaehlwerk's"
         not httpRouteEnabled or gatewayName != "", "httpRouteEnabled needs a gatewayName"
+

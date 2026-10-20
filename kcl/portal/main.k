@@ -98,7 +98,9 @@ _deployment = {
                         image: _cfg.image
                         imagePullPolicy: _cfg.imagePullPolicy
                         ports: [{name: "http", containerPort: _cfg.containerPort, protocol: "TCP"}]
-                        envFrom: [{configMapRef: {name: c.configMapName}}]
+                        envFrom: [{
+                            configMapRef: {name: c.configMapName}
+                        }]
                         if _cfg.caBundleEnabled:
                             # SSL_CERT_DIR adds to the image's roots, where
                             # SSL_CERT_FILE would replace them; see
@@ -171,7 +173,9 @@ _httpRoute = {
             hostnames: [c.host]
         rules: [
             {
-                matches: [{path: {type: "PathPrefix", value: "/"}}]
+                matches: [{
+                    path: {type: "PathPrefix", value: "/"}
+                }]
                 backendRefs: [{name: _cfg.name, port: _cfg.servicePort}]
             }
         ]
