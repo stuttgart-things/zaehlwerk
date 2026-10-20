@@ -3,6 +3,7 @@ package portal
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -290,4 +291,22 @@ func TestOffSwitchesAPartOffAndUnsetKeepsTheLaptopDefault(t *testing.T) {
 	require.Equal(t, Part{URL: "http://localhost:8081"}, part("SIMULATOR", "http://localhost:8081"))
 	require.Equal(t, Part{URL: "http://zaehlwerk-pong", Public: "https://pong.example.com"},
 		part("PONG", "http://localhost:8087"))
+}
+
+func TestTheEventLogPadsKindsToTheLongestAndKeepsThemApartFromTheName(t *testing.T) {
+	for _, kind := range logKinds {
+		require.LessOrEqual(t, len(kind), kindWidth, kind)
+	}
+	require.Equal(t, len(live.KindStarted), kindWidth, "match_started and serve_decided are the longest today")
+
+	body := get(t, newChain(t).portal(t)+"/")
+	require.Contains(t, body, fmt.Sprintf("ev.kind.padEnd( %d ) + ' ' + s.players[0]", kindWidth),
+		"warmup_over ran into the player's name at a guessed width of 10")
+}
+
+func TestTheSideColumnCannotGrowUnderTheFrames(t *testing.T) {
+	body := get(t, newChain(t).portal(t)+"/")
+	require.Contains(t, body, "aside, #side { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }",
+		"an implicit auto column grows to #log's longest line")
+	require.Contains(t, body, ".card { min-width: 0;")
 }

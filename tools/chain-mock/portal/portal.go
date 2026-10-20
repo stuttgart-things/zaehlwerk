@@ -30,6 +30,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/stuttgart-things/zaehlwerk/internal/live"
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 	"github.com/stuttgart-things/zaehlwerk/tools/chain-mock/fakesp"
 	"github.com/stuttgart-things/zaehlwerk/tools/chain-mock/piezo"
@@ -47,9 +48,25 @@ var page = template.Must(template.New("").Funcs(template.FuncMap{
 		}
 		return strings.Join(parts, " ")
 	},
-	"pct":   func(share float64) int { return int(share*100 + 0.5) },
-	"modes": func() []string { return []string{fakesp.ModeAccept, fakesp.ModeRefuse, fakesp.ModeHang} },
+	"pct":       func(share float64) int { return int(share*100 + 0.5) },
+	"modes":     func() []string { return []string{fakesp.ModeAccept, fakesp.ModeRefuse, fakesp.ModeHang} },
+	"kindWidth": func() int { return kindWidth },
 }).ParseFS(pageFS, "page.html"))
+
+// logKinds is every kind the table stream sends with a state, which the event
+// log puts in a column of its own: the scorer's transitions and the stream's
+// own. no_match carries no state and is logged alone.
+var logKinds = []string{
+	string(scorer.TransitionPoint), string(scorer.TransitionSetWon), string(scorer.TransitionMatchWon),
+	string(scorer.TransitionUndo), string(scorer.TransitionConfirmed), string(scorer.TransitionWarmupOver),
+	string(scorer.TransitionServeDecided), string(scorer.TransitionEndsChanged),
+	live.KindSnapshot, live.KindStarted, live.KindEnded,
+}
+
+// kindWidth is how wide the log pads a kind: the longest of logKinds, not a
+// guess. padEnd(10) ran warmup_over into the player's name. The page still adds
+// a space after it, so a kind added later and missing here is only out of line.
+var kindWidth = len(slices.MaxFunc(logKinds, func(a, b string) int { return len(a) - len(b) }))
 
 // probeTimeout bounds one status check. The page polls every few seconds, so
 // a part that hangs must not hold the whole row.

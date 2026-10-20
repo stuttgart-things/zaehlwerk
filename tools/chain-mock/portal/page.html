@@ -72,8 +72,13 @@
             align-items: start;
         }
         @media (max-width: 60rem) { .layout { grid-template-columns: minmax(0, 1fr); } }
-        aside, #side { display: grid; gap: 1rem; }
-        .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.9rem; }
+        /* minmax(0, 1fr) and min-width: 0, or the cards grow past the 22rem
+           .layout gives the aside: a grid's implicit column is auto, and
+           #log (white-space: pre) asks for its longest line as min-content.
+           The cards then run under the frames and their text is cut off.
+           With both, a long line scrolls inside #log instead. */
+        aside, #side { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }
+        .card { min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.9rem; }
         .row { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
         .row + .row { margin-top: 0.5rem; }
         button {
@@ -179,7 +184,7 @@
             const s = ev.state;
             if (!s) { line(ev.kind); return; }
             const sets = (s.completed_sets || []).map(x => x[0] + ':' + x[1]).join(' ');
-            line(ev.kind.padEnd(10) + s.players[0] + ' ' + s.points[0] + ':' + s.points[1] + ' ' + s.players[1]
+            line(ev.kind.padEnd({{kindWidth}}) + ' ' + s.players[0] + ' ' + s.points[0] + ':' + s.points[1] + ' ' + s.players[1]
                 + '  ' + s.sets[0] + ':' + s.sets[1] + (sets ? ' (' + sets + ')' : '')
                 + (s.phase && s.phase !== 'playing' ? '  ' + s.phase : '') + (ev.demo ? '  demo' : ''));
         };
