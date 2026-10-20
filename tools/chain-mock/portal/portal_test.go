@@ -68,12 +68,12 @@ func newChain(t *testing.T) *chain {
 
 	return &chain{
 		targets: Targets{
-			Zaehlwerk:      zw.URL,
-			Simulator:      nowhere,
-			Schmetterpause: sp.URL,
-			Buttons:        nowhere,
-			Piezo:          ctl.URL,
-			Pong:           nowhere,
+			Zaehlwerk:      Part{URL: zw.URL},
+			Simulator:      Part{URL: nowhere},
+			Schmetterpause: Part{URL: sp.URL},
+			Buttons:        Part{URL: nowhere},
+			Piezo:          Part{URL: ctl.URL},
+			Pong:           Part{URL: nowhere},
 		},
 		registry: registry,
 		fake:     fake,
@@ -118,7 +118,7 @@ func TestTheStatusRowSaysWhichPartsAreUpAndWhichAreNotRunning(t *testing.T) {
 	c := newChain(t)
 	body := get(t, c.portal(t)+"/status")
 
-	require.Contains(t, body, `class="probe up" href="`+c.targets.Zaehlwerk+`"`)
+	require.Contains(t, body, `class="probe up" href="`+c.targets.Zaehlwerk.URL+`"`)
 	require.Contains(t, body, "fake, accept", "the fake is told apart by its own /mode")
 	require.Contains(t, body, `class="probe" href="`+nowhere+`"`)
 	require.Contains(t, body, "not running", "a refused connection reads as a part not started")
@@ -126,7 +126,7 @@ func TestTheStatusRowSaysWhichPartsAreUpAndWhichAreNotRunning(t *testing.T) {
 
 func TestARealSchmetterpauseGetsAFrameAndTheFakeDoesNot(t *testing.T) {
 	c := newChain(t)
-	require.NotContains(t, get(t, c.portal(t)+"/"), `<iframe src="`+c.targets.Schmetterpause,
+	require.NotContains(t, get(t, c.portal(t)+"/"), `<iframe src="`+c.targets.Schmetterpause.URL,
 		"the fake has no page; its card is the page")
 
 	// The real one has no /mode and answers /readyz.
@@ -138,7 +138,7 @@ func TestARealSchmetterpauseGetsAFrameAndTheFakeDoesNot(t *testing.T) {
 		_, _ = w.Write([]byte("ok"))
 	}))
 	t.Cleanup(realSP.Close)
-	c.targets.Schmetterpause = realSP.URL
+	c.targets.Schmetterpause = Part{URL: realSP.URL}
 	page := c.portal(t)
 
 	require.Contains(t, get(t, page+"/"), `<iframe src="`+realSP.URL+`/"`)
@@ -149,9 +149,9 @@ func TestTheFramesShownAreTheOnesInTheQuery(t *testing.T) {
 	c := newChain(t)
 	body := get(t, c.portal(t)+"/?show=watch&show=pong")
 
-	require.Contains(t, body, `<iframe src="`+c.targets.Zaehlwerk+`/ui/watch"`)
+	require.Contains(t, body, `<iframe src="`+c.targets.Zaehlwerk.URL+`/ui/watch"`)
 	require.Contains(t, body, `<iframe src="`+nowhere+`/"`, "pong's frame")
-	require.NotContains(t, body, `<iframe src="`+c.targets.Zaehlwerk+`/ui"`, "the scoring page was not picked")
+	require.NotContains(t, body, `<iframe src="`+c.targets.Zaehlwerk.URL+`/ui"`, "the scoring page was not picked")
 }
 
 func TestTheMatchButtonsStartAndEndAMatchOnZaehlwerk(t *testing.T) {
@@ -220,7 +220,7 @@ func TestThePongButtonStartsAHeadlessGameAtItsPace(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":"g1"}`))
 	}))
 	t.Cleanup(pong.Close)
-	c.targets.Pong = pong.URL
+	c.targets.Pong = Part{URL: pong.URL}
 
 	body := post(t, c.portal(t)+"/pong/game", map[string]string{"pace": "200ms"})
 	require.Equal(t, map[string]string{"pace": "200ms"}, got)
@@ -241,9 +241,10 @@ func TestTheEventLogIsZaehlwerksTableStreamRelayed(t *testing.T) {
 }
 
 func TestThePortalStillDrawsWithEveryPartDown(t *testing.T) {
+	down := Part{URL: nowhere}
 	page := httptest.NewServer(New(Targets{
-		Zaehlwerk: nowhere, Simulator: nowhere, Schmetterpause: nowhere,
-		Buttons: nowhere, Piezo: nowhere, Pong: nowhere,
+		Zaehlwerk: down, Simulator: down, Schmetterpause: down,
+		Buttons: down, Piezo: down, Pong: down,
 	}, quiet))
 	t.Cleanup(page.Close)
 
@@ -251,4 +252,42 @@ func TestThePortalStillDrawsWithEveryPartDown(t *testing.T) {
 	require.Contains(t, body, "Zählwerk dev portal")
 	require.Contains(t, body, "zaehlwerk: not running")
 	require.Contains(t, body, "task chain:piezo JOIN=1")
+}
+
+func TestThePageFramesThePublicAddressAndCallsTheOtherOne(t *testing.T) {
+	c := newChain(t)
+	c.targets.Zaehlwerk.Public = "https://zaehlwerk.example.com"
+	page := c.portal(t)
+
+	body := get(t, page+"/?show=scoring")
+	require.Contains(t, body, `<iframe src="https://zaehlwerk.example.com/ui"`, "the browser gets the route")
+	require.Contains(t, get(t, page+"/status"), `class="probe up" href="https://zaehlwerk.example.com"`,
+		"probed at the Service, linked at the route")
+}
+
+func TestAPartThatIsOffIsNotOnThePageAtAll(t *testing.T) {
+	c := newChain(t)
+	c.targets.Buttons, c.targets.Piezo, c.targets.Pong, c.targets.Simulator = Part{}, Part{}, Part{}, Part{}
+	page := c.portal(t)
+
+	status := get(t, page+"/status")
+	require.NotContains(t, status, "Buttons")
+	require.NotContains(t, status, "not running", "an absent part is not a part that is down")
+
+	body := get(t, page+"/?show=buttons&show=scoring")
+	require.NotContains(t, body, `value="buttons"`, "no frame to pick")
+	require.NotContains(t, body, "Piezo board")
+	require.NotContains(t, body, "Bot game")
+	require.Contains(t, body, `<iframe src="`+c.targets.Zaehlwerk.URL+`/ui"`)
+}
+
+func TestOffSwitchesAPartOffAndUnsetKeepsTheLaptopDefault(t *testing.T) {
+	t.Setenv("BUTTONS_URL", "off")
+	t.Setenv("PONG_URL", "http://zaehlwerk-pong/")
+	t.Setenv("PONG_PUBLIC_URL", "https://pong.example.com/")
+
+	require.False(t, part("BUTTONS", "http://localhost:8084").On())
+	require.Equal(t, Part{URL: "http://localhost:8081"}, part("SIMULATOR", "http://localhost:8081"))
+	require.Equal(t, Part{URL: "http://zaehlwerk-pong", Public: "https://pong.example.com"},
+		part("PONG", "http://localhost:8087"))
 }

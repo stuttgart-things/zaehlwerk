@@ -1162,18 +1162,28 @@ already has that route, and the page is drawn from what they answer.
 - **The table stream**: zaehlwerk's `GET /live/stream`, relayed through the
   portal so it is same-origin and needs no `ALLOWED_ORIGINS` entry.
 
-The URLs are used twice — by the portal to call a part and by the browser to
-frame its page — which is right on a laptop and nowhere else.
+Every part has two addresses: `<PART>_URL`, where the portal calls it, and
+`<PART>_PUBLIC_URL`, what the browser is given to frame its page — the same
+one when unset, which is right on a laptop. In a cluster the first is a
+Service and the second a route. `off` is a part that is not there at all: no
+status chip, no frame, no buttons, rather than a chip that is red forever.
 
 | Variable | Default | |
 | -------- | ------- | - |
 | `PORTAL_ADDR` | `:8086` | where the portal listens (`ZW_PORTAL_PORT` in `.env`) |
-| `ZAEHLWERK_URL` | `http://localhost:8080` | |
+| `ZAEHLWERK_URL` | `http://localhost:8080` | cannot be `off` |
 | `SIMULATOR_URL` | `http://localhost:8081` | the led-catcher's web simulator |
 | `SCHMETTERPAUSE_URL` | `http://localhost:8082` | the fake or the real one |
 | `BUTTONS_URL` | `http://localhost:8084` | the table mock |
 | `PIEZO_CONTROL_URL` | `http://localhost:8085` | a piezo board's control endpoint |
 | `PONG_URL` | `http://localhost:8087` | zaehlwerk-pong |
+| `<PART>_PUBLIC_URL` | the `<PART>_URL` | `ZAEHLWERK_PUBLIC_URL`, `SIMULATOR_PUBLIC_URL`, … |
+
+It also ships as `ghcr.io/stuttgart-things/zaehlwerk-portal`, built from
+`tools/chain-mock/cmd/portal` with zaehlwerk's tags, and as a kustomize base of
+its own, `zaehlwerk-portal-kustomize`, from `kcl/portal` — see
+[`kcl/portal/README.md`](kcl/portal/README.md). Like zaehlwerk's route, its
+route is the access control: the portal has no login.
 
 #### The real Schmetterpause
 

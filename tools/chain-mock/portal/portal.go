@@ -8,9 +8,9 @@
 // what they answer, never from anything kept here. Restarting it loses
 // nothing; stopping it changes nothing about the chain.
 //
-// The URLs it is given are used twice: by the portal to call the part, and by
-// the browser to load the part's page in a frame. On a laptop those are the
-// same address. It is not meant to run anywhere they are not.
+// Each part has two addresses: the one the portal calls, and the one the
+// browser is given to frame the part's page. On a laptop they are the same; in
+// a cluster the first is a Service and the second a route.
 package portal
 
 import (
@@ -55,15 +55,37 @@ var page = template.Must(template.New("").Funcs(template.FuncMap{
 // a part that hangs must not hold the whole row.
 const probeTimeout = 1500 * time.Millisecond
 
-// Targets are the base URLs of the parts. All of them are always shown: one
-// that is not running is reported as down, which is the point of the page.
+// Part is where one part of the chain is. URL is what the portal calls, Public
+// what the browser is given for the part's page, and the same as URL when
+// empty. A part with no URL is not there at all — no chip, no frame, no
+// buttons — which is different from one that is there and down: a cluster
+// whose table has real buttons has no table mock, and a red chip for it
+// forever would teach everybody to ignore the red ones.
+type Part struct {
+	URL    string
+	Public string
+}
+
+// On is whether the part is there.
+func (p Part) On() bool { return p.URL != "" }
+
+// Page is the part's address for a browser.
+func (p Part) Page() string {
+	if p.Public != "" {
+		return p.Public
+	}
+	return p.URL
+}
+
+// Targets are the parts. zaehlwerk is the one that has to be there; it is
+// what the page is about.
 type Targets struct {
-	Zaehlwerk      string
-	Simulator      string
-	Schmetterpause string
-	Buttons        string
-	Piezo          string
-	Pong           string
+	Zaehlwerk      Part
+	Simulator      Part
+	Schmetterpause Part
+	Buttons        Part
+	Piezo          Part
+	Pong           Part
 }
 
 // Server is the page. Use [New].
@@ -113,6 +135,7 @@ const (
 	spFake = "fake"
 	spReal = "real"
 	spDown = "down"
+	spOff  = "off"
 )
 
 // Probe is one part in the status row.
@@ -125,20 +148,31 @@ type Probe struct {
 }
 
 func (s *Server) probes(ctx context.Context) []Probe {
-	ps := []Probe{
-		{Key: "zaehlwerk", Title: "zaehlwerk", URL: s.t.Zaehlwerk},
-		{Key: "panel", Title: "Panel simulator", URL: s.t.Simulator},
-		{Key: "schmetterpause", Title: "Schmetterpause", URL: s.t.Schmetterpause},
-		{Key: "buttons", Title: "Buttons", URL: s.t.Buttons},
-		{Key: "piezo", Title: "Piezo", URL: s.t.Piezo},
-		{Key: "pong", Title: "Pong", URL: s.t.Pong},
+	parts := []struct {
+		key, title string
+		part       Part
+	}{
+		{"zaehlwerk", "zaehlwerk", s.t.Zaehlwerk},
+		{"panel", "Panel simulator", s.t.Simulator},
+		{"schmetterpause", "Schmetterpause", s.t.Schmetterpause},
+		{"buttons", "Buttons", s.t.Buttons},
+		{"piezo", "Piezo", s.t.Piezo},
+		{"pong", "Pong", s.t.Pong},
+	}
+	var ps []Probe
+	var calls []string
+	for _, p := range parts {
+		if p.part.On() {
+			ps = append(ps, Probe{Key: p.key, Title: p.title, URL: p.part.Page()})
+			calls = append(calls, p.part.URL)
+		}
 	}
 	var wg sync.WaitGroup
 	for i := range ps {
 		wg.Go(func() {
 			ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 			defer cancel()
-			p := &ps[i]
+			p, call := &ps[i], calls[i]
 			switch p.Key {
 			case "schmetterpause":
 				kind, mode, err := s.spKind(ctx)
@@ -154,9 +188,9 @@ func (s *Server) probes(ctx context.Context) []Probe {
 			case "panel":
 				// The simulator is somebody else's image with no health route
 				// this repository can count on; its page answering is enough.
-				p.Up, p.Detail = s.ping(ctx, p.URL+"/")
+				p.Up, p.Detail = s.ping(ctx, call+"/")
 			default:
-				p.Up, p.Detail = s.ping(ctx, p.URL+"/healthz")
+				p.Up, p.Detail = s.ping(ctx, call+"/healthz")
 			}
 		})
 	}
@@ -178,7 +212,10 @@ func (s *Server) ping(ctx context.Context, u string) (bool, string) {
 
 // spKind finds out which Schmetterpause is at the URL, and the fake's mode.
 func (s *Server) spKind(ctx context.Context) (kind, mode string, err error) {
-	status, body, err := s.do(ctx, http.MethodGet, s.t.Schmetterpause+"/mode", "", nil)
+	if !s.t.Schmetterpause.On() {
+		return spOff, "", nil
+	}
+	status, body, err := s.do(ctx, http.MethodGet, s.t.Schmetterpause.URL+"/mode", "", nil)
 	if err != nil {
 		return spDown, "", errors.New(short(err))
 	}
@@ -188,7 +225,7 @@ func (s *Server) spKind(ctx context.Context) (kind, mode string, err error) {
 	if status == http.StatusOK && json.Unmarshal(body, &m) == nil && m.Mode != "" {
 		return spFake, m.Mode, nil
 	}
-	if up, detail := s.ping(ctx, s.t.Schmetterpause+"/readyz"); !up {
+	if up, detail := s.ping(ctx, s.t.Schmetterpause.URL+"/readyz"); !up {
 		return spDown, "", errors.New(detail)
 	}
 	return spReal, "", nil
@@ -214,19 +251,24 @@ type Frame struct {
 var defaultFrames = []string{"panel", "scoring", "buttons", "schmetterpause"}
 
 func (s *Server) frames(show []string, realSP bool) []Frame {
-	fs := []Frame{
-		{Key: "panel", Title: "Panel simulator", URL: s.t.Simulator + "/"},
-		{Key: "scoring", Title: "Scoring page", URL: s.t.Zaehlwerk + "/ui"},
-		{Key: "watch", Title: "Watch screen", URL: s.t.Zaehlwerk + "/ui/watch"},
-		{Key: "buttons", Title: "Buttons", URL: s.t.Buttons + "/"},
-		{Key: "pong", Title: "Pong", URL: s.t.Pong + "/"},
+	all := []struct {
+		Frame
+		on bool
+	}{
+		{Frame{Key: "panel", Title: "Panel simulator", URL: s.t.Simulator.Page() + "/"}, s.t.Simulator.On()},
+		{Frame{Key: "scoring", Title: "Scoring page", URL: s.t.Zaehlwerk.Page() + "/ui"}, true},
+		{Frame{Key: "watch", Title: "Watch screen", URL: s.t.Zaehlwerk.Page() + "/ui/watch"}, true},
+		{Frame{Key: "buttons", Title: "Buttons", URL: s.t.Buttons.Page() + "/"}, s.t.Buttons.On()},
+		{Frame{Key: "pong", Title: "Pong", URL: s.t.Pong.Page() + "/"}, s.t.Pong.On()},
+		// The fake has no page of its own; its card on the side is the page.
+		{Frame{Key: "schmetterpause", Title: "Schmetterpause", URL: s.t.Schmetterpause.Page() + "/"}, realSP},
 	}
-	// The fake has no page of its own; its card on the side is the page.
-	if realSP {
-		fs = append(fs, Frame{Key: "schmetterpause", Title: "Schmetterpause", URL: s.t.Schmetterpause + "/"})
-	}
-	for i := range fs {
-		fs[i].On = slices.Contains(show, fs[i].Key)
+	var fs []Frame
+	for _, f := range all {
+		if f.on {
+			f.On = slices.Contains(show, f.Key)
+			fs = append(fs, f.Frame)
+		}
 	}
 	return fs
 }
@@ -284,10 +326,14 @@ type sideView struct {
 	SP       spView
 	Piezo    *piezo.Status
 	PiezoErr string
+	// PiezoOn and PongOn are whether those parts are there at all; without
+	// them their cards are left off.
+	PiezoOn bool
+	PongOn  bool
 }
 
 func (s *Server) sideView(ctx context.Context) sideView {
-	var v sideView
+	v := sideView{PiezoOn: s.t.Piezo.On(), PongOn: s.t.Pong.On()}
 	var wg sync.WaitGroup
 
 	wg.Go(func() {
@@ -297,7 +343,7 @@ func (s *Server) sideView(ctx context.Context) sideView {
 			scorer.State
 			Demo bool `json:"demo"`
 		}
-		status, body, err := s.do(ctx, http.MethodGet, s.t.Zaehlwerk+"/matches/current", "", nil)
+		status, body, err := s.do(ctx, http.MethodGet, s.t.Zaehlwerk.URL+"/matches/current", "", nil)
 		switch {
 		case err != nil:
 			v.MatchErr = short(err)
@@ -318,10 +364,13 @@ func (s *Server) sideView(ctx context.Context) sideView {
 	})
 
 	wg.Go(func() {
+		if !v.PiezoOn {
+			return
+		}
 		ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 		defer cancel()
 		var st piezo.Status
-		if err := s.getJSON(ctx, s.t.Piezo+"/control", &st); err != nil {
+		if err := s.getJSON(ctx, s.t.Piezo.URL+"/control", &st); err != nil {
 			v.PiezoErr = err.Error()
 			return
 		}
@@ -341,10 +390,10 @@ func (s *Server) spView(ctx context.Context) spView {
 	if kind != spFake {
 		return v
 	}
-	if err := s.getJSON(ctx, s.t.Schmetterpause+"/results", &v.Results); err != nil {
+	if err := s.getJSON(ctx, s.t.Schmetterpause.URL+"/results", &v.Results); err != nil {
 		v.Err = err.Error()
 	}
-	if err := s.getJSON(ctx, s.t.Schmetterpause+"/checkins", &v.Checkins); err != nil {
+	if err := s.getJSON(ctx, s.t.Schmetterpause.URL+"/checkins", &v.Checkins); err != nil {
 		v.Err = err.Error()
 	}
 	// Newest first: the one just played is the one being looked for.
@@ -394,7 +443,7 @@ func (s *Server) startMatch(w http.ResponseWriter, r *http.Request) {
 		bestOf = 1
 	}
 	body, _ := json.Marshal(map[string]any{"players": []string{"Anna", "Bernd"}, "best_of": bestOf})
-	s.call(w, r, "start match", http.MethodPost, s.t.Zaehlwerk+"/matches", "application/json", body)
+	s.call(w, r, "start match", http.MethodPost, s.t.Zaehlwerk.URL+"/matches", "application/json", body)
 }
 
 func (s *Server) endMatch(w http.ResponseWriter, r *http.Request) {
@@ -403,12 +452,12 @@ func (s *Server) endMatch(w http.ResponseWriter, r *http.Request) {
 		s.answer(w, r, "end match: no match on the page", true)
 		return
 	}
-	s.call(w, r, "end match", http.MethodPost, s.t.Zaehlwerk+"/matches/"+url.PathEscape(id)+"/end", "", nil)
+	s.call(w, r, "end match", http.MethodPost, s.t.Zaehlwerk.URL+"/matches/"+url.PathEscape(id)+"/end", "", nil)
 }
 
 func (s *Server) setMode(w http.ResponseWriter, r *http.Request) {
 	form := url.Values{"mode": {r.PostFormValue("mode")}}
-	s.call(w, r, "schmetterpause mode", http.MethodPost, s.t.Schmetterpause+"/mode",
+	s.call(w, r, "schmetterpause mode", http.MethodPost, s.t.Schmetterpause.URL+"/mode",
 		"application/x-www-form-urlencoded", []byte(form.Encode()))
 }
 
@@ -417,7 +466,7 @@ func (s *Server) setMode(w http.ResponseWriter, r *http.Request) {
 // fake.
 func (s *Server) phone(w http.ResponseWriter, r *http.Request) {
 	form := url.Values{"half": {r.PostFormValue("half")}, "player_id": {r.PostFormValue("player_id")}}
-	s.call(w, r, "phone check-in", http.MethodPost, s.t.Schmetterpause+"/phone",
+	s.call(w, r, "phone check-in", http.MethodPost, s.t.Schmetterpause.URL+"/phone",
 		"application/x-www-form-urlencoded", []byte(form.Encode()))
 }
 
@@ -426,14 +475,14 @@ func (s *Server) phone(w http.ResponseWriter, r *http.Request) {
 // the buttons page's.
 func (s *Server) setPiezo(w http.ResponseWriter, r *http.Request) {
 	var st piezo.Status
-	if err := s.getJSON(r.Context(), s.t.Piezo+"/control", &st); err != nil {
+	if err := s.getJSON(r.Context(), s.t.Piezo.URL+"/control", &st); err != nil {
 		s.answer(w, r, "piezo: "+err.Error(), true)
 		return
 	}
 	next := st.Control
 	next.Paused = r.PostFormValue("action") == "pause"
 	body, _ := json.Marshal(next)
-	s.call(w, r, "piezo", http.MethodPost, s.t.Piezo+"/control", "application/json", body)
+	s.call(w, r, "piezo", http.MethodPost, s.t.Piezo.URL+"/control", "application/json", body)
 }
 
 // pongGame is task chain:pong:play: a headless bot match on zaehlwerk-pong,
@@ -445,7 +494,7 @@ func (s *Server) pongGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body, _ := json.Marshal(map[string]string{"pace": pace})
-	s.call(w, r, "pong game", http.MethodPost, s.t.Pong+"/games", "application/json", body)
+	s.call(w, r, "pong game", http.MethodPost, s.t.Pong.URL+"/games", "application/json", body)
 }
 
 // ─── The event log ───────────────────────────────────────────────────────
@@ -454,7 +503,7 @@ func (s *Server) pongGame(w http.ResponseWriter, r *http.Request) {
 // here it is same-origin, so zaehlwerk needs no ALLOWED_ORIGINS entry for the
 // portal and the stream is the one every other consumer reads.
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, s.t.Zaehlwerk+"/live/stream", nil)
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, s.t.Zaehlwerk.URL+"/live/stream", nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
