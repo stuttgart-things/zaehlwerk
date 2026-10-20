@@ -145,6 +145,13 @@ The published base does not carry it: `base.yaml` leaves it off, and kustomize
 cannot switch on a resource that was never rendered. An environment that wants
 the game renders its own profile with `config.pongEnabled: true`.
 
+## The dev portal
+
+`kcl/portal` is a second module, for the dev portal, published as its own base
+(`zaehlwerk-portal-kustomize`) so that no cluster gets it by updating
+zaehlwerk. `task kcl:render MODULE=kcl/portal`; the rest is in
+[`portal/README.md`](portal/README.md).
+
 ## Secrets
 
 Two values must not be readable from the namespace: `OMNI_PITCHER_TOKEN`, the

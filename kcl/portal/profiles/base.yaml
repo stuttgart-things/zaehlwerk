@@ -1,0 +1,24 @@
+# The profile the published portal base is rendered from, neutral like
+# kcl/profiles/base.yaml: every value that names a place is a placeholder an
+# environment patches, and everything an environment may want is rendered,
+# because kustomize can patch a field but not a resource that was never there.
+#
+# The parts other than zaehlwerk are "off" here: which of them a cluster runs
+# is the cluster's to say, by patching the ConfigMap's <PART>_URL and
+# <PART>_PUBLIC_URL. The list to copy is in kcl/portal/README.md.
+
+config.namespace: zaehlwerk
+
+# Overridden by CI with the tag the artefact carries.
+config.image: ghcr.io/stuttgart-things/zaehlwerk-portal:latest
+
+# PATCH: the cluster's domain, the gateway and its namespace.
+# "zaehlwerk-portal.<clusterDomain>" becomes the route's hostname.
+config.clusterDomain: cluster.example.com
+config.httpRouteEnabled: true
+config.gatewayName: gateway
+config.gatewayNamespace: default
+
+# zaehlwerk's Service in the same namespace, and (PATCH) its route.
+config.zaehlwerkURL: http://zaehlwerk
+config.zaehlwerkPublicURL: https://zaehlwerk.cluster.example.com
