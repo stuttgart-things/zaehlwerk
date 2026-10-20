@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.28.0...v0.29.0) (2026-10-20)
+
+
+### Features
+
+* a dev portal for the whole chain — task dev, an image and a kustomize base ([#161](https://github.com/stuttgart-things/zaehlwerk/issues/161)) ([c9eae67](https://github.com/stuttgart-things/zaehlwerk/commit/c9eae67387446677fdc048a3a320242370ddb7bd))
+
 ## [0.28.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.27.0...v0.28.0) (2026-10-18)
 
 
