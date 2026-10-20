@@ -19,7 +19,7 @@ jobs:
     uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
     with:
       runs-on: ubuntu-latest
-      go-version: "1.26.6"
+      go-version: "1.26.10"
       # The binary is under cmd/, so the default "." would find no package.
       build-path: ./cmd/zaehlwerk-api
       registry: ghcr.io
@@ -36,7 +36,7 @@ jobs:
     uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
     with:
       runs-on: ubuntu-latest
-      go-version: "1.26.6"
+      go-version: "1.26.10"
       build-path: ./cmd/zaehlwerk-api
       # Named explicitly: without them the template falls back to ttl.sh and
       # latest, and :main would quietly never reach ghcr.io.
@@ -61,7 +61,7 @@ jobs:
     uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
     with:
       runs-on: ubuntu-latest
-      go-version: "1.26.6"
+      go-version: "1.26.10"
       build-path: ./tools/chain-mock/cmd/piezo
       registry: ghcr.io
       image-repo: stuttgart-things/zaehlwerk-piezo
@@ -75,7 +75,7 @@ jobs:
     uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
     with:
       runs-on: ubuntu-latest
-      go-version: "1.26.6"
+      go-version: "1.26.10"
       build-path: ./tools/chain-mock/cmd/piezo
       registry: ghcr.io
       image-repo: stuttgart-things/zaehlwerk-piezo
@@ -93,7 +93,7 @@ jobs:
     uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
     with:
       runs-on: ubuntu-latest
-      go-version: "1.26.6"
+      go-version: "1.26.10"
       build-path: ./tools/chain-mock/cmd/buttons
       registry: ghcr.io
       image-repo: stuttgart-things/zaehlwerk-buttons
@@ -107,7 +107,7 @@ jobs:
     uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
     with:
       runs-on: ubuntu-latest
-      go-version: "1.26.6"
+      go-version: "1.26.10"
       build-path: ./tools/chain-mock/cmd/buttons
       registry: ghcr.io
       image-repo: stuttgart-things/zaehlwerk-buttons
@@ -125,7 +125,7 @@ jobs:
     uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
     with:
       runs-on: ubuntu-latest
-      go-version: "1.26.6"
+      go-version: "1.26.10"
       build-path: ./tools/chain-mock/cmd/portal
       registry: ghcr.io
       image-repo: stuttgart-things/zaehlwerk-portal
@@ -139,7 +139,7 @@ jobs:
     uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
     with:
       runs-on: ubuntu-latest
-      go-version: "1.26.6"
+      go-version: "1.26.10"
       build-path: ./tools/chain-mock/cmd/portal
       registry: ghcr.io
       image-repo: stuttgart-things/zaehlwerk-portal
@@ -161,7 +161,7 @@ jobs:
     uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
     with:
       runs-on: ubuntu-latest
-      go-version: "1.26.6"
+      go-version: "1.26.10"
       build-path: ./cmd/zaehlwerk-pong
       registry: ghcr.io
       image-repo: stuttgart-things/zaehlwerk-pong
@@ -175,7 +175,7 @@ jobs:
     uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
     with:
       runs-on: ubuntu-latest
-      go-version: "1.26.6"
+      go-version: "1.26.10"
       build-path: ./cmd/zaehlwerk-pong
       registry: ghcr.io
       image-repo: stuttgart-things/zaehlwerk-pong
