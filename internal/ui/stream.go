@@ -64,14 +64,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	sub := s.hub.Subscribe(m.ID)
 	defer sub.Close()
 
-	rc := http.NewResponseController(w)
-
-	h := w.Header()
-	h.Set("Content-Type", "text/event-stream")
-	h.Set("Cache-Control", "no-cache")
-	h.Set("Connection", "keep-alive")
-	h.Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
+	rc := openEvents(w)
 
 	var rows []logRow
 	if err := s.send(rc, w, board, s.liveView(m, kindOf(m.Scorer.State()))); err != nil {
@@ -126,6 +119,92 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+// table tells a following page that the match at the table may have changed,
+// so that it asks its /next at once rather than at its next poll.
+//
+//	GET /ui/table
+//
+// It says no more than that, as an event named "table" whose data is the
+// kind: which match the page should show stays with [Server.next] and
+// [Server.watchNext], which know what the page does not — a screen that
+// leaves demos out, the side select's hold, a result still on its way to
+// Schmetterpause. The stream is only the moment to ask.
+//
+// So it passes on the moments a page might move: a match started, one ended,
+// and one won, which is where the side select's hold begins. Every point
+// would ask /next for nothing. And it sends one on connect, because a match
+// that started between the page being rendered and this connection opening
+// would otherwise wait for the poll.
+//
+// A page holds this next to the stream of the match it shows, which is one
+// match's and ends with it — that one cannot say another has begun.
+func (s *Server) table(w http.ResponseWriter, r *http.Request) {
+	if s.hub == nil {
+		http.Error(w, "live updates are not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	sub := s.hub.SubscribeTable()
+	defer sub.Close()
+
+	rc := openEvents(w)
+	if err := s.writeRaw(rc, w, tableEvent(live.KindSnapshot)); err != nil {
+		s.log.DebugContext(r.Context(), "ui table stream ended on connect", "error", err)
+		return
+	}
+
+	heartbeat := time.NewTicker(s.heartbeat)
+	defer heartbeat.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+
+		case ev := <-sub.Events():
+			if !movesOn(ev.Kind) {
+				continue
+			}
+			if err := s.writeRaw(rc, w, tableEvent(ev.Kind)); err != nil {
+				s.log.DebugContext(r.Context(), "ui table stream ended", "error", err)
+				return
+			}
+
+		case <-heartbeat.C:
+			if err := s.writeRaw(rc, w, []byte(": ping\n\n")); err != nil {
+				s.log.DebugContext(r.Context(), "ui table stream heartbeat failed", "error", err)
+				return
+			}
+		}
+	}
+}
+
+// movesOn says an event on the table may change what a following page shows.
+func movesOn(kind string) bool {
+	switch kind {
+	case live.KindStarted, live.KindEnded, string(scorer.TransitionMatchWon):
+		return true
+	}
+	return false
+}
+
+// tableEvent is one "table" event. The kind is its data because an event
+// without data is never dispatched by the browser.
+func tableEvent(kind string) []byte {
+	return []byte("event: table\ndata: " + kind + "\n\n")
+}
+
+// openEvents answers with the headers of an event stream.
+func openEvents(w http.ResponseWriter) *http.ResponseController {
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-cache")
+	h.Set("Connection", "keep-alive")
+	h.Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	return http.NewResponseController(w)
 }
 
 // send renders one partial into one named SSE event.

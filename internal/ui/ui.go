@@ -223,6 +223,7 @@ func New(registry *match.Registry, lifecycle Lifecycle, opts ...Option) *Server 
 	s.mux.HandleFunc("GET /ui/{$}", s.index)
 
 	s.mux.HandleFunc("GET /ui/next", s.next)
+	s.mux.HandleFunc("GET /ui/table", s.table)
 	s.mux.Handle("GET /ui/static/", staticHandler())
 
 	for _, sc := range []screen{watchScreen, liveScreen} {
@@ -270,6 +271,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 
 	v.Stream = v.Match != nil && s.hub != nil
 	v.Follow = following(r)
+	s.listen(&v, false)
 	s.fillRoster(r.Context(), &v)
 	v.ReportsTo = s.reportsTo
 	v.Nav = s.nav()
@@ -295,8 +297,9 @@ func following(r *http.Request) bool {
 
 // next tells a following scoring page to load again because a different match
 // now runs at the table: a pong game somebody started, the buttons under the
-// table, another phone. Polled, as the spectator screens poll, because the
-// stream the page holds is one match's (see [Server.watchNext]).
+// table, another phone. The page asks when the table stream says a match
+// started or ended ([Server.table]), and on a slow poll besides; either way
+// the answer is decided here, not by what the stream said.
 //
 // A finished match whose result still waits to go to Schmetterpause keeps the
 // page, during the grace period and after a failed handover: that is when its
@@ -373,6 +376,7 @@ func (s *Server) watch(sc screen) http.HandlerFunc {
 		}
 
 		v.Stream = v.Match != nil && s.hub != nil
+		s.listen(&v, s.sides != nil)
 		if v.Follow && v.Match == nil && s.sides != nil {
 			v.Sides = s.sidesNow(sc)
 		}
@@ -389,12 +393,14 @@ func (s *Server) watch(sc screen) http.HandlerFunc {
 // because a different match is now running, or, with the side select on,
 // because the match it shows is over and the table is free for the next pair.
 //
-// Polled rather than pushed: the stream a page holds is one match's, and the
-// hub has no channel for "a match started". Without the side select, a
+// The screen asks when the table stream says a match started, ended or was
+// won ([Server.table]), and on a poll besides. Without the side select, a
 // finished match is left on the screen until the next one starts, which is
 // what somebody looking up from the next table wants to see. With it, the
 // score stays up for the hold, and a check-in ends the hold at once, because
-// whoever is checking in wants to see their name in a column.
+// whoever is checking in wants to see their name in a column. Neither the
+// end of the hold nor a check-in is on the table stream, so with the side
+// select on the poll stays quick (see [Server.listen]).
 func (s *Server) watchNext(sc screen) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		shown := r.URL.Query().Get("match")
@@ -408,6 +414,33 @@ func (s *Server) watchNext(sc screen) http.HandlerFunc {
 			}
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// How often a following page asks /next whatever the table stream says.
+const (
+	// followPoll is the fallback behind the stream: for a match whose start
+	// the stream lost, a connection that dropped, a held result that has
+	// since gone to Schmetterpause.
+	followPoll = "30s"
+	// tickPoll is for a page without the stream, and for a watch screen with
+	// the side select, which the poll is the clock of: the hold ends on it,
+	// and a check-in ends the hold on it, and neither is an event on the
+	// table.
+	tickPoll = "5s"
+)
+
+// listen sets how a following page hears of the next match: the table stream
+// when there is a hub, and a poll behind it, quick when ticking says the page
+// has to notice something the stream does not carry.
+func (s *Server) listen(v *view, ticking bool) {
+	if !v.Follow {
+		return
+	}
+	v.Table = s.hub != nil
+	v.Poll = followPoll
+	if !v.Table || ticking {
+		v.Poll = tickPoll
 	}
 }
 

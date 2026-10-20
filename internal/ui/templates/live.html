@@ -11,9 +11,13 @@
   </section>
   {{- /* Outside the board and the log, which the stream swaps, and inside
        #live, which starting a match swaps: the id it asks with is always the
-       match on the page. */}}
+       match on the page. It asks when the table stream says a match started
+       or ended, through a connection of its own because the one on #live is
+       this match's, and on a slow poll besides. */}}
   {{- if .Follow}}
-  <div hidden hx-get="/ui/next?match={{with .Match}}{{.ID}}{{end}}" hx-trigger="every 5s" hx-swap="none"></div>
+  <div hidden{{if .Table}} hx-ext="sse" sse-connect="/ui/table"{{end}}>
+    <div hx-get="/ui/next?match={{with .Match}}{{.ID}}{{end}}" hx-trigger="{{if .Table}}sse:table, {{end}}every {{.Poll}}" hx-swap="none"></div>
+  </div>
   {{- end}}
 </div>
 {{end}}

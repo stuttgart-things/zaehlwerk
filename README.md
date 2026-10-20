@@ -437,9 +437,11 @@ resolves; a match that has finished is still there, at `/ui?match=<id>` with
 the id `task demo` and `POST /matches` print.
 
 **It follows the table.** Opened without `?match`, the page asks
-`GET /ui/next` every five seconds whether a different match runs now — a pong
-game started from *Demo*, a press on the buttons, another phone — and loads
-again when one does. A finished match whose result still waits to go to
+`GET /ui/next` whether a different match runs now — a pong game started from
+*Demo*, a press on the buttons, another phone — and loads again when one does.
+It asks the moment `GET /ui/table`, a stream of its own, says a match started,
+ended or was won, and every 30 seconds besides; the server decides, the
+stream only says when to ask. A finished match whose result still waits to go to
 Schmetterpause keeps the page, so its undo and its retry stay in reach. A page
 opened with `?match` stays on that match.
 
@@ -512,8 +514,12 @@ in by fob or phone: it shows their match and nothing that merely plays itself.
 - **It never hands the screen to the pong screensaver.** An idle table keeps
   the side select up, with its codes, or says no match is running.
 - Everything else is `/ui/watch`'s: the result hold, the codes, `?match=<id>`
-  to pin a match, the polls (`GET /ui/live/next`, `GET /ui/live/sides`), which
-  stay on the live screen's path.
+  to pin a match, the requests that move the screen on (`GET /ui/live/next`,
+  `GET /ui/live/sides`), which stay on the live screen's path. Like the
+  scoring page, a screen asks `next` when `GET /ui/table` says a match
+  started, ended or was won; with the side select on it also asks every five
+  seconds, because the end of the result hold and a check-in are not on that
+  stream, and every 30 seconds otherwise.
 
 Neither screen is in the scoring page's navigation: each is an address set
 once on a screen at the table.

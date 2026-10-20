@@ -55,6 +55,12 @@ type view struct {
 	// much as a spectator view: it moves on to the next match by itself,
 	// where a pinned one stays put.
 	Follow bool
+	// Table says a following page listens to GET /ui/table and asks for the
+	// next match when it speaks. False without a hub.
+	Table bool
+	// Poll is how often a following page asks anyway, as an hx-trigger
+	// interval (see [Server.listen]).
+	Poll string
 	// Sides is the side select, set on a following watch screen when no
 	// match is running and check-in is on.
 	Sides *sidesView
@@ -387,11 +393,12 @@ func (s *Server) render(w http.ResponseWriter, name string, v view) {
 
 // renderLive answers with the whole live panel, which carries the SSE
 // connection: the browser swaps it by outerHTML and reconnects to whatever
-// match it now holds. The panel carries the page's poll for the next match
+// match it now holds. The panel carries how the page hears of the next match
 // too, so whether it follows is decided again here, from the address of the
 // page that asked.
 func (s *Server) renderLive(w http.ResponseWriter, r *http.Request, v view) {
 	v.Follow = following(r)
+	s.listen(&v, false)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	s.render(w, "live", v)
 }
