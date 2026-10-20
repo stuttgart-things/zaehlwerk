@@ -873,6 +873,9 @@ task chain:piezo            # a board plays a best of three to the end
 task chain:results          # what arrived at the other end
 ```
 
+All of it in one terminal, and on one page: `task dev`, see
+[the dev portal](#everything-at-once-the-dev-portal).
+
 **The fake Schmetterpause** answers `/api/players`, `/api/operators`,
 `/api/results` and the fob resolve route with the refusals the real one gives. Those are a 401 without the
 token, and a 400 or 422 for a result it would not store: an operator who is
@@ -1117,6 +1120,77 @@ It also ships as `ghcr.io/stuttgart-things/zaehlwerk-buttons`, built from
 `tools/chain-mock/cmd/buttons` with the same tags as the board. It serves
 `/healthz` for a probe. The settings live in memory and are shared by everyone
 who opens the page, which is right for one table and one hub.
+
+### Everything at once: the dev portal
+
+Each part above is its own process in its own terminal. `task dev` starts all
+of them in one, and a page that shows them together:
+
+```sh
+task dev             # panel, zaehlwerk, fake Schmetterpause, buttons, pong
+                     # and the portal on http://localhost:8086
+task dev PIEZO=1     # plus a piezo board that joins the next match and plays it out
+task dev SP=real     # against the real Schmetterpause instead of the fake
+task portal          # only the portal, against whatever is already running
+```
+
+One Ctrl-C stops the Go processes; `task panel:down` and
+`task schmetterpause:down` stop the containers. zaehlwerk runs as
+`task chain:run` runs it — check-in by fob and by phone on, reporting to the
+Schmetterpause — and with the panel, `PONG_URL` and `BUTTONS_URL` set as well,
+so the scoring page links the game and the table mock.
+
+The portal (`tools/chain-mock/portal`) is a development tool like the rest of
+`tools/chain-mock` and owns nothing: every button is a call to a part that
+already has that route, and the page is drawn from what they answer.
+
+- **Status** of every part across the top, every three seconds: the health
+  route where there is one, `not running` where nothing listens, and which
+  Schmetterpause is at the other end — the fake answers `GET /mode`, the real
+  one does not, so one `SCHMETTERPAUSE_URL` serves for both.
+- **Frames**: the parts' own pages side by side — panel simulator, scoring
+  page, watch screen, table mock, pong, and the real Schmetterpause when that
+  is the one. Which are shown is in the query (`/?show=panel&show=pong`), so a
+  layout is a bookmark.
+- **The fake Schmetterpause**, which has no page of its own: results and
+  check-ins as they arrive, the mode switch of `task chain:mode`, and phone
+  check-in per player and half as `task chain:phone` does it. Anna left and
+  Bernd right is a match that is reported when it is won.
+- **Buttons** for what is otherwise a curl line: a quick match by name (not
+  reported: names are all `POST /matches` takes), ending the running match,
+  pausing the piezo board, a headless pong bot game.
+- **The table stream**: zaehlwerk's `GET /live/stream`, relayed through the
+  portal so it is same-origin and needs no `ALLOWED_ORIGINS` entry.
+
+The URLs are used twice — by the portal to call a part and by the browser to
+frame its page — which is right on a laptop and nowhere else.
+
+| Variable | Default | |
+| -------- | ------- | - |
+| `PORTAL_ADDR` | `:8086` | where the portal listens (`ZW_PORTAL_PORT` in `.env`) |
+| `ZAEHLWERK_URL` | `http://localhost:8080` | |
+| `SIMULATOR_URL` | `http://localhost:8081` | the led-catcher's web simulator |
+| `SCHMETTERPAUSE_URL` | `http://localhost:8082` | the fake or the real one |
+| `BUTTONS_URL` | `http://localhost:8084` | the table mock |
+| `PIEZO_CONTROL_URL` | `http://localhost:8085` | a piezo board's control endpoint |
+| `PONG_URL` | `http://localhost:8087` | zaehlwerk-pong |
+
+#### The real Schmetterpause
+
+`task dev SP=real` and `task schmetterpause:up` start Schmetterpause's
+released image with a Postgres from `deploy/schmetterpause/compose.yaml`, on
+`http://localhost:8083` (`ZW_SP_REAL_PORT`), and run its `seed` command,
+which writes a demo field into an empty database and leaves a used one
+alone. The scoreboard token is the chain's, so zaehlwerk, the table mock and
+the piezo board talk to it unchanged; the fob key is set, so check-in by fob
+works once a fob is linked on its page. `task schmetterpause:down RESET=1`
+starts over.
+
+Its `SP_ZAEHLWERK_URL` is one address for two callers: the container claims
+a half at zaehlwerk with it, and the browser on its start page opens the
+table stream with it. The default, `http://host.docker.internal:8080`, is
+right for the container; for the start page's running score as well, add
+`127.0.0.1 host.docker.internal` to the host's `/etc/hosts`.
 
 ## zaehlwerk-pong
 
