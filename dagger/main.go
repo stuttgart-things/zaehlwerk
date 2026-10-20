@@ -32,7 +32,7 @@ const (
 	// goVersionDefault tracks go.mod. It is a floor rather than a pin —
 	// GOTOOLCHAIN is auto in these images — but govulncheck and the race
 	// detector both behave better when it is the version being shipped.
-	goVersionDefault = "1.26.6"
+	goVersionDefault = "1.26.10"
 
 	// redisVersion is a redis-stack, not a plain redis: the panel tests use
 	// RedisJSON, and homerun's pitcher writes it.
@@ -64,7 +64,7 @@ func (m *Dagger) Test(
 	ctx context.Context,
 	src *dagger.Directory,
 	// +optional
-	// +default="1.26.6"
+	// +default="1.26.10"
 	goVersion string,
 	// +optional
 	// +default="./..."
@@ -92,7 +92,7 @@ func (m *Dagger) Build(
 	ctx context.Context,
 	src *dagger.Directory,
 	// +optional
-	// +default="1.26.6"
+	// +default="1.26.10"
 	goVersion string,
 	// +optional
 	// +default="linux"
@@ -148,7 +148,7 @@ func (m *Dagger) BuildAndTestBinary(
 	ctx context.Context,
 	source *dagger.Directory,
 	// +optional
-	// +default="1.26.6"
+	// +default="1.26.10"
 	goVersion string,
 	// +optional
 	// +default=8080
