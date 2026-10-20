@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.30.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.29.0...v0.30.0) (2026-10-20)
+
+
+### Features
+
+* following pages switch matches on the table stream ([#165](https://github.com/stuttgart-things/zaehlwerk/issues/165)) ([c03854c](https://github.com/stuttgart-things/zaehlwerk/commit/c03854c15f9ad648e978e8d0dc2be2dc08eabeae))
+
+
+### Bug Fixes
+
+* build with go 1.26.10 for homerun-library v4.5.2 ([#167](https://github.com/stuttgart-things/zaehlwerk/issues/167)) ([6bc336e](https://github.com/stuttgart-things/zaehlwerk/commit/6bc336e2cc69b15a562fc12b9368eef6d47d23a1))
+* the dev portal's side column and table stream ([#163](https://github.com/stuttgart-things/zaehlwerk/issues/163)) ([4a3b513](https://github.com/stuttgart-things/zaehlwerk/commit/4a3b513a9d63ddd92ba526e80607c7e98b940e15))
+
 ## [0.29.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.28.0...v0.29.0) (2026-10-20)
 
 
