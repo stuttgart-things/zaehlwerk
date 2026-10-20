@@ -1,12 +1,13 @@
 module github.com/stuttgart-things/zaehlwerk
 
-go 1.26.6
+go 1.26.9
 
 require (
 	github.com/google/uuid v1.6.0
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/stretchr/testify v1.12.1
-	github.com/stuttgart-things/homerun-library/v4 v4.5.0
+	github.com/stuttgart-things/homerun-library/v4 v4.5.2
+	rsc.io/qr v0.2.0
 )
 
 require (
@@ -21,5 +22,4 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.39.0 // indirect
-	rsc.io/qr v0.2.0 // indirect
 )
