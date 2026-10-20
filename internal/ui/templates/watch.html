@@ -321,11 +321,14 @@
     </main>
 
     {{/* A screen on the wall is set up once and then left alone, so /ui/watch
-         moves on to the next match by itself. It asks rather than being told
-         because the stream it holds belongs to one match and ends with it.
+         moves on to the next match by itself. The table stream says when to
+         ask — the stream on main belongs to one match and ends with it — and
+         the server says whether to move; the poll is there besides.
          ?match= pins a match and never moves. */}}
     {{- if .Follow}}
-    <div hx-get="{{.Screen}}/next?match={{with .Match}}{{.ID}}{{end}}" hx-trigger="every 5s" hx-swap="none"></div>
+    <div hidden{{if .Table}} hx-ext="sse" sse-connect="/ui/table"{{end}}>
+        <div hx-get="{{.Screen}}/next?match={{with .Match}}{{.ID}}{{end}}" hx-trigger="{{if .Table}}sse:table, {{end}}every {{.Poll}}" hx-swap="none"></div>
+    </div>
     {{- end}}
 </body>
 </html>

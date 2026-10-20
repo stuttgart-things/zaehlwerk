@@ -35,7 +35,7 @@ func TestTheSpectatorViewWaitsWhenNothingIsRunning(t *testing.T) {
 
 	require.Contains(t, body, "No match is running")
 	require.Contains(t, body, "picks up the next one")
-	require.NotContains(t, body, "sse-connect", "nothing to watch yet")
+	require.NotContains(t, body, `sse-connect="/ui/matches/`, "no match to watch yet")
 	require.Contains(t, body, `hx-get="/ui/watch/next?match="`)
 }
 

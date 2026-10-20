@@ -137,7 +137,7 @@ func TestThePageOffersTheFormWhenNothingIsRunning(t *testing.T) {
 	require.Contains(t, rec.Header().Get("Content-Type"), "text/html")
 	require.Contains(t, body, "No match is running")
 	require.Contains(t, body, `hx-post="/ui/matches"`)
-	require.NotContains(t, body, "sse-connect", "nothing to watch yet")
+	require.NotContains(t, body, `sse-connect="/ui/matches/`, "no match to watch yet")
 }
 
 func TestThePageJoinsTheRunningMatch(t *testing.T) {
