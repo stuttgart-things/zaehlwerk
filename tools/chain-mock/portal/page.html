@@ -1,0 +1,286 @@
+{{define "page"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0a0a12">
+    <title>Zählwerk dev portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400..700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <style>
+        /* The table mock's tokens (tools/chain-mock/buttons/page.html), which
+           are the scoring page's, which are schmetterpause's. */
+        :root {
+            color-scheme: dark;
+            --bg: #0a0a12;
+            --card: #15152a;
+            --panel: #1e1e3d;
+            --line: #2e2e55;
+            --fg: #ececff;
+            --fg-soft: #c6c6e4;
+            --muted: #8f8fb8;
+            --accent: #7452ff;
+            --accent-text: #8c70ff;
+            --ok: #3ddc97;
+            --bad: #ff5d73;
+            --warn: #ffc65d;
+            --font-ui: "Space Grotesk", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+            --radius: 0.875rem;
+            --radius-sm: 0.5rem;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--fg);
+            font: 400 15px/1.45 var(--font-ui);
+            -webkit-font-smoothing: antialiased;
+        }
+        a { color: var(--accent-text); }
+        code, .mono { font-family: var(--font-mono); font-size: 0.85em; }
+        .muted { color: var(--muted); }
+        h1 { font-size: 1.1rem; margin: 0; white-space: nowrap; }
+        h2 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 0.6rem; }
+
+        header {
+            display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--line);
+            background: var(--card);
+            position: sticky; top: 0; z-index: 2;
+        }
+        .probes { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+        .probe {
+            display: inline-flex; align-items: center; gap: 0.4rem;
+            padding: 0.2rem 0.6rem;
+            border: 1px solid var(--line); border-radius: 999px;
+            background: var(--panel);
+            font-size: 0.85rem; text-decoration: none; color: var(--fg);
+        }
+        .probe .detail { color: var(--muted); font-size: 0.8em; }
+        .dot { width: 0.55rem; height: 0.55rem; border-radius: 50%; background: var(--bad); flex: none; }
+        .up .dot { background: var(--ok); }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 22rem minmax(0, 1fr);
+            gap: 1rem;
+            padding: 1rem;
+            align-items: start;
+        }
+        @media (max-width: 60rem) { .layout { grid-template-columns: minmax(0, 1fr); } }
+        aside, #side { display: grid; gap: 1rem; }
+        .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.9rem; }
+        .row { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
+        .row + .row { margin-top: 0.5rem; }
+        button {
+            background: var(--panel);
+            color: var(--fg);
+            border: 1px solid var(--line);
+            border-radius: var(--radius-sm);
+            padding: 0.3rem 0.65rem;
+            font: 500 0.85rem var(--font-ui);
+            cursor: pointer;
+        }
+        button:hover { border-color: var(--accent); }
+        button.on { border-color: var(--accent); background: var(--accent); color: #fff; }
+        .score { font: 700 1.4rem var(--font-mono); }
+        table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+        td, th { text-align: left; padding: 0.2rem 0.3rem; border-top: 1px solid var(--line); vertical-align: top; }
+        th { color: var(--muted); font-weight: 500; border-top: 0; }
+
+        #flash:empty { display: none; }
+        #flash { border-left: 3px solid var(--ok); padding: 0.5rem 0.7rem; font-size: 0.85rem; word-break: break-word; }
+        #flash.bad { border-left-color: var(--bad); }
+
+        #log {
+            margin: 0; max-height: 16rem; overflow: auto;
+            font: 400 0.72rem/1.5 var(--font-mono); color: var(--fg-soft);
+            white-space: pre; overflow-x: auto;
+        }
+
+        .picker { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; font-size: 0.9rem; }
+        .picker label { display: inline-flex; gap: 0.3rem; align-items: center; cursor: pointer; }
+        .frames {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 30rem), 1fr));
+            gap: 1rem;
+        }
+        .frame { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; display: flex; flex-direction: column; }
+        .frame > div { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0.7rem; border-bottom: 1px solid var(--line); font-size: 0.85rem; }
+        .frame > div .grow { flex: 1; }
+        .frame iframe { border: 0; width: 100%; height: 38rem; background: var(--bg); }
+    </style>
+</head>
+<body>
+<header>
+    <h1>Zählwerk dev portal</h1>
+    <div id="status" class="probes" hx-get="/status" hx-trigger="every 3s" hx-swap="innerHTML">{{template "status" .Probe}}</div>
+</header>
+
+<div class="layout">
+    <aside>
+        <div id="flash" class="card"></div>
+        <!-- Not while the pointer is on it: a poll that swaps the buttons
+             between mousedown and click loses the click. A button's own
+             answer draws the side anyway. -->
+        <div id="side" hx-get="/side" hx-trigger="every 2s [!document.getElementById('side').matches(':hover')]" hx-swap="innerHTML">{{template "side" .Side}}</div>
+        <section class="card">
+            <h2>Table stream</h2>
+            <pre id="log"><span class="muted">waiting for zaehlwerk…</span></pre>
+        </section>
+    </aside>
+
+    <main>
+        <form class="picker card" method="get" action="/">
+            <span class="muted">Frames</span>
+            {{range .Frames}}<label><input type="checkbox" name="show" value="{{.Key}}" {{if .On}}checked{{end}} onchange="this.form.requestSubmit()"> {{.Title}}</label>
+            {{end}}
+            <noscript><button>Show</button></noscript>
+        </form>
+        <div class="frames">
+            {{range .Shown}}
+            <section class="frame">
+                <div>
+                    <strong class="grow">{{.Title}}</strong>
+                    <code class="muted">{{.URL}}</code>
+                    <button type="button" onclick="const f = this.closest('.frame').querySelector('iframe'); f.src = f.src">Reload</button>
+                    <a href="{{.URL}}" target="_blank" rel="noopener">Open ↗</a>
+                </div>
+                <iframe src="{{.URL}}" title="{{.Title}}" loading="lazy"></iframe>
+            </section>
+            {{else}}
+            <p class="muted">No frames picked.</p>
+            {{end}}
+        </div>
+    </main>
+</div>
+
+<script>
+    // The one thing htmx does not do without an extension: append a line per
+    // event. /events is zaehlwerk's table stream relayed through the portal.
+    (function () {
+        const log = document.getElementById('log');
+        let first = true;
+        function line(text) {
+            if (first) { log.textContent = ''; first = false; }
+            const at = new Date().toLocaleTimeString([], { hour12: false });
+            log.textContent = at + '  ' + text + '\n' + log.textContent;
+            // Keep it to what anybody reads back.
+            if (log.textContent.length > 20000) log.textContent = log.textContent.slice(0, 20000);
+        }
+        const es = new EventSource('/events');
+        es.onmessage = function (e) {
+            let ev;
+            try { ev = JSON.parse(e.data); } catch (_) { line(e.data); return; }
+            const s = ev.state;
+            if (!s) { line(ev.kind); return; }
+            const sets = (s.completed_sets || []).map(x => x[0] + ':' + x[1]).join(' ');
+            line(ev.kind.padEnd(10) + s.players[0] + ' ' + s.points[0] + ':' + s.points[1] + ' ' + s.players[1]
+                + '  ' + s.sets[0] + ':' + s.sets[1] + (sets ? ' (' + sets + ')' : '')
+                + (s.phase && s.phase !== 'playing' ? '  ' + s.phase : '') + (ev.demo ? '  demo' : ''));
+        };
+        es.onerror = function () { line('stream lost, retrying'); };
+    })();
+</script>
+</body>
+</html>
+{{end}}
+
+{{define "status"}}{{range .}}<a class="probe{{if .Up}} up{{end}}" href="{{.URL}}" target="_blank" rel="noopener" title="{{.URL}}"><span class="dot"></span>{{.Title}} <span class="detail">{{.Detail}}</span></a>
+{{end}}{{end}}
+
+{{define "side"}}
+{{if .Flash}}<div id="flash" class="card{{if .FlashBad}} bad{{end}}" hx-swap-oob="true">{{.Flash}}</div>{{end}}
+
+<section class="card">
+    <h2>Match</h2>
+    {{with .Match}}
+        <div class="score">{{index .State.Players 0}} {{index .State.Points 0}}:{{index .State.Points 1}} {{index .State.Players 1}}</div>
+        <div class="muted">sets {{index .State.Sets 0}}:{{index .State.Sets 1}}{{with .State.CompletedSets}} ({{sets .}}){{end}} · {{.State.Phase}}{{if .Demo}} · demo{{end}}</div>
+        <div class="row" style="margin-top: 0.5rem">
+            <button hx-post="/match/end" hx-vals='{"match_id": "{{.State.MatchID}}"}' hx-target="#side">End match</button>
+            <code class="muted">{{.State.MatchID}}</code>
+        </div>
+    {{else}}
+        {{if $.MatchErr}}<p class="muted">zaehlwerk: {{$.MatchErr}}</p>{{else}}<p class="muted">No match running.</p>{{end}}
+        <div class="row">
+            <button hx-post="/match/start" hx-vals='{"best_of": "3"}' hx-target="#side">Anna – Bernd, best of 3</button>
+            <button hx-post="/match/start" hx-vals='{"best_of": "1"}' hx-target="#side">best of 1</button>
+        </div>
+        <p class="muted" style="margin: 0.5rem 0 0; font-size: 0.8rem">Started by name, so nobody reports it. A match that reaches
+            Schmetterpause starts on the scoring page with players picked, or from two check-ins.</p>
+    {{end}}
+</section>
+
+{{if ne .SP.Kind "off"}}
+<section class="card">
+    <h2>Schmetterpause · {{.SP.Kind}}</h2>
+    {{if eq .SP.Kind "fake"}}
+        <div class="row">
+            <span class="muted">Mode</span>
+            {{range $mode := modes}}<button class="{{if eq $mode $.SP.Mode}}on{{end}}" hx-post="/sp/mode" hx-vals='{"mode": "{{$mode}}"}' hx-target="#side">{{$mode}}</button>{{end}}
+        </div>
+        <div class="row">
+            <span class="muted">Phone check-in</span>
+        </div>
+        {{range .SP.Players}}
+        <div class="row">
+            <span style="min-width: 4rem">{{.DisplayName}}</span>
+            <button hx-post="/sp/phone" hx-vals='{"half": "left", "player_id": "{{.ID}}"}' hx-target="#side">left</button>
+            <button hx-post="/sp/phone" hx-vals='{"half": "right", "player_id": "{{.ID}}"}' hx-target="#side">right</button>
+        </div>
+        {{end}}
+        {{with .SP.Results}}
+        <table style="margin-top: 0.6rem">
+            <tr><th>Received</th><th>Match</th><th>Sets</th><th>Via</th></tr>
+            {{range .}}<tr><td>{{clock .ReceivedAt}}</td><td>{{.Home}} – {{.Away}}</td><td class="mono">{{sets .Sets}}</td><td>{{.EnteredVia}}{{with .Operator}} ({{.}}){{end}}</td></tr>{{end}}
+        </table>
+        {{else}}<p class="muted">No results yet.</p>{{end}}
+        {{with .SP.Checkins}}
+        <table style="margin-top: 0.6rem">
+            <tr><th>At</th><th>Player</th><th>Half</th><th>By</th><th></th></tr>
+            {{range .}}<tr><td>{{clock .CreatedAt}}</td><td>{{.Player}}</td><td>{{.Half}}</td><td>{{.Method}}</td><td>{{if .Used}}used{{end}}</td></tr>{{end}}
+        </table>
+        {{end}}
+    {{else if eq .SP.Kind "real"}}
+        <p class="muted">The real one: results, check-ins and fobs are on its own page — pick its frame.</p>
+    {{else}}
+        <p class="muted">{{.SP.Err}}</p>
+    {{end}}
+</section>
+{{end}}
+
+{{if .PiezoOn}}
+<section class="card">
+    <h2>Piezo board</h2>
+    {{with .Piezo}}
+        <div class="row">
+            <span>{{if .Paused}}paused{{else}}{{.Doing}}{{end}}</span>
+            <span class="muted">pace {{.PaceMs}} ms · ambiguous {{pct .Ambiguous}}% · resend {{pct .Resend}}% · undo {{pct .Undo}}%</span>
+        </div>
+        <div class="row">
+            {{if .Paused}}<button hx-post="/piezo" hx-vals='{"action": "resume"}' hx-target="#side">Resume</button>
+            {{else}}<button hx-post="/piezo" hx-vals='{"action": "pause"}' hx-target="#side">Pause</button>{{end}}
+        </div>
+    {{else}}
+        <p class="muted">{{.PiezoErr}} — <code>task chain:piezo JOIN=1</code></p>
+    {{end}}
+</section>
+{{end}}
+
+{{if .PongOn}}
+<section class="card">
+    <h2>Pong</h2>
+    <div class="row">
+        <span class="muted">Bot game</span>
+        <button hx-post="/pong/game" hx-vals='{"pace": "1s"}' hx-target="#side">1s pace</button>
+        <button hx-post="/pong/game" hx-vals='{"pace": "200ms"}' hx-target="#side">fast</button>
+        <button hx-post="/pong/game" hx-vals='{"pace": "0s"}' hx-target="#side">flat out</button>
+    </div>
+</section>
+{{end}}
+{{end}}

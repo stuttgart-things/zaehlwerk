@@ -5,6 +5,7 @@
 //	chain-mock schmetterpause   the routes zaehlwerk calls, in memory
 //	chain-mock piezo            a board that joins the running match and scores
 //	chain-mock buttons          two buttons and their hub, pressed on a page
+//	chain-mock portal           one page for all of them, and their pages in frames
 //
 // A development tool, not part of the service: cmd/zaehlwerk-api stays the
 // only place the service reads its environment. It is configured the same way
@@ -26,13 +27,14 @@ import (
 	"github.com/stuttgart-things/zaehlwerk/tools/chain-mock/buttons"
 	"github.com/stuttgart-things/zaehlwerk/tools/chain-mock/fakesp"
 	"github.com/stuttgart-things/zaehlwerk/tools/chain-mock/piezo"
+	"github.com/stuttgart-things/zaehlwerk/tools/chain-mock/portal"
 )
 
 func main() {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	if len(os.Args) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: chain-mock schmetterpause | piezo | buttons")
+		fmt.Fprintln(os.Stderr, "usage: chain-mock schmetterpause | piezo | buttons | portal")
 		os.Exit(2)
 	}
 
@@ -47,8 +49,10 @@ func main() {
 		err = piezo.RunFromEnv(ctx, log.With("part", "piezo"))
 	case "buttons":
 		err = buttons.RunFromEnv(ctx, log.With("part", "buttons"))
+	case "portal":
+		err = portal.RunFromEnv(ctx, log.With("part", "portal"))
 	default:
-		err = fmt.Errorf("unknown part %q: want schmetterpause, piezo or buttons", os.Args[1])
+		err = fmt.Errorf("unknown part %q: want schmetterpause, piezo, buttons or portal", os.Args[1])
 	}
 	if err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("stopped", "error", err)

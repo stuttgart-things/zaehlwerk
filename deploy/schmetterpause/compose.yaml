@@ -1,0 +1,93 @@
+# The real Schmetterpause for task dev SP=real: its released image, a
+# Postgres, and the demo field its own seed command writes, so the chain
+# reports to the thing it reports to at the table rather than to the fake.
+#
+#   task schmetterpause:up     # start it and seed it, on http://localhost:8083
+#   task dev SP=real           # the same, plus everything else and the portal
+#   task schmetterpause:down   # stop it; the players stay in the volume
+#
+# Settings are the ones zaehlwerk needs from it, and development values on
+# purpose: the scoreboard token is the chain's (CHAIN_TOKEN in the Taskfile,
+# which task dev hands zaehlwerk as SCHMETTERPAUSE_TOKEN), the fob key is a
+# fixed string, nothing here is a secret.
+#
+# Players come from `schmetterpause seed`, which writes six of them and a few
+# matches into an empty database and leaves a used one alone — so it runs on
+# every up. Their fobs are not linked: link one on Schmetterpause's own page,
+# then hold it on the table mock's reader. `down -v` starts over.
+
+name: zaehlwerk-schmetterpause
+
+x-db: &db-url
+  SP_DATABASE_URL: postgres://schmetterpause:schmetterpause@db:5432/schmetterpause?sslmode=disable
+
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: schmetterpause
+      POSTGRES_PASSWORD: schmetterpause
+      POSTGRES_DB: schmetterpause
+      PGDATA: /var/lib/postgresql/data/pgdata
+    # No port on the host: only the app talks to it, and a laptop that runs
+    # schmetterpause's own stack already has 5432 taken.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U schmetterpause -d schmetterpause"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  app:
+    # Kept equal to the pin in schmetterpause's compose.yaml, so the chain
+    # runs against what that repository runs. Written out in both services
+    # rather than through an anchor, so renovate sees and bumps each.
+    image: ghcr.io/stuttgart-things/schmetterpause:v0.17.0
+    environment:
+      <<: *db-url
+      SP_LOG_LEVEL: ${SP_LOG_LEVEL:-info}
+      SP_SESSION_KEY: development-session-key-not-for-production
+      SP_COOKIE_SECURE: "false"
+      SP_SCOREBOARD_TOKEN: ${ZW_CHAIN_TOKEN:-chain-mock}
+      SP_RFID_UID_KEY: development-rfid-key-not-for-production
+      # One address for two callers, and they are not in the same place: the
+      # browser on the start page opens zaehlwerk's live stream with it, and
+      # this container claims a half at zaehlwerk with it for phone check-in.
+      # Inside the container localhost is the container, so the default is
+      # the host as the container sees it — phone check-in works, the start
+      # page's running score does not, unless the host also resolves
+      # host.docker.internal (one line in /etc/hosts: 127.0.0.1 host.docker.internal).
+      SP_ZAEHLWERK_URL: ${ZW_SP_ZAEHLWERK_URL:-http://host.docker.internal:8080}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      # Not 8080: that is zaehlwerk's. Loopback only, as in schmetterpause's
+      # own compose.yaml.
+      - "127.0.0.1:${ZW_SP_REAL_PORT:-8083}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      # Distroless: the binary brings its own check.
+      test: ["CMD", "/usr/local/bin/schmetterpause", "healthcheck"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # One-shot, behind a profile so `up` leaves it out and `run --rm seed` is
+  # what starts it — after the app, whose start applies the migrations the
+  # seed writes into.
+  seed:
+    image: ghcr.io/stuttgart-things/schmetterpause:v0.17.0
+    profiles: [seed]
+    command: ["seed"]
+    environment:
+      <<: *db-url
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  pgdata:

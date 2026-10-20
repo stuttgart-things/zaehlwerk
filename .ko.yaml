@@ -71,3 +71,13 @@ builds:
     ldflags:
       - -s
       - -w
+
+  # The dev portal (tools/chain-mock/portal), published as zaehlwerk-portal.
+  # Unstamped for the same reason as the board and the buttons.
+  - id: zaehlwerk-portal
+    main: ./tools/chain-mock/cmd/portal
+    flags:
+      - -trimpath
+    ldflags:
+      - -s
+      - -w

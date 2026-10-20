@@ -36,6 +36,11 @@ vars:
   CHAIN_HUB_TOKEN: chain-mock-hub
   API: http://localhost:{{.ZW_PORT | default "8080"}}
   SIMULATOR: http://localhost:{{.ZW_SIMULATOR_PORT | default "8081"}}
+  # The portal of task dev, and the real Schmetterpause of SP=real. Not 8080
+  # for the real one: that is zaehlwerk's.
+  ZW_PORTAL_PORT: '{{.ZW_PORTAL_PORT | default "8086"}}'
+  ZW_SP_REAL_PORT: '{{.ZW_SP_REAL_PORT | default "8083"}}'
+  SP_COMPOSE: docker compose -f deploy/schmetterpause/compose.yaml
 
 tasks:
 
@@ -55,6 +60,12 @@ tasks:
         Or score it by hand, in a browser:
 
           task ui            # the scoring page, next to the panel
+
+        Or everything at once, in one terminal and on one page:
+
+          task dev           # panel, zaehlwerk, fake Schmetterpause, buttons, pong
+                             # and the portal on http://localhost:8086
+          task dev SP=real   # the same against the real Schmetterpause
 
         Everything else:
 
@@ -435,6 +446,158 @@ tasks:
     cmds:
       - curl -sS -X POST {{.FAKE_SCHMETTERPAUSE}}/mode -d 'mode={{.MODE | default "accept"}}'
 
+  ## ──────────────────────────────────────────────
+  ## THE DEV PORTAL: THE WHOLE CHAIN, ONE TERMINAL, ONE PAGE
+  ## ──────────────────────────────────────────────
+
+  dev:
+    # The docker parts first, because they detach and the rest needs them;
+    # then every Go process as a dep of dev:stack, which runs them side by
+    # side and stops all of them on one Ctrl-C, as chain:pong does for two.
+    desc: 'Everything at once and the portal on http://localhost:{{.ZW_PORTAL_PORT}}. SP=real for the real Schmetterpause, PIEZO=1 adds a piezo board that joins the next match'
+    cmds:
+      - task: panel:up
+      - task: 'schmetterpause:{{if eq (.SP | default "fake") "real"}}up{{else}}none{{end}}'
+      - task: dev:stack
+
+  dev:stack:
+    internal: true
+    deps: [dev:zaehlwerk, dev:schmetterpause, dev:buttons, dev:piezo, dev:pong, dev:portal]
+
+  dev:zaehlwerk:
+    internal: true
+    deps: [port-free]
+    env:
+      HTTP_ADDR: ':{{.ZW_PORT}}'
+      REDIS_ADDR: localhost
+      REDIS_PORT: '{{.ZW_REDIS_PORT}}'
+      # Where task dev points zaehlwerk, the table mock and the portal alike:
+      # the fake, or with SP=real the real one from deploy/schmetterpause.
+      # An anchor rather than a global variable, because globals are worked
+      # out before `task dev SP=real` has said anything; and one anchor, so
+      # the parts cannot end up talking to different ones.
+      SCHMETTERPAUSE_URL: &dev-schmetterpause '{{if eq (.SP | default "fake") "real"}}http://localhost:{{.ZW_SP_REAL_PORT}}{{else}}{{.FAKE_SCHMETTERPAUSE}}{{end}}'
+      SCHMETTERPAUSE_TOKEN: '{{.CHAIN_TOKEN}}'
+      CHECKIN_TOKEN: '{{.CHAIN_HUB_TOKEN}}'
+      PONG_URL: '{{.PONG}}'
+      BUTTONS_URL: http://localhost:{{.ZW_BUTTONS_PORT}}
+      # The real Schmetterpause's start page opens the table stream from the
+      # browser. The portal reads it server-side and needs no entry.
+      ALLOWED_ORIGINS: http://localhost:{{.ZW_SP_REAL_PORT}}
+      LOG_LEVEL: '{{.LOG_LEVEL | default "INFO"}}'
+    cmds:
+      - go run ./cmd/zaehlwerk-api
+
+  dev:schmetterpause:
+    # The fake is a process here; the real one is a container that
+    # schmetterpause:up already started, so there is nothing to run.
+    internal: true
+    env:
+      SCHMETTERPAUSE_ADDR: ':{{.ZW_SCHMETTERPAUSE_PORT}}'
+      SCHMETTERPAUSE_TOKEN: '{{.CHAIN_TOKEN}}'
+      SCHMETTERPAUSE_MODE: '{{.MODE | default "accept"}}'
+      ZAEHLWERK_URL: '{{.API}}'
+    cmds:
+      - '{{if eq (.SP | default "fake") "real"}}echo "schmetterpause: the real one on http://localhost:{{.ZW_SP_REAL_PORT}}, task schmetterpause:down stops it"{{else}}go run ./tools/chain-mock schmetterpause{{end}}'
+
+  dev:buttons:
+    internal: true
+    env:
+      ZAEHLWERK_URL: '{{.API}}'
+      BUTTONS_ADDR: ':{{.ZW_BUTTONS_PORT}}'
+      CHECKIN_TOKEN: '{{.CHAIN_HUB_TOKEN}}'
+      SCHMETTERPAUSE_URL: *dev-schmetterpause
+      SCHMETTERPAUSE_TOKEN: '{{.CHAIN_TOKEN}}'
+      PIEZO_CONTROL_URL: '{{if .PIEZO}}http://localhost:{{.ZW_PIEZO_CONTROL_PORT}}{{end}}'
+    cmds:
+      - task: wait-api
+      - go run ./tools/chain-mock buttons
+
+  dev:piezo:
+    # Opt-in: the board joins the next match and scores into it to the end,
+    # which is in the way of anybody pressing the buttons; then it stops, as
+    # task chain:piezo JOIN=1 does. The portal and the buttons page pause it.
+    internal: true
+    env:
+      ZAEHLWERK_URL: '{{.API}}'
+      SCHMETTERPAUSE_URL: *dev-schmetterpause
+      SCHMETTERPAUSE_TOKEN: '{{.CHAIN_TOKEN}}'
+      PIEZO_PACE: '{{.PACE | default "1s"}}'
+      PIEZO_JOIN: 'true'
+      PIEZO_CONTROL_ADDR: ':{{.ZW_PIEZO_CONTROL_PORT}}'
+    cmds:
+      - task: wait-api
+      - '{{if .PIEZO}}go run ./tools/chain-mock piezo{{else}}echo "piezo: off, PIEZO=1 adds one"{{end}}'
+
+  dev:pong:
+    internal: true
+    env:
+      HTTP_ADDR: ':{{.ZW_PONG_PORT}}'
+      ZAEHLWERK_URL: '{{.API}}'
+      LOG_LEVEL: '{{.LOG_LEVEL | default "INFO"}}'
+    cmds:
+      - go run ./cmd/zaehlwerk-pong
+
+  dev:portal:
+    internal: true
+    env:
+      PORTAL_ADDR: ':{{.ZW_PORTAL_PORT}}'
+      ZAEHLWERK_URL: '{{.API}}'
+      SIMULATOR_URL: '{{.SIMULATOR}}'
+      SCHMETTERPAUSE_URL: *dev-schmetterpause
+      BUTTONS_URL: http://localhost:{{.ZW_BUTTONS_PORT}}
+      PIEZO_CONTROL_URL: http://localhost:{{.ZW_PIEZO_CONTROL_PORT}}
+      PONG_URL: '{{.PONG}}'
+    cmds:
+      - go run ./tools/chain-mock portal
+
+  portal:
+    desc: 'Only the portal, against whatever of the chain is running. SP=real looks at the real Schmetterpause'
+    cmds:
+      - task: dev:portal
+
+  portal:open:
+    desc: Open the portal in a browser
+    cmds:
+      - '{{if eq OS "darwin"}}open{{else}}xdg-open{{end}} http://localhost:{{.ZW_PORTAL_PORT}} >/dev/null 2>&1 &'
+      - echo "http://localhost:{{.ZW_PORTAL_PORT}}"
+
+  schmetterpause:up:
+    # Seeded on every up: the seed leaves a database with players in it
+    # alone, so only the first one writes anything.
+    desc: 'The real Schmetterpause in docker on http://localhost:{{.ZW_SP_REAL_PORT}}, seeded with a demo field'
+    env:
+      ZW_SP_REAL_PORT: '{{.ZW_SP_REAL_PORT}}'
+      ZW_CHAIN_TOKEN: '{{.CHAIN_TOKEN}}'
+      ZW_SP_ZAEHLWERK_URL: '{{.ZW_SP_ZAEHLWERK_URL | default (printf "http://host.docker.internal:%s" .ZW_PORT)}}'
+    cmds:
+      - '{{.SP_COMPOSE}} up -d --wait app'
+      - '{{.SP_COMPOSE}} run --rm seed'
+      - echo "schmetterpause on http://localhost:{{.ZW_SP_REAL_PORT}}"
+
+  schmetterpause:none:
+    # What task dev runs instead of schmetterpause:up without SP=real.
+    internal: true
+
+  schmetterpause:down:
+    desc: 'Stop the real Schmetterpause. Its players stay; RESET=1 drops the database too'
+    cmds:
+      - '{{.SP_COMPOSE}} down {{if .RESET}}-v{{end}}'
+
+  wait-api:
+    # For the parts task dev starts beside zaehlwerk: they need it answering
+    # while it is still compiling, and require-api's one try would fail them.
+    internal: true
+    silent: true
+    cmds:
+      - |
+        for i in $(seq 1 120); do
+          curl -sf {{.API}}/healthz >/dev/null 2>&1 && exit 0
+          sleep 1
+        done
+        echo "zaehlwerk did not answer on {{.API}} within two minutes" >&2
+        exit 1
+
   port-free:
     # Better here than as a bind error thirty lines into the startup log, which
     # says the port is taken but not what to do about it.
@@ -592,9 +755,12 @@ tasks:
   ## ──────────────────────────────────────────────
 
   kcl:render:
-    desc: "Render the manifests (PROFILE=base; extra -D after --)"
+    desc: "Render the manifests (PROFILE=base, MODULE=kcl or kcl/portal; extra -D after --)"
     vars:
       PROFILE: '{{.PROFILE | default "base"}}'
+      # kcl is zaehlwerk's module, kcl/portal the dev portal's. Each has its
+      # own profiles and is published as its own base.
+      MODULE: '{{.MODULE | default "kcl"}}'
     cmds:
       - |
         set -e
@@ -605,7 +771,7 @@ tasks:
         # outside is what lets the published base stay neutral.
         case "{{.PROFILE}}" in
           */*|*.yaml|*.yml) profile="{{.PROFILE}}" ;;
-          *)                profile="kcl/profiles/{{.PROFILE}}.yaml" ;;
+          *)                profile="{{.MODULE}}/profiles/{{.PROFILE}}.yaml" ;;
         esac
         case "${profile}" in
           "~/"*) profile="${HOME}/${profile#\~/}" ;;
@@ -633,7 +799,7 @@ tasks:
         # later -D wins:
         #
         #   task kcl:render -- -D config.gatewayName=cilium-gateway
-        kcl run kcl/main.k "$@" {{.CLI_ARGS}} \
+        kcl run {{.MODULE}}/main.k "$@" {{.CLI_ARGS}} \
           | sed 's/^- /---\n/' \
           | sed '1d' \
           | sed 's/^  //' \
@@ -747,6 +913,23 @@ tasks:
           echo "FAIL  pong — switching it on changed zaehlwerk's own resources"; status=1
         else
           echo "ok    pong — four resources of its own, zaehlwerk's unchanged"
+        fi
+
+        # The dev portal is its own module and its own base. Its profile
+        # renders all four resources, and zaehlwerk cannot be switched off in
+        # it: the page is about zaehlwerk.
+        portal="$(task kcl:render MODULE=kcl/portal 2>&1)" || {
+          echo "FAIL  portal — did not render"; echo "${portal}" | tail -5; exit 1
+        }
+        kinds="$(printf '%s\n' "${portal}" | yq eval-all -o=json -I=0 '.kind' - | sort | tr '\n' ' ')"
+        if [ "${kinds}" != '"ConfigMap" "Deployment" "HTTPRoute" "Service" ' ]; then
+          echo "FAIL  portal — rendered ${kinds:-nothing}"; status=1
+        # kcl run itself, not the render task: its pipe ends in awk, which
+        # succeeds whatever kcl did.
+        elif kcl run kcl/portal/main.k -D config.zaehlwerkURL=off >/dev/null 2>&1; then
+          echo "FAIL  portal — rendered with zaehlwerk off"; status=1
+        else
+          echo "ok    portal — four resources, and zaehlwerk cannot be off"
         fi
         exit "${status}"
 

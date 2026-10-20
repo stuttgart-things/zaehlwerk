@@ -51,3 +51,13 @@ jobs:
       # every profile, so only a render that switches it on reaches it.
       flat-parameters: >-
         config.httpRouteEnabled=true,config.gatewayName=gateway,config.clusterDomain=cluster.example.com,config.secretsMode=external,config.secretStoreName=vault-cluster,config.omniPitcherURL=https://omni-pitcher.example.com,config.schmetterpauseURL=https://schmetterpause.example.com,config.checkinEnabled=true,config.pongEnabled=true,config.pongHttpRouteEnabled=true,config.pongAttractAfter=10m
+
+  # The dev portal's module, published as a base of its own.
+  validate-portal:
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-kcl-validate.yaml@main
+    with:
+      runs-on: ubuntu-latest
+      module-dir: kcl/portal
+      entrypoint: main.k
+      flat-parameters: >-
+        config.httpRouteEnabled=true,config.gatewayName=gateway,config.clusterDomain=cluster.example.com,config.zaehlwerkPublicURL=https://zaehlwerk.cluster.example.com,config.schmetterpauseURL=https://schmetterpause.cluster.example.com,config.pongURL=http://zaehlwerk-pong,config.pongPublicURL=https://zaehlwerk-pong.cluster.example.com

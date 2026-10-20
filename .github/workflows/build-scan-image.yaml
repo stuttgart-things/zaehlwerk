@@ -118,6 +118,38 @@ jobs:
             || 'main' }}
     secrets: inherit # pragma: allowlist secret
 
+  # The dev portal, built and tagged exactly as the buttons above. Its
+  # kustomize base (kustomize-portal below) pins the tag built here.
+  build-portal-pr:
+    if: github.event_name == 'pull_request'
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
+    with:
+      runs-on: ubuntu-latest
+      go-version: "1.26.6"
+      build-path: ./tools/chain-mock/cmd/portal
+      registry: ghcr.io
+      image-repo: stuttgart-things/zaehlwerk-portal
+      # From the head, for the reason given at build-pr.
+      ref: ${{ github.event.pull_request.head.sha }}
+      tags: pr-${{ github.event.number }}-${{ github.event.pull_request.head.sha }},pr-${{ github.event.number }}
+    secrets: inherit # pragma: allowlist secret
+
+  build-portal-main:
+    if: github.event_name != 'pull_request'
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
+    with:
+      runs-on: ubuntu-latest
+      go-version: "1.26.6"
+      build-path: ./tools/chain-mock/cmd/portal
+      registry: ghcr.io
+      image-repo: stuttgart-things/zaehlwerk-portal
+      # The same two namespaces as build-main.
+      tags: >-
+        ${{ github.ref_type == 'tag'
+            && format('{0},latest', github.ref_name)
+            || 'main' }}
+    secrets: inherit # pragma: allowlist secret
+
   # The game (ADR-0006), its own image and the same tags as zaehlwerk, so it
   # is released with it: a release tag dispatches this workflow, and the pong
   # image gets the version the zaehlwerk image gets. That is also why
@@ -212,6 +244,25 @@ jobs:
       # lands the two tags on two digests, which is what schmetterpause hit and
       # what stuttgart-things/github-workflow-templates#170 exists to prevent.
       # That workflow proves the tags agree and fails if they do not.
+      additional-tags: "${{ github.ref_type == 'tag' && 'latest' || '' }}"
+    secrets: inherit # pragma: allowlist secret
+
+  # The portal's own base, from its own module (kcl/portal), as its own
+  # artefact: a cluster that runs zaehlwerk does not get a portal by updating
+  # zaehlwerk's base, and switching it on is pointing an OCIRepository at
+  # this. Tagged and `latest`-moved under the same rule as the base above.
+  kustomize-portal:
+    if: github.event_name != 'pull_request'
+    needs: build-portal-main
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-push-kustomize.yaml@main
+    with:
+      runs-on: ubuntu-latest
+      kcl-source-dir: kcl/portal
+      kcl-profile-file: kcl/portal/profiles/base.yaml
+      kustomize-oci-repo: ghcr.io/stuttgart-things/zaehlwerk-portal-kustomize
+      # One line, for the reason given at kustomize.
+      kcl-parameters: "config.image=ghcr.io/stuttgart-things/zaehlwerk-portal:${{ github.ref_type == 'tag' && github.ref_name || 'main' }}"
+      tag: "${{ github.ref_type == 'tag' && github.ref_name || 'main' }}"
       additional-tags: "${{ github.ref_type == 'tag' && 'latest' || '' }}"
     secrets: inherit # pragma: allowlist secret
 
