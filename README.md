@@ -1718,6 +1718,8 @@ base whose removal can prune somebody else's panel.
 | [0012](docs/adr/0012-taking-a-point-back-through-the-ingest-contract.md) | An undo through the ingest contract: `"action": "undo"` with `source` and `event_id`, safe to retry |
 | [0013](docs/adr/0013-the-screensaver.md) | The screensaver: an idle side select hands the screen to a browser bot game, which gives way like any demo |
 | [0014](docs/adr/0014-bot-games-played-by-the-service.md) | Bot games played by the service: the physics in Go, every tab only watches through the relay |
+| [0015](docs/adr/0015-pong-plays-reported-matches.md) | Pong plays reported matches in a sandbox: `POST /matches` takes a handover behind `MATCHES_TOKEN`, bot players have strengths of their own (proposed) |
+| [0016](docs/adr/0016-the-sandbox-on-the-office-panel.md) | The sandbox on the office panel: its own stream among the idle streams, never a catcher switch (proposed) |
 
 ## Related
 
