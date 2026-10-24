@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.31.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.30.0...v0.31.0) (2026-10-24)
+
+
+### Features
+
+* play league matches between Schmetterpause players in Pong ([#175](https://github.com/stuttgart-things/zaehlwerk/issues/175)) ([c0c2a83](https://github.com/stuttgart-things/zaehlwerk/commit/c0c2a8368b423683cac66c8eb9c819b462170a84))
+* take a handover on POST /matches behind MATCHES_TOKEN ([#173](https://github.com/stuttgart-things/zaehlwerk/issues/173)) ([c9a79d6](https://github.com/stuttgart-things/zaehlwerk/commit/c9a79d6ddf15fefa3b5154a23b8d035059d65e12))
+
 ## [0.30.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.29.0...v0.30.0) (2026-10-20)
 
 
