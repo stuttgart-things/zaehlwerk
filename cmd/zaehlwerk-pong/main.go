@@ -37,6 +37,12 @@ const (
 	// Ten seconds to find the button the page names and press it, at a
 	// table somebody is setting up.
 	defaultCheckTimeout = 10 * time.Second
+	// The observer the sandbox's seed in Schmetterpause creates
+	// (Schmetterpause ADR-0027).
+	defaultLeagueOperator = "Pong"
+	// Twice zaehlwerk's default SCHMETTERPAUSE_REPORT_DELAY of 15s: the last
+	// league result is out before the next match starts.
+	defaultLeaguePause = 30 * time.Second
 )
 
 // Set by the linker at build time; see .ko.yaml. Left empty here so /healthz
@@ -72,6 +78,15 @@ func run() error {
 
 	if cfg.AttractAfter == 0 {
 		log.Info("attract mode disabled, PONG_ATTRACT_AFTER not configured")
+	}
+	switch {
+	case cfg.League != nil:
+		log.Info("league mode enabled, real matches between Schmetterpause's players",
+			"operator", cfg.League.Operator, "pause", cfg.League.Pause.String())
+	case os.Getenv("ZAEHLWERK_TOKEN") == "":
+		log.Info("league mode disabled, ZAEHLWERK_TOKEN not configured")
+	default:
+		log.Info("league mode disabled, it needs SCHMETTERPAUSE_URL and SCHMETTERPAUSE_TOKEN for the players")
 	}
 	if cfg.Roster == nil {
 		log.Info("the lobby offers no players, SCHMETTERPAUSE_URL not configured")
@@ -179,6 +194,10 @@ func config() (pong.Config, error) {
 		cfg.Roster = client
 	}
 
+	if cfg.League, err = league(cfg); err != nil {
+		return cfg, err
+	}
+
 	cfg.Seed = time.Now().UnixNano()
 	if raw := os.Getenv("PONG_SEED"); raw != "" {
 		if cfg.Seed, err = strconv.ParseInt(raw, 10, 64); err != nil {
@@ -186,6 +205,44 @@ func config() (pong.Config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+// league reads league mode (ADR-0015): on with ZAEHLWERK_TOKEN, zaehlwerk's
+// MATCHES_TOKEN, and with the players to draw from, SCHMETTERPAUSE_URL and
+// SCHMETTERPAUSE_TOKEN. Without the token it is off and run says so, which is
+// every deployment but the sandbox. A token without the players is off too:
+// nothing it could start is wrong, so it is a log line, not a refusal.
+//
+// Next to attract mode it is refused: both start matches by themselves, and a
+// sandbox that played demos between its league matches would put matches on
+// the panel that are reported nowhere.
+func league(cfg pong.Config) (*pong.League, error) {
+	token := os.Getenv("ZAEHLWERK_TOKEN")
+	if token == "" {
+		return nil, nil
+	}
+	roster, ok := cfg.Roster.(pong.LeagueRoster)
+	if !ok || os.Getenv("SCHMETTERPAUSE_TOKEN") == "" {
+		return nil, nil
+	}
+	if cfg.AttractAfter > 0 {
+		return nil, errors.New("ZAEHLWERK_TOKEN and PONG_ATTRACT_AFTER: league mode and attract mode both start matches by themselves, set one")
+	}
+	skills, err := pong.ParsePlayerSkills(os.Getenv("PONG_PLAYER_SKILL"))
+	if err != nil {
+		return nil, fmt.Errorf("PONG_PLAYER_SKILL: %w", err)
+	}
+	pause, err := duration("PONG_LEAGUE_PAUSE", defaultLeaguePause)
+	if err != nil {
+		return nil, err
+	}
+	return &pong.League{
+		Token:    token,
+		Operator: env("PONG_OPERATOR", defaultLeagueOperator),
+		Skills:   skills,
+		Pause:    pause,
+		Roster:   roster,
+	}, nil
 }
 
 // duration reads a positive duration, or the fallback when the variable is

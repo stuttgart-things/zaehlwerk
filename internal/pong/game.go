@@ -141,6 +141,10 @@ type GameConfig struct {
 	// Tick paces a served game's court; zero runs it as fast as it goes,
 	// which only the tests want.
 	Tick time.Duration
+	// Handover makes the game a league match (ADR-0015): a real match
+	// between two Schmetterpause players, reported by zaehlwerk when it is
+	// won. Nil for every other game, which is a demo and reported nowhere.
+	Handover *Handover
 }
 
 // demo is a game nobody asked for: attract mode's or the screensaver's. It
@@ -282,7 +286,13 @@ func (g *Game) Changes() <-chan struct{} {
 // start creates the match. It is separate from play so that a match zaehlwerk
 // refuses to create is the caller's error, not a game that failed later.
 func (g *Game) start(ctx context.Context) error {
-	st, err := g.client.CreateMatch(ctx, g.cfg.Players, g.cfg.BestOf)
+	var st scorer.State
+	var err error
+	if g.cfg.Handover != nil {
+		st, err = g.client.CreateLeagueMatch(ctx, g.cfg.Players, g.cfg.BestOf, *g.cfg.Handover)
+	} else {
+		st, err = g.client.CreateMatch(ctx, g.cfg.Players, g.cfg.BestOf)
+	}
 	if err != nil {
 		return fmt.Errorf("starting the match: %w", err)
 	}
@@ -292,7 +302,7 @@ func (g *Game) start(ctx context.Context) error {
 	g.mu.Unlock()
 	g.log.Info("match started", "match_id", st.MatchID, "players", st.Players, "driver", g.cfg.Driver,
 		"best_of", g.cfg.BestOf, "skills", []string{g.cfg.Skills[0].Name, g.cfg.Skills[1].Name},
-		"seed", g.cfg.Seed)
+		"seed", g.cfg.Seed, "league", g.cfg.Handover != nil)
 	return nil
 }
 

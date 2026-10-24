@@ -73,3 +73,43 @@ func TestAnUnknownSkillIsRefusedWithThePresets(t *testing.T) {
 	_, err = ParseSkills("leicht,mittel,schwer")
 	require.ErrorContains(t, err, "one preset, or two")
 }
+
+func TestAPlayerTakesAPresetOrAMissShareOfItsOwn(t *testing.T) {
+	got, err := ParsePlayerSkills(" Ada=schwer, Bert=0.2 ,Cleo=leicht")
+	require.NoError(t, err)
+	require.Equal(t, map[string]Skill{
+		"Ada":  skills["schwer"],
+		"Bert": {Name: "0.2", Miss: 0.2},
+		"Cleo": skills["leicht"],
+	}, got)
+}
+
+func TestNoPlayerSkillsIsAnEmptyMap(t *testing.T) {
+	got, err := ParsePlayerSkills("")
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
+func TestAPlayerSkillTheCourtCannotPlayIsRefused(t *testing.T) {
+	for raw, want := range map[string]string{
+		"Ada":             "want name=preset or name=share",
+		"Ada=":            "want name=preset or name=share",
+		"=schwer":         "want name=preset or name=share",
+		"Ada=profi":       `"profi": want one of`,
+		"Ada=0":           "want more than 0",
+		"Ada=-0.1":        "want more than 0",
+		"Ada=NaN":         "want more than 0",
+		"Ada=0.6":         "more than the court's bot can play",
+		"Ada=0.1,Ada=0.2": `"Ada" is named twice`,
+	} {
+		_, err := ParsePlayerSkills(raw)
+		require.ErrorContains(t, err, want, raw)
+	}
+}
+
+// The bound in ParsePlayerSkills' comment, checked: the court's bot can still
+// play the worst share it lets through.
+func TestTheWorstShareAPlayerMayHaveIsOneTheCourtCanPlay(t *testing.T) {
+	_, err := ParsePlayerSkills("Ada=0.55")
+	require.NoError(t, err)
+}

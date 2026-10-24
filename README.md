@@ -1360,8 +1360,9 @@ shows.
 **How it scores.** A game starts its own match with `POST /matches`: free-text
 names (`Pong A`, `Pong B`), `start: "warmup"`, `change_ends: true` and
 `demo: true` — every Pong match is a demo, whether attract mode, a browser game
-or a button check started it (ADR-0008). It never sends a player id or an
-operator, so a Pong match is never reported to Schmetterpause, and it never
+or a button check started it (ADR-0008). Outside league mode (below) it never
+sends a player id or an operator, so a Pong match is never reported to
+Schmetterpause, and it never
 joins a match: while `/live/stream` shows one as current, it does not start,
 because that match belongs to somebody — and one carrying `home_id`/`away_id`
 is a real match between real players. A 409 from `POST /matches`, zaehlwerk
@@ -1374,6 +1375,33 @@ and `delta: 1`, under the source `pong-<game id>` and the game's own counter as
 `event_id`, so a rally's number is its event id — until a `counter_reset` fault
 starts the counter again. A report whose answer is lost is sent again with the
 same id, and zaehlwerk discards the repeat.
+
+**League mode** ([ADR-0015](docs/adr/0015-pong-plays-reported-matches.md)) is
+for the sandbox only: its own Schmetterpause, its own zaehlwerk with
+`MATCHES_TOKEN`, and this service with that token as `ZAEHLWERK_TOKEN`. It plays
+one real match after another, each between two players drawn from
+Schmetterpause's `/api/players`, on the server driver, so a match needs no
+screen and can be watched from `/play/{id}`. The match is created with the two
+players' ids and the operator `PONG_OPERATOR` names, looked up in
+`/api/operators` at every start, and without `demo`: zaehlwerk reports it when
+it is won, after its grace period. Pong reports nothing itself.
+
+- Each player plays at the strength `PONG_PLAYER_SKILL` gives its display name,
+  a preset or a miss share of its own, e.g. `Ada=schwer,Bert=0.2,Cleo=leicht`.
+  A player it does not name plays at `PONG_BOT_SKILL`, home at the first preset
+  and away at the second. A name it gives that Schmetterpause does not have is
+  logged once. Schmetterpause knows nothing about strength.
+- No faults, whatever `PONG_FAULTS` says: a league match tests what happens
+  after the score.
+- After every match, and after a start that did not happen, it waits
+  `PONG_LEAGUE_PAUSE`, which has to outlast zaehlwerk's
+  `SCHMETTERPAUSE_REPORT_DELAY` so the results arrive in the order they were
+  played.
+- It is refused at startup next to `PONG_ATTRACT_AFTER`: both start matches by
+  themselves. Without `ZAEHLWERK_TOKEN`, or without `SCHMETTERPAUSE_URL` and
+  `SCHMETTERPAUSE_TOKEN`, it is off, and the log says which.
+- Against a zaehlwerk without the door — the office — every start is refused
+  with 503 and logged, and nothing is created.
 
 **What it checks.** It reads phase, `ends`, `waiting` and `serving` from
 zaehlwerk's answers and derives none of them. The bots walk only when zaehlwerk
@@ -1574,8 +1602,12 @@ wrong half must report exactly that.
 | `PONG_ATTRACT_PACE` | `1s` | The demo's pause between two reports |
 | `PONG_BROWSER_IDLE` | `10m` | How long a browser game waits for a press before it ends itself and its match |
 | `PONG_CHECK_TIMEOUT` | `10s` | How long a button check's prompt waits for its press before it counts as missing |
-| `SCHMETTERPAUSE_URL` | none | The lobby offers Schmetterpause's players as names, read from `/api/players` on every load. Names only: the game is still a demo and nothing is reported (ADR-0008). A name longer than 20 characters is left out. Unset, the name fields are free text only, as before |
+| `SCHMETTERPAUSE_URL` | none | The lobby offers Schmetterpause's players as names, read from `/api/players` on every load. Names only: the game is still a demo and nothing is reported (ADR-0008). A name longer than 20 characters is left out. Unset, the name fields are free text only, as before. League mode draws its players from the same list |
 | `SCHMETTERPAUSE_TOKEN` | none | The bearer token for that `/api`, the one zaehlwerk holds. Without it the list is not readable, and the lobby says so and still starts games |
+| `ZAEHLWERK_TOKEN` | none | zaehlwerk's `MATCHES_TOKEN`. Set, with `SCHMETTERPAUSE_URL` and `SCHMETTERPAUSE_TOKEN`, it turns on league mode: real matches between Schmetterpause's players, reported by zaehlwerk (ADR-0015). The sandbox only. Refused next to `PONG_ATTRACT_AFTER` |
+| `PONG_OPERATOR` | `Pong` | League mode: the display name of the account named as counting every match, the observer the sandbox's seed creates |
+| `PONG_PLAYER_SKILL` | none | League mode: a strength per display name, `name=preset` or `name=share`, comma-separated, e.g. `Ada=schwer,Bert=0.2`. A share is above 0 and at most 0.55. Anything else stops the service at startup |
+| `PONG_LEAGUE_PAUSE` | `30s` | League mode: the wait after a match, and after a start that did not happen. Longer than zaehlwerk's `SCHMETTERPAUSE_REPORT_DELAY` |
 
 Every duration is a Go duration and must be above zero; anything else stops
 the service at startup.

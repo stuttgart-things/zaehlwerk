@@ -50,10 +50,40 @@ type Config struct {
 	// press; zero is DefaultCheckTimeout.
 	CheckTimeout time.Duration
 	// Roster is where the lobby gets the names it offers, nil when
-	// SCHMETTERPAUSE_URL is unset. Names only: a pong game is a demo and is
-	// never reported (ADR-0008), so no id is ever used.
+	// SCHMETTERPAUSE_URL is unset. Names only: a game from the lobby is a
+	// demo and is never reported (ADR-0008), so no id from it is ever used.
+	// League mode reads the ids, through League.Roster (ADR-0015).
 	Roster Roster
+	// League turns on league mode (ADR-0015), nil off: in the sandbox only,
+	// where zaehlwerk takes player ids.
+	League *League
 	Build  BuildInfo
+}
+
+// League is league mode: one real match after another between Schmetterpause
+// players, played by the server driver and reported by zaehlwerk (ADR-0015).
+type League struct {
+	// Token is zaehlwerk's MATCHES_TOKEN, ZAEHLWERK_TOKEN here.
+	Token string
+	// Operator is the display name of the account named as counting every
+	// league match, the sandbox's observer.
+	Operator string
+	// Skills is each player's strength by display name. A player it does
+	// not name plays at Config.Skills, home at the first and away at the
+	// second.
+	Skills map[string]Skill
+	// Pause is the wait after a league match, and after a start that did
+	// not happen. It has to outlast zaehlwerk's SCHMETTERPAUSE_REPORT_DELAY,
+	// so the last result is out before the next match starts.
+	Pause  time.Duration
+	Roster LeagueRoster
+}
+
+// LeagueRoster is the half of the Schmetterpause client league mode needs:
+// who can play, and who can be named as counting.
+type LeagueRoster interface {
+	Roster
+	Operators(ctx context.Context) ([]schmetterpause.Operator, error)
 }
 
 // Roster is the half of the Schmetterpause client the lobby needs.
@@ -112,9 +142,13 @@ type Server struct {
 
 func New(cfg Config, log *slog.Logger) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
+	client := NewClient(cfg.ZaehlwerkURL, log)
+	if cfg.League != nil {
+		client.matchesToken = cfg.League.Token
+	}
 	s := &Server{
 		cfg:       cfg,
-		client:    NewClient(cfg.ZaehlwerkURL, log),
+		client:    client,
 		log:       log,
 		mux:       http.NewServeMux(),
 		ctx:       ctx,
@@ -416,7 +450,12 @@ func (s *Server) start(cfg GameConfig) (*Game, error) {
 	if cfg.BestOf == 0 {
 		cfg.BestOf = s.cfg.BestOf
 	}
-	cfg.Skills, cfg.Seed = s.cfg.Skills, s.cfg.Seed+n
+	// A league match brings its players' skills; every other game plays
+	// the service's PONG_BOT_SKILL.
+	if cfg.Skills == ([2]Skill{}) {
+		cfg.Skills = s.cfg.Skills
+	}
+	cfg.Seed = s.cfg.Seed + n
 	cfg.ResetQuiet, cfg.Idle = s.resetQuiet, s.idle
 	cfg.CheckTimeout, cfg.CheckGap = s.cfg.CheckTimeout, s.checkGap
 	cfg.Tick = s.tick

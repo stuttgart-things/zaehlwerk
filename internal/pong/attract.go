@@ -54,9 +54,16 @@ type attractState struct {
 }
 
 // Start begins what the service does without being asked: the table watch
-// for attract mode, when it is configured. Separate from New so a caller has
-// the server fully set up before anything runs on it.
+// for attract mode, and league mode, when either is configured. Separate from
+// New so a caller has the server fully set up before anything runs on it.
 func (s *Server) Start() {
+	if s.cfg.League != nil {
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.runLeague(s.ctx)
+		}()
+	}
 	if s.cfg.AttractAfter <= 0 {
 		return
 	}
