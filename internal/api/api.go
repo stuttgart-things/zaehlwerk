@@ -58,6 +58,10 @@ type Server struct {
 	// half for a phone check-in, its SCHMETTERPAUSE_TOKEN. Empty,
 	// /checkin/claim answers 503 (ADR-0011).
 	claimToken string
+	// handoverToken is what a caller sends as a bearer when POST /matches
+	// names players, MATCHES_TOKEN. Empty, a body with an id answers 503:
+	// the door is off, and a body without ids is unaffected (ADR-0015).
+	handoverToken string
 }
 
 // BuildInfo is what the binary can say about itself, reported by /healthz so a
@@ -162,6 +166,15 @@ func WithPhoneCheckin(d *checkin.Desk, token string) Option {
 		}
 		s.desk, s.claimToken = d, token
 	}
+}
+
+// WithHandover lets POST /matches take a handover, home_id, away_id and
+// operator_id, from a caller that sends token as a bearer (ADR-0015). The
+// wiring passes it only when Schmetterpause is configured: a handover nobody
+// can report would be taken and then go nowhere. An empty token leaves the
+// door off, as for the hub and the phone.
+func WithHandover(token string) Option {
+	return func(s *Server) { s.handoverToken = token }
 }
 
 // WithHeartbeat sets how often an idle stream writes a keepalive comment.

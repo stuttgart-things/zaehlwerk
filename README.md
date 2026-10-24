@@ -68,6 +68,7 @@ go run ./cmd/zaehlwerk-api
 | `PONG_URL` | — | zaehlwerk-pong as a browser at the table reaches it. The scoring page links its lobby as *Pong* and offers *Demo*, which starts a game between two computers that the game service plays (`POST /ui/demo`) and opens it to watch; with the side select on, an idle table hands the watch screen to its `/screensaver` (ADR-0013). This service never calls it. Unset, there are neither and the side select stays up |
 | `BUTTONS_URL` | — | The table mock's page (zaehlwerk-buttons), linked as *Buttons* on the scoring page. Only linked, never called. Unset, there is no link |
 | `WATCH_SCREENSAVER_AFTER` | `3m` | How long the table has to be free, with nobody checked in, before the screensaver takes the watch screen |
+| `MATCHES_TOKEN` | — | Bearer token for `POST /matches` with player ids, so a caller other than the page can start a reported match: the sandbox's Pong (ADR-0015). Needs `SCHMETTERPAUSE_URL` too. Unset, a body with an id answers 503, which is what the office runs with |
 | `SCHMETTERPAUSE_REPORT_DELAY` | `15s` | Grace period between a won match and its report (ADR-0007). An undo in it withholds the report, and the result that holds when it is over is the one sent. `0` reports at once; a value that is not a duration stops the start |
 
 State is in memory and deliberately so — a match lasts twenty minutes and the
@@ -124,9 +125,25 @@ zaehlwerk-pong match is (ADR-0008). A real match always wins the table:
   `POST /matches/{id}/end` would, and the table stream announces it ended.
 - A demo asked for while a real match runs is refused with 409, and the answer
   carries that match's state.
-- A demo is never reported; one with a player or operator id is a 400.
+- A demo is never reported; one with a player or operator id is a 400 once
+  the handover door below is on, and refused at that door before then.
 
 Without the field a match is real, so nothing that never heard of it changes.
+
+**A match with player ids** is reported like one from the scoring page:
+`home_id`, `away_id` and `operator_id`, Schmetterpause ids, all three or none
+([ADR-0015](docs/adr/0015-pong-plays-reported-matches.md)). It is the door the
+sandbox's Pong plays through, and it is shut unless `MATCHES_TOKEN` and
+`SCHMETTERPAUSE_URL` are both set: a body with an id then answers 503. With
+them, it needs `Authorization: Bearer $MATCHES_TOKEN` (401 without), and the ids
+must be UUIDs with two different players (400 otherwise). Whether they are
+players, and whether the operator plays, Schmetterpause decides when the result
+arrives. A body without ids needs no token and is what it always was.
+
+```bash
+curl -s -X POST localhost:8080/matches -H "authorization: Bearer $MATCHES_TOKEN" \
+  -d '{"players":["Ada","Bert"],"home_id":"…","away_id":"…","operator_id":"…"}'
+```
 
 ### Phases and ends
 
@@ -1163,7 +1180,7 @@ already has that route, and the page is drawn from what they answer.
   check-in per player and half as `task chain:phone` does it. Anna left and
   Bernd right is a match that is reported when it is won.
 - **Buttons** for what is otherwise a curl line: a quick match by name (not
-  reported: names are all `POST /matches` takes), ending the running match,
+  reported: the portal sends names only), ending the running match,
   pausing the piezo board, a headless pong bot game.
 - **The table stream**: zaehlwerk's `GET /live/stream`, relayed through the
   portal so it is same-origin and needs no `ALLOWED_ORIGINS` entry.

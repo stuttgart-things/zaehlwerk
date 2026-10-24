@@ -160,6 +160,12 @@ func run() error {
 		uiOpts = append(uiOpts, screensaver(log)...)
 	}
 
+	// A match with player ids through the JSON API, for the sandbox's Pong
+	// (ADR-0015). Off unless both MATCHES_TOKEN and Schmetterpause are there.
+	if token := handoverToken(log, spClient != nil); token != "" {
+		apiOpts = append(apiOpts, api.WithHandover(token))
+	}
+
 	if spClient != nil {
 		uiOpts = append(uiOpts,
 			ui.WithSchmetterpause(spClient, reporter),
@@ -349,6 +355,25 @@ func checkinDesk(log *slog.Logger, sp *schmetterpause.Client) *checkin.Desk {
 		log.Info("phone check-in enabled, POST /checkin/claim with SCHMETTERPAUSE_TOKEN", settings...)
 	}
 	return desk
+}
+
+// handoverToken reads MATCHES_TOKEN, what a caller sends as a bearer when
+// POST /matches names players (ADR-0015), and says in one line whether that
+// door is on. It needs Schmetterpause as well: a match with a handover and
+// nobody to report it to would be taken and then go nowhere. The office never
+// sets the token, so there the door stays off and Pong plays demos only.
+func handoverToken(log *slog.Logger, reporting bool) string {
+	token := os.Getenv("MATCHES_TOKEN")
+	switch {
+	case !reporting:
+		log.Info("match handover disabled, POST /matches with player ids needs SCHMETTERPAUSE_URL")
+		return ""
+	case token == "":
+		log.Info("match handover disabled, POST /matches with player ids needs MATCHES_TOKEN")
+		return ""
+	}
+	log.Info("match handover enabled, POST /matches with player ids and MATCHES_TOKEN")
+	return token
 }
 
 // setOpener reads SET_OPENER: who serves first in the sets after the first.
