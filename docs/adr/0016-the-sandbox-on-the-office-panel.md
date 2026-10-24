@@ -73,7 +73,17 @@ table is free.**
 - The catcher's lag of about a minute on a switch (homerun2-led-catcher#56)
   applies when an office match takes over, as it does today: the first
   minute of that match is late on the panel, not lost.
-- **To verify before this is accepted:** that the catcher subscribes to more
-  than one idle stream at once and draws a `score` message from a stream its
-  rules do not name, and that omni-pitcher evaluates routes in order. Both are
-  in repositories outside this one.
+- **What this rests on in the other two repositories**, read there rather
+  than assumed:
+  - homerun2-led-catcher subscribes to a list of streams
+    (`RedisConsumer.set_streams`) and creates its consumer group on a stream
+    it has not seen with `mkstream=True`, so `tabletennis-sandbox` needs no
+    preparation. Its display rules match on system, severity and tags
+    (`profile/engine.py`), never on the stream, so a sandbox score is drawn
+    exactly like an office one. A switch skips the backlog (`$`), so the
+    panel does not replay sandbox points that arrived during an office match.
+  - homerun2-omni-pitcher evaluates routes top to bottom, first match wins,
+    and has an `author` matcher. Its matchers are substrings, which is why the
+    sandbox's route has to come first: `author: zaehlwerk` would also match
+    `zaehlwerk-sandbox`. `tabletennis-sandbox` must be in its `streams`
+    allowlist, or it refuses to start.
