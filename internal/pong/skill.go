@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/rand"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -48,6 +49,60 @@ func ParseSkills(raw string) ([2]Skill, error) {
 		out[i] = s
 	}
 	return out, nil
+}
+
+// ParsePlayerSkills reads PONG_PLAYER_SKILL: a strength per Schmetterpause
+// display name, for league mode (ADR-0015), e.g. "Ada=schwer,Bert=0.2". A
+// strength is a preset or a miss share of its own, the same Skill.Miss a preset
+// stands for, so it means the same in a headless game and on the court. A share
+// is bounded by what the court's bot can play: above 0.55 its Bot() aims past
+// the edge of the paddle.
+//
+// The names are the sandbox seed's in Schmetterpause, and nothing ties the two
+// together but this string: a name it gives that the roster does not have is
+// logged by league mode, not refused here.
+func ParsePlayerSkills(raw string) (map[string]Skill, error) {
+	out := map[string]Skill{}
+	if strings.TrimSpace(raw) == "" {
+		return out, nil
+	}
+	for _, entry := range strings.Split(raw, ",") {
+		name, strength, ok := strings.Cut(entry, "=")
+		name, strength = strings.TrimSpace(name), strings.TrimSpace(strength)
+		if !ok || name == "" || strength == "" {
+			return nil, fmt.Errorf("player skill %q: want name=preset or name=share", strings.TrimSpace(entry))
+		}
+		if _, dup := out[name]; dup {
+			return nil, fmt.Errorf("player skill: %q is named twice", name)
+		}
+		skill, err := parseStrength(strength)
+		if err != nil {
+			return nil, fmt.Errorf("player skill for %q: %w", name, err)
+		}
+		out[name] = skill
+	}
+	return out, nil
+}
+
+func parseStrength(raw string) (Skill, error) {
+	if s, ok := skills[raw]; ok {
+		return s, nil
+	}
+	miss, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return Skill{}, fmt.Errorf("%q: want one of %s, or a miss share such as 0.2",
+			raw, strings.Join(presetNames(), ", "))
+	}
+	// Above zero, because two bots that never miss draw a headless rally
+	// that never ends.
+	s := Skill{Name: raw, Miss: miss}
+	if !(miss > 0) {
+		return Skill{}, fmt.Errorf("miss share %v: want more than 0", miss)
+	}
+	if err := s.Bot().Validate(); err != nil {
+		return Skill{}, fmt.Errorf("miss share %v is more than the court's bot can play: %w", miss, err)
+	}
+	return s, nil
 }
 
 func presetNames() []string {

@@ -87,3 +87,63 @@ func TestADurationThatIsNoneIsRefusedAtStartup(t *testing.T) {
 		}
 	}
 }
+
+func TestLeagueModeIsOffWithoutZaehlwerksToken(t *testing.T) {
+	t.Setenv("ZAEHLWERK_TOKEN", "")
+	t.Setenv("SCHMETTERPAUSE_URL", "http://sp.invalid")
+	t.Setenv("SCHMETTERPAUSE_TOKEN", "sp-secret")
+	cfg, err := config()
+	require.NoError(t, err)
+	require.Nil(t, cfg.League)
+}
+
+// A token with nobody to draw players from starts nothing that could be
+// wrong, so it is off, not refused.
+func TestLeagueModeIsOffWithoutTheSchmetterpauseItDrawsFrom(t *testing.T) {
+	t.Setenv("ZAEHLWERK_TOKEN", "matches-secret")
+	t.Setenv("SCHMETTERPAUSE_URL", "")
+	cfg, err := config()
+	require.NoError(t, err)
+	require.Nil(t, cfg.League)
+
+	t.Setenv("SCHMETTERPAUSE_URL", "http://sp.invalid")
+	t.Setenv("SCHMETTERPAUSE_TOKEN", "")
+	cfg, err = config()
+	require.NoError(t, err)
+	require.Nil(t, cfg.League)
+}
+
+func TestLeagueModeIsOnWithTheTokenAndSchmetterpause(t *testing.T) {
+	t.Setenv("ZAEHLWERK_TOKEN", "matches-secret")
+	t.Setenv("SCHMETTERPAUSE_URL", "http://sp.invalid")
+	t.Setenv("SCHMETTERPAUSE_TOKEN", "sp-secret")
+	t.Setenv("PONG_PLAYER_SKILL", "Ada=schwer,Bert=0.2")
+	t.Setenv("PONG_OPERATOR", "")
+	t.Setenv("PONG_LEAGUE_PAUSE", "")
+	cfg, err := config()
+	require.NoError(t, err)
+	require.NotNil(t, cfg.League)
+	require.Equal(t, "matches-secret", cfg.League.Token)
+	require.Equal(t, "Pong", cfg.League.Operator, "the sandbox seed's observer")
+	require.Equal(t, 30*time.Second, cfg.League.Pause, "outlasts zaehlwerk's 15s grace period")
+	require.Equal(t, "schwer", cfg.League.Skills["Ada"].Name)
+	require.Equal(t, 0.2, cfg.League.Skills["Bert"].Miss)
+}
+
+func TestLeagueModeNextToAttractModeIsRefusedAtStartup(t *testing.T) {
+	t.Setenv("ZAEHLWERK_TOKEN", "matches-secret")
+	t.Setenv("SCHMETTERPAUSE_URL", "http://sp.invalid")
+	t.Setenv("SCHMETTERPAUSE_TOKEN", "sp-secret")
+	t.Setenv("PONG_ATTRACT_AFTER", "10m")
+	_, err := config()
+	require.ErrorContains(t, err, "league mode and attract mode both start matches by themselves")
+}
+
+func TestABadPlayerSkillIsRefusedAtStartup(t *testing.T) {
+	t.Setenv("ZAEHLWERK_TOKEN", "matches-secret")
+	t.Setenv("SCHMETTERPAUSE_URL", "http://sp.invalid")
+	t.Setenv("SCHMETTERPAUSE_TOKEN", "sp-secret")
+	t.Setenv("PONG_PLAYER_SKILL", "Ada=profi")
+	_, err := config()
+	require.ErrorContains(t, err, "PONG_PLAYER_SKILL")
+}

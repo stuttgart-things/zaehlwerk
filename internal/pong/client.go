@@ -55,6 +55,10 @@ type Client struct {
 	// retryAfter is the pause before a report is sent again. A variable so
 	// the tests do not sit through it.
 	retryAfter time.Duration
+	// matchesToken is zaehlwerk's MATCHES_TOKEN, sent only with a league
+	// match, the one request that names players (ADR-0015). Empty outside
+	// league mode.
+	matchesToken string
 }
 
 func NewClient(base string, log *slog.Logger) *Client {
@@ -67,35 +71,72 @@ func NewClient(base string, log *slog.Logger) *Client {
 	}
 }
 
-// createBody is POST /matches as the game sends it. There is deliberately no
-// field for a player id or an operator: a match started through the JSON API
-// has no handover and is never reported to Schmetterpause (ADR-0004, ADR-0006).
+// createBody is POST /matches as the game sends it.
 //
-// Demo is always true. Every match the game creates is no result and gives way
-// to one, demo, browser game and button check alike (ADR-0008), and zaehlwerk
-// decides that under its own lock, where a real match created at the same
-// moment cannot slip in between.
+// Demo is true for every match but a league match. Every other match the game
+// creates is no result and gives way to one, demo, browser game and button
+// check alike (ADR-0008), and zaehlwerk decides that under its own lock, where
+// a real match created at the same moment cannot slip in between.
+//
+// The ids are a league match's only, and only in the sandbox: they make it a
+// real match that zaehlwerk reports to Schmetterpause, and zaehlwerk takes them
+// only with MATCHES_TOKEN (ADR-0015). Anywhere else the game sends none, and
+// what it plays is reported nowhere (ADR-0006).
 type createBody struct {
 	Players    [2]string `json:"players"`
 	BestOf     int       `json:"best_of"`
 	Start      string    `json:"start"`
 	ChangeEnds bool      `json:"change_ends"`
 	Demo       bool      `json:"demo"`
+	HomeID     string    `json:"home_id,omitempty"`
+	AwayID     string    `json:"away_id,omitempty"`
+	OperatorID string    `json:"operator_id,omitempty"`
+}
+
+// Handover is who a league match is between, by Schmetterpause id, and who is
+// named as counting it (ADR-0015).
+type Handover struct {
+	HomeID     string `json:"home_id"`
+	AwayID     string `json:"away_id"`
+	OperatorID string `json:"operator_id"`
 }
 
 // CreateMatch starts a match the way it starts at the table: a warm-up, the
 // rally for the serve, and a change of ends after every set and at five in the
 // deciding one. Not retried: a second POST would be a second match.
 func (c *Client) CreateMatch(ctx context.Context, players [2]string, bestOf int) (scorer.State, error) {
-	st, status, err := c.call(ctx, c.http, http.MethodPost, "/matches", createBody{
+	return c.create(ctx, players, bestOf, nil)
+}
+
+// CreateLeagueMatch starts a league match: the same start as any other, with
+// the players' and the operator's ids, behind MATCHES_TOKEN, and no demo flag.
+// zaehlwerk reports it when it is won.
+func (c *Client) CreateLeagueMatch(ctx context.Context, players [2]string, bestOf int, h Handover) (scorer.State, error) {
+	return c.create(ctx, players, bestOf, &h)
+}
+
+func (c *Client) create(ctx context.Context, players [2]string, bestOf int, h *Handover) (scorer.State, error) {
+	body := createBody{
 		Players:    players,
 		BestOf:     bestOf,
 		Start:      string(scorer.StartWarmup),
 		ChangeEnds: true,
-		Demo:       true,
-	})
+		Demo:       h == nil,
+	}
+	bearer := ""
+	if h != nil {
+		body.HomeID, body.AwayID, body.OperatorID = h.HomeID, h.AwayID, h.OperatorID
+		bearer = c.matchesToken
+	}
+	st, status, err := c.call(ctx, c.http, http.MethodPost, "/matches", body, bearer)
 	if err != nil {
 		return st, err
+	}
+	switch {
+	case h != nil && status == http.StatusUnauthorized:
+		return st, errors.New("POST /matches: 401, ZAEHLWERK_TOKEN is not this zaehlwerk's MATCHES_TOKEN")
+	case h != nil && status == http.StatusServiceUnavailable:
+		return st, errors.New("POST /matches: 503, this zaehlwerk takes no player ids (MATCHES_TOKEN or SCHMETTERPAUSE_URL unset there)")
 	}
 	if status == http.StatusConflict {
 		// A real match is running, and zaehlwerk refuses a demo next to it:
@@ -119,7 +160,7 @@ func (c *Client) CreateMatch(ctx context.Context, players [2]string, bestOf int)
 func (c *Client) Ingest(ctx context.Context, ev scorer.ScoreEvent) (scorer.State, error) {
 	var lastErr error
 	for attempt := 1; attempt <= ingestAttempts; attempt++ {
-		st, status, err := c.call(ctx, c.http, http.MethodPost, "/ingest/web", ev)
+		st, status, err := c.call(ctx, c.http, http.MethodPost, "/ingest/web", ev, "")
 		switch {
 		case err == nil && status == http.StatusOK:
 			return st, nil
@@ -151,7 +192,7 @@ func (c *Client) Ingest(ctx context.Context, ev scorer.ScoreEvent) (scorer.State
 // EndMatch ends a match the game will not finish. Idempotent on zaehlwerk's
 // side, so ending one that is already over is harmless.
 func (c *Client) EndMatch(ctx context.Context, matchID string) (scorer.State, error) {
-	st, status, err := c.call(ctx, c.http, http.MethodPost, "/matches/"+matchID+"/end", nil)
+	st, status, err := c.call(ctx, c.http, http.MethodPost, "/matches/"+matchID+"/end", nil, "")
 	if err != nil {
 		return st, err
 	}
@@ -168,7 +209,7 @@ var ErrNothingToUndo = errors.New("nothing to undo")
 // Undo takes back the last press that changed the score, the way the page's
 // undo button does. Not retried: an undo sent twice takes back two presses.
 func (c *Client) Undo(ctx context.Context, matchID string) (scorer.State, error) {
-	st, status, err := c.call(ctx, c.http, http.MethodPost, "/matches/"+matchID+"/undo", nil)
+	st, status, err := c.call(ctx, c.http, http.MethodPost, "/matches/"+matchID+"/undo", nil, "")
 	switch {
 	case err != nil:
 		return st, err
@@ -253,8 +294,9 @@ func (c *Client) Follow(ctx context.Context) (<-chan TableEvent, error) {
 
 // call sends a request and decodes the state from the body, or from the state
 // an error body carries. The status is returned rather than judged here: a 409
-// means "over" to a report and "busy" to nobody else.
-func (c *Client) call(ctx context.Context, hc *http.Client, method, path string, body any) (scorer.State, int, error) {
+// means "over" to a report and "busy" to nobody else. bearer goes on the
+// request when it is not empty.
+func (c *Client) call(ctx context.Context, hc *http.Client, method, path string, body any, bearer string) (scorer.State, int, error) {
 	var st scorer.State
 
 	var reader io.Reader
@@ -271,6 +313,9 @@ func (c *Client) call(ctx context.Context, hc *http.Client, method, path string,
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
 
 	resp, err := hc.Do(req)
