@@ -61,6 +61,7 @@ supersedes it, not a quiet rewrite.
 | 0014 | Bot games played by the service — a page only watches them, through the relay |
 | 0015 | Pong plays reported matches in a sandbox — a handover through the JSON API, behind its own token (proposed) |
 | 0016 | The sandbox on the office panel — an idle stream of its own, displaced by any real match (proposed) |
+| 0017 | Tournament matches through zaehlwerk — a slot on the handover, checked by Schmetterpause (proposed) |
 
 ## Terms
 
