@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/stuttgart-things/zaehlwerk/internal/checkin"
 	"github.com/stuttgart-things/zaehlwerk/internal/live"
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
@@ -29,6 +30,50 @@ type createRequest struct {
 	// zaehlwerk-pong's are (ADR-0008). Absent is a real match, which is what
 	// every caller that never heard of the field keeps getting.
 	Demo bool `json:"demo"`
+	// HomeID, AwayID and OperatorID are Schmetterpause ids, the handover the
+	// scoring page sends from its lists. All three or none, and only behind
+	// MATCHES_TOKEN (ADR-0015). Absent is a match reported nowhere, as before.
+	HomeID     string `json:"home_id"`
+	AwayID     string `json:"away_id"`
+	OperatorID string `json:"operator_id"`
+}
+
+// errHandoverOff is the answer to a body with an id while MATCHES_TOKEN or
+// SCHMETTERPAUSE_URL is not configured. A 503 like check-in's: the route
+// exists, taking a handover does not, and the start log says which is
+// missing.
+var errHandoverOff = errors.New("a match with player ids is off on this zaehlwerk")
+
+// errHandoverToken is a body with an id without MATCHES_TOKEN, or with
+// another.
+var errHandoverToken = errors.New("a match with player ids needs the matches token")
+
+// names reports whether the body names anybody by id.
+func (req createRequest) names() bool {
+	return req.HomeID != "" || req.AwayID != "" || req.OperatorID != ""
+}
+
+// handover checks the ids for their shape only. Whether they are players,
+// and whether the operator plays, Schmetterpause decides when the result
+// arrives, as for a phone claim (ADR-0011).
+func (req createRequest) handover() (match.Handover, error) {
+	if req.HomeID == "" || req.AwayID == "" || req.OperatorID == "" {
+		return match.Handover{}, errors.New("home_id, away_id and operator_id go together")
+	}
+	var ids [3]string
+	for i, f := range []struct{ name, id string }{
+		{"home_id", req.HomeID}, {"away_id", req.AwayID}, {"operator_id", req.OperatorID},
+	} {
+		id, err := checkin.CanonicalUUID(f.id)
+		if err != nil {
+			return match.Handover{}, fmt.Errorf("%s: %w", f.name, err)
+		}
+		ids[i] = id
+	}
+	if ids[0] == ids[1] {
+		return match.Handover{}, errors.New("home_id and away_id must differ")
+	}
+	return match.Handover{HomeID: ids[0], AwayID: ids[1], OperatorID: ids[2]}, nil
 }
 
 // firstServerRally is the first_server value that asks for a serve rally,
@@ -77,11 +122,33 @@ func (s *Server) createMatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The JSON API names players as free text, so a match started through it
-	// is reported nowhere. Choosing from the real player list is something the
-	// page does, because it is the only caller that can show a list to pick
-	// from (ADR-0004).
-	m, err := s.start(cfg, match.Setup{Demo: req.Demo})
+	// Without ids, the JSON API names players as free text and a match
+	// started through it is reported nowhere; choosing from the real player
+	// list is the page's (ADR-0004). With ids it is a handover, and a handover
+	// names two players to Schmetterpause, so it is taken only from the one
+	// caller holding MATCHES_TOKEN: the sandbox's Pong (ADR-0015). The token
+	// is checked after the body is read, because only the body says whether
+	// one is needed; the body is bounded by maxBodyBytes either way.
+	setup := match.Setup{Demo: req.Demo}
+	if req.names() {
+		if s.handoverToken == "" {
+			s.fail(w, r, http.StatusServiceUnavailable, errHandoverOff, nil)
+			return
+		}
+		if !bearerIs(r, s.handoverToken) {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="matches"`)
+			s.fail(w, r, http.StatusUnauthorized, errHandoverToken, nil)
+			return
+		}
+		h, err := req.handover()
+		if err != nil {
+			s.fail(w, r, http.StatusBadRequest, err, nil)
+			return
+		}
+		setup.Handover = h
+	}
+
+	m, err := s.start(cfg, setup)
 	var taken *match.TableTakenError
 	switch {
 	case errors.As(err, &taken):

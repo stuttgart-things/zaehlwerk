@@ -31,11 +31,11 @@ func (c *PhoneClaim) Validate() error {
 	if c.Half != scorer.HalfLeft && c.Half != scorer.HalfRight {
 		return fmt.Errorf("half: must be %q or %q", scorer.HalfLeft, scorer.HalfRight)
 	}
-	player, err := canonicalUUID(c.PlayerID)
+	player, err := CanonicalUUID(c.PlayerID)
 	if err != nil {
 		return fmt.Errorf("player_id: %w", err)
 	}
-	checkin, err := canonicalUUID(c.CheckinID)
+	checkin, err := CanonicalUUID(c.CheckinID)
 	if err != nil {
 		return fmt.Errorf("checkin_id: %w", err)
 	}
@@ -45,10 +45,10 @@ func (c *PhoneClaim) Validate() error {
 
 var errNotUUID = errors.New("must be a UUID")
 
-// canonicalUUID accepts the 36-character form only. uuid.Parse also takes
+// CanonicalUUID accepts the 36-character form only. uuid.Parse also takes
 // braces, a urn: prefix and no dashes; Schmetterpause sends none of them, and
 // accepting them would only make two spellings of one id.
-func canonicalUUID(s string) (string, error) {
+func CanonicalUUID(s string) (string, error) {
 	if len(s) != 36 {
 		return "", errNotUUID
 	}
