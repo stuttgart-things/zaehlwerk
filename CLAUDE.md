@@ -59,6 +59,8 @@ supersedes it, not a quiet rewrite.
 | 0012 | Taking a point back through the ingest contract — an undo with an event id |
 | 0013 | The screensaver — a screen at a free table plays a browser demo, and gives way |
 | 0014 | Bot games played by the service — a page only watches them, through the relay |
+| 0015 | Pong plays reported matches in a sandbox — a handover through the JSON API, behind its own token (proposed) |
+| 0016 | The sandbox on the office panel — an idle stream of its own, displaced by any real match (proposed) |
 
 ## Terms
 
