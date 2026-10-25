@@ -2,9 +2,11 @@ package pong
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"log/slog"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +18,7 @@ import (
 	"github.com/stuttgart-things/zaehlwerk/internal/live"
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/schmetterpause"
+	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 )
 
 // League mode plays against the real zaehlwerk handlers with the handover door
@@ -35,6 +38,39 @@ type fakeRoster struct {
 	mu        sync.Mutex
 	players   []schmetterpause.Player
 	operators []schmetterpause.Operator
+	// tournaments and places stand in for Schmetterpause's draw. Nil
+	// tournaments is a Schmetterpause from before tournaments, a 404.
+	tournaments []schmetterpause.Tournament
+	places      map[string][]schmetterpause.Place
+}
+
+func (r *fakeRoster) Tournaments(context.Context) ([]schmetterpause.Tournament, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.tournaments == nil {
+		return nil, schmetterpause.ErrNoTournaments
+	}
+	return append([]schmetterpause.Tournament(nil), r.tournaments...), nil
+}
+
+func (r *fakeRoster) Pairings(_ context.Context, id string) ([]schmetterpause.Place, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]schmetterpause.Place(nil), r.places[id]...), nil
+}
+
+// fill takes a played place off the draw, as Schmetterpause does once its
+// result arrives.
+func (r *fakeRoster) fill(id string, round int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	places := r.places[id]
+	for i, p := range places {
+		if p.Round == round {
+			r.places[id] = append(places[:i:i], places[i+1:]...)
+			return
+		}
+	}
 }
 
 func (r *fakeRoster) Players(context.Context) ([]schmetterpause.Player, error) {
@@ -65,10 +101,10 @@ func sandboxRoster() *fakeRoster {
 
 // newSandboxTable is zaehlwerk as the sandbox runs it: taking player ids
 // behind token.
-func newSandboxTable(t *testing.T, token string) *table {
+func newSandboxTable(t *testing.T, token string, opts ...match.Option) *table {
 	t.Helper()
 	hub := live.New()
-	registry := match.NewRegistry(match.WithObserver(hub.Observe))
+	registry := match.NewRegistry(append([]match.Option{match.WithObserver(hub.Observe)}, opts...)...)
 	zw := api.New(registry, api.WithLogger(quiet()), api.WithHub(hub), api.WithHandover(token))
 	srv := httptest.NewServer(zw)
 	t.Cleanup(srv.Close)
@@ -245,4 +281,130 @@ func TestLeagueMatchesFollowOneAnotherAfterThePause(t *testing.T) {
 		}
 		return won >= 2
 	}, 30*time.Second, 10*time.Millisecond)
+}
+
+// The sandbox's tournaments, by Schmetterpause id.
+const (
+	mondayID  = "bbbbbbbb-0000-4000-8000-000000000001"
+	tuesdayID = "bbbbbbbb-0000-4000-8000-000000000002"
+)
+
+// tournamentRoster is the sandbox with two open tournaments, the older one
+// listed second, as a list newest first would have it.
+func tournamentRoster() *fakeRoster {
+	r := sandboxRoster()
+	r.tournaments = []schmetterpause.Tournament{
+		{ID: tuesdayID, Name: "Dienstag", BestOf: 3, PointsToWin: 11, CreatedAt: time.Now()},
+		{ID: mondayID, Name: "Montag", BestOf: 1, PointsToWin: 5, CreatedAt: time.Now().Add(-time.Hour)},
+	}
+	r.places = map[string][]schmetterpause.Place{
+		mondayID: {
+			{Round: 2, HomeID: bertID, AwayID: adaID, HomeName: "Bert", AwayName: "Ada"},
+			{Round: 3, HomeID: adaID, AwayID: bertID, HomeName: "Ada", AwayName: "Bert"},
+		},
+		tuesdayID: {
+			{Round: 1, HomeID: adaID, AwayID: bertID, HomeName: "Ada", AwayName: "Bert"},
+		},
+	}
+	return r
+}
+
+func tournamentLeague(roster LeagueRoster) League {
+	l := sandboxLeague(roster)
+	l.Tournaments = true
+	return l
+}
+
+func TestLeagueModePlaysTheFirstOpenPlaceOfTheOldestTournamentInItsMode(t *testing.T) {
+	zw := newSandboxTable(t, leagueToken)
+	p, _ := leaguePong(t, zw.url, tournamentLeague(tournamentRoster()))
+
+	g := firstLeagueGame(t, p)
+	m, err := zw.registry.Get(g.matchIDNow())
+	require.NoError(t, err)
+
+	require.Equal(t, mondayID, m.Handover.TournamentID, "Montag has waited longest")
+	require.Equal(t, 2, m.Handover.Round, "its first open place in the draw's order")
+	require.Equal(t, bertID, m.Handover.HomeID, "home is side A, the left half")
+	require.Equal(t, adaID, m.Handover.AwayID)
+	require.Equal(t, pongID, m.Handover.OperatorID)
+
+	bestOf, points := m.Scorer.Rules()
+	require.Equal(t, 1, bestOf, "the tournament's mode, not PONG_BEST_OF")
+	require.Equal(t, 5, points)
+	require.Equal(t, [2]string{"Bert", "Ada"}, g.View().Players)
+	require.Equal(t, skills["leicht"], g.View().Skills[0], "Bert at his strength")
+}
+
+// Once every tournament is played, the league goes on with random pairs.
+func TestLeagueModeDrawsARandomPairWhenNoTournamentHasAPlaceLeft(t *testing.T) {
+	zw := newSandboxTable(t, leagueToken)
+	roster := tournamentRoster()
+	roster.places = map[string][]schmetterpause.Place{}
+	p, _ := leaguePong(t, zw.url, tournamentLeague(roster))
+
+	g := firstLeagueGame(t, p)
+	m, err := zw.registry.Get(g.matchIDNow())
+	require.NoError(t, err)
+	require.Empty(t, m.Handover.TournamentID, "a league match has no place")
+	require.Zero(t, m.Handover.Round)
+}
+
+func TestLeagueModeAgainstASchmetterpauseWithoutTournamentsSaysSoOnceAndPlaysTheLeague(t *testing.T) {
+	zw := newSandboxTable(t, leagueToken)
+	l := tournamentLeague(sandboxRoster())
+	l.Pause = time.Millisecond
+	p, logs := leaguePong(t, zw.url, l)
+
+	require.Eventually(t, func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		won := 0
+		for _, g := range p.games {
+			if g.cfg.Handover != nil && g.View().Status == StatusWon {
+				won++
+			}
+		}
+		return won >= 2
+	}, 30*time.Second, 10*time.Millisecond)
+	require.Equal(t, 1, strings.Count(logs.String(), "this Schmetterpause lists no tournaments"))
+}
+
+// Places are read again before every match, so a tournament is played through
+// in order, and the league waits until it is.
+func TestLeagueModePlaysATournamentThroughBeforeTheLeague(t *testing.T) {
+	roster := tournamentRoster()
+	delete(roster.places, tuesdayID)
+	// Schmetterpause takes a place off once its result arrives; here that is
+	// the moment the match is won.
+	zw := newSandboxTable(t, leagueToken, match.WithMatchObserver(func(m *match.Match, tr scorer.Transition) {
+		if tr.Kind == scorer.TransitionMatchWon && m.Handover.TournamentID != "" {
+			roster.fill(m.Handover.TournamentID, m.Handover.Round)
+		}
+	}))
+	l := tournamentLeague(roster)
+	l.Pause = time.Millisecond
+	p, _ := leaguePong(t, zw.url, l)
+
+	// The games in the order they started: the seed counts up with every
+	// start.
+	var rounds []int
+	require.Eventually(t, func() bool {
+		p.mu.Lock()
+		var won []*Game
+		for _, g := range p.games {
+			if g.cfg.Handover != nil && g.View().Status == StatusWon {
+				won = append(won, g)
+			}
+		}
+		p.mu.Unlock()
+		slices.SortFunc(won, func(a, b *Game) int { return cmp.Compare(a.cfg.Seed, b.cfg.Seed) })
+
+		rounds = rounds[:0]
+		for _, g := range won {
+			rounds = append(rounds, g.cfg.Handover.Round)
+		}
+		return len(rounds) >= 3
+	}, 30*time.Second, 10*time.Millisecond)
+	require.Equal(t, []int{2, 3, 0}, rounds[:3], "both places of Montag, then a league match")
 }

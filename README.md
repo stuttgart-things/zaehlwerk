@@ -145,6 +145,23 @@ curl -s -X POST localhost:8080/matches -H "authorization: Bearer $MATCHES_TOKEN"
   -d '{"players":["Ada","Bert"],"home_id":"…","away_id":"…","operator_id":"…"}'
 ```
 
+**A tournament match** names its place in a Schmetterpause draw as well:
+`tournament_id` and `round`, both or neither, and only next to the three ids
+([ADR-0017](docs/adr/0017-tournament-matches-through-zaehlwerk.md)). They are
+taken from Schmetterpause's `GET /api/tournaments/{id}/pairings`, with
+`home_id` that place's side A, and passed on with the result unchecked: whether
+the place is still open, and the pairing right, Schmetterpause decides when
+the result arrives. Its mode is the tournament's, so the body sets `best_of`
+and `points_per_set` to the tournament's `best_of` and `points_to_win`;
+Schmetterpause refuses a result in another mode. A UUID and a round from 1, or
+400.
+
+```bash
+curl -s -X POST localhost:8080/matches -H "authorization: Bearer $MATCHES_TOKEN" \
+  -d '{"players":["Ada","Bert"],"best_of":3,"points_per_set":11,"home_id":"…","away_id":"…",
+       "operator_id":"…","tournament_id":"…","round":4}'
+```
+
 ### Phases and ends
 
 A match can also start the way it starts at the table
@@ -1402,6 +1419,18 @@ it is won, after its grace period. Pong reports nothing itself.
   `SCHMETTERPAUSE_TOKEN`, it is off, and the log says which.
 - Against a zaehlwerk without the door — the office — every start is refused
   with 503 and logged, and nothing is created.
+- With `PONG_TOURNAMENTS=on` it plays tournaments first
+  ([ADR-0017](docs/adr/0017-tournament-matches-through-zaehlwerk.md)). Before
+  every match it reads Schmetterpause's `/api/tournaments` and takes the first
+  open place, in draw order, of the oldest tournament that has one, in that
+  tournament's mode and with its place on the match. The final follows by
+  itself: Schmetterpause lists it once the group is played out, which with
+  `SP_SCOREBOARD_SETTLE=immediate` is as soon as the last group result
+  arrives, and the pause gives it the time. With no place left anywhere it
+  draws a random pair, as without. A Schmetterpause without tournaments answers
+  404, which is logged once, and the league is played. A place filled
+  meanwhile — at the kiosk — is refused there with 409, and zaehlwerk logs the
+  result as not delivered.
 
 **What it checks.** It reads phase, `ends`, `waiting` and `serving` from
 zaehlwerk's answers and derives none of them. The bots walk only when zaehlwerk
@@ -1608,6 +1637,7 @@ wrong half must report exactly that.
 | `PONG_OPERATOR` | `Pong` | League mode: the display name of the account named as counting every match, the observer the sandbox's seed creates |
 | `PONG_PLAYER_SKILL` | none | League mode: a strength per display name, `name=preset` or `name=share`, comma-separated, e.g. `Ada=schwer,Bert=0.2`. A share is above 0 and at most 0.55. Anything else stops the service at startup |
 | `PONG_LEAGUE_PAUSE` | `30s` | League mode: the wait after a match, and after a start that did not happen. Longer than zaehlwerk's `SCHMETTERPAUSE_REPORT_DELAY` |
+| `PONG_TOURNAMENTS` | `off` | League mode: `on` plays the open places of Schmetterpause's tournaments, oldest tournament first, before random pairs (ADR-0017). Anything but `on` or `off` stops the service at startup |
 
 Every duration is a Go duration and must be above zero; anything else stops
 the service at startup.

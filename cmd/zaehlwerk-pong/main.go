@@ -236,13 +236,32 @@ func league(cfg pong.Config) (*pong.League, error) {
 	if err != nil {
 		return nil, err
 	}
+	tournaments, err := onOff("PONG_TOURNAMENTS")
+	if err != nil {
+		return nil, err
+	}
 	return &pong.League{
-		Token:    token,
-		Operator: env("PONG_OPERATOR", defaultLeagueOperator),
-		Skills:   skills,
-		Pause:    pause,
-		Roster:   roster,
+		Token:       token,
+		Operator:    env("PONG_OPERATOR", defaultLeagueOperator),
+		Skills:      skills,
+		Pause:       pause,
+		Roster:      roster,
+		Tournaments: tournaments,
 	}, nil
+}
+
+// onOff reads a switch that is off unless set to on. Anything else is refused
+// rather than read as off: a typo in the sandbox's manifest would otherwise
+// look like a tournament nobody plays.
+func onOff(key string) (bool, error) {
+	switch raw := os.Getenv(key); raw {
+	case "", "off":
+		return false, nil
+	case "on":
+		return true, nil
+	default:
+		return false, fmt.Errorf("%s %q: want on or off", key, raw)
+	}
 }
 
 // duration reads a positive duration, or the fallback when the variable is
