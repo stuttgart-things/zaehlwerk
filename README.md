@@ -14,6 +14,11 @@ piezo ────┘                   ├──> zaehlwerk-api ──┬──
 phone ────────────────────────┘                    └──> Schmetterpause (result)
 ```
 
+How this sits among the rest of the table — the router, the edge box, the
+gateways and their names, the boards, the panel and Schmetterpause, with ports
+and what is still planned — is drawn on one page in harvester:
+[the table tennis landscape](https://stuttgart-things.github.io/harvester/docs/edge/landscape/).
+
 ## Why a separate service
 
 The running score has three consumers that must not disagree, and the point
