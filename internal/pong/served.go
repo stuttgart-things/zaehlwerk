@@ -15,6 +15,18 @@ import (
 // game is as fast to watch as one in the browser.
 const servedTick = time.Second / 60
 
+// MaxCourtSpeed bounds Config.CourtSpeed. Ten times is a tick every 1.7 ms,
+// which is about as fast as a page following the relay still draws.
+const MaxCourtSpeed = 10
+
+// courtTickFor is the tick a court runs at speed times real time.
+func courtTickFor(speed float64) time.Duration {
+	if speed <= 1 {
+		return servedTick
+	}
+	return time.Duration(float64(servedTick) / min(speed, MaxCourtSpeed))
+}
+
 // served is the driver of a game the service plays itself (ADR-0014): two bots
 // on the court of web/game.js, ported to Go. It plays only while the game asks
 // it for the next press, as the page plays on while its press is answered, and

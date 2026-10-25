@@ -1665,6 +1665,7 @@ wrong half must report exactly that.
 | `PONG_OPERATOR` | `Pong` | League mode: the display name of the account named as counting every match, the observer the sandbox's seed creates |
 | `PONG_PLAYER_SKILL` | none | League mode: a strength per display name, `name=preset` or `name=share`, comma-separated, e.g. `Ada=schwer,Bert=0.2`. A share is above 0 and at most 0.55. Anything else stops the service at startup |
 | `PONG_LEAGUE_PAUSE` | `30s` | League mode: the wait after a match, and after a start that did not happen. Longer than zaehlwerk's `SCHMETTERPAUSE_REPORT_DELAY` |
+| `PONG_COURT_SPEED` | `1` | How many times faster than real time a served game's court runs, from 1 to 10: the same rallies, sooner. A demo in front of a screen wants a match in minutes; a game watched at `/play/{id}` runs as fast. Anything else stops the service at startup |
 | `PONG_TOURNAMENTS` | `off` | League mode: `on` plays the open places of Schmetterpause's tournaments, oldest tournament first, before random pairs (ADR-0017). Anything but `on` or `off` stops the service at startup |
 
 Every duration is a Go duration and must be above zero; anything else stops
