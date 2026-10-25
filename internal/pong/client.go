@@ -82,50 +82,65 @@ func NewClient(base string, log *slog.Logger) *Client {
 // real match that zaehlwerk reports to Schmetterpause, and zaehlwerk takes them
 // only with MATCHES_TOKEN (ADR-0015). Anywhere else the game sends none, and
 // what it plays is reported nowhere (ADR-0006).
+//
+// A tournament match also names its place and plays to the tournament's
+// points (ADR-0017). Zero points is zaehlwerk's default, eleven.
 type createBody struct {
-	Players    [2]string `json:"players"`
-	BestOf     int       `json:"best_of"`
-	Start      string    `json:"start"`
-	ChangeEnds bool      `json:"change_ends"`
-	Demo       bool      `json:"demo"`
-	HomeID     string    `json:"home_id,omitempty"`
-	AwayID     string    `json:"away_id,omitempty"`
-	OperatorID string    `json:"operator_id,omitempty"`
+	Players      [2]string `json:"players"`
+	BestOf       int       `json:"best_of"`
+	PointsPerSet int       `json:"points_per_set,omitempty"`
+	Start        string    `json:"start"`
+	ChangeEnds   bool      `json:"change_ends"`
+	Demo         bool      `json:"demo"`
+	HomeID       string    `json:"home_id,omitempty"`
+	AwayID       string    `json:"away_id,omitempty"`
+	OperatorID   string    `json:"operator_id,omitempty"`
+	TournamentID string    `json:"tournament_id,omitempty"`
+	Round        int       `json:"round,omitempty"`
 }
 
 // Handover is who a league match is between, by Schmetterpause id, and who is
-// named as counting it (ADR-0015).
+// named as counting it (ADR-0015). A tournament match carries its place as
+// well (ADR-0017).
 type Handover struct {
-	HomeID     string `json:"home_id"`
-	AwayID     string `json:"away_id"`
-	OperatorID string `json:"operator_id"`
+	HomeID       string `json:"home_id"`
+	AwayID       string `json:"away_id"`
+	OperatorID   string `json:"operator_id"`
+	TournamentID string `json:"tournament_id,omitempty"`
+	Round        int    `json:"round,omitempty"`
 }
 
 // CreateMatch starts a match the way it starts at the table: a warm-up, the
 // rally for the serve, and a change of ends after every set and at five in the
 // deciding one. Not retried: a second POST would be a second match.
 func (c *Client) CreateMatch(ctx context.Context, players [2]string, bestOf int) (scorer.State, error) {
-	return c.create(ctx, players, bestOf, nil)
+	return c.create(ctx, players, bestOf, 0, nil)
 }
 
 // CreateLeagueMatch starts a league match: the same start as any other, with
 // the players' and the operator's ids, behind MATCHES_TOKEN, and no demo flag.
 // zaehlwerk reports it when it is won.
-func (c *Client) CreateLeagueMatch(ctx context.Context, players [2]string, bestOf int, h Handover) (scorer.State, error) {
-	return c.create(ctx, players, bestOf, &h)
+func (c *Client) CreateLeagueMatch(ctx context.Context, players [2]string, bestOf, pointsPerSet int,
+	h Handover,
+) (scorer.State, error) {
+	return c.create(ctx, players, bestOf, pointsPerSet, &h)
 }
 
-func (c *Client) create(ctx context.Context, players [2]string, bestOf int, h *Handover) (scorer.State, error) {
+func (c *Client) create(ctx context.Context, players [2]string, bestOf, pointsPerSet int,
+	h *Handover,
+) (scorer.State, error) {
 	body := createBody{
-		Players:    players,
-		BestOf:     bestOf,
-		Start:      string(scorer.StartWarmup),
-		ChangeEnds: true,
-		Demo:       h == nil,
+		Players:      players,
+		BestOf:       bestOf,
+		PointsPerSet: pointsPerSet,
+		Start:        string(scorer.StartWarmup),
+		ChangeEnds:   true,
+		Demo:         h == nil,
 	}
 	bearer := ""
 	if h != nil {
 		body.HomeID, body.AwayID, body.OperatorID = h.HomeID, h.AwayID, h.OperatorID
+		body.TournamentID, body.Round = h.TournamentID, h.Round
 		bearer = c.matchesToken
 	}
 	st, status, err := c.call(ctx, c.http, http.MethodPost, "/matches", body, bearer)

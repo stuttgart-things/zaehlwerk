@@ -88,6 +88,65 @@ func TestAWonMatchIsReported(t *testing.T) {
 	require.Equal(t, [][2]int{{11, 0}, {11, 0}}, got.Sets)
 }
 
+func TestATournamentMatchIsReportedWithItsPlace(t *testing.T) {
+	var raw map[string]any
+	registry, _, wg := reporterHarness(t, func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&raw))
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"match_id":"sp-t","status":"confirmed"}`))
+	})
+
+	m, _, err := registry.CreateFor(scorer.Config{BestOf: 3, PointsPerSet: 11},
+		match.Setup{Handover: match.Handover{HomeID: "h", AwayID: "a", OperatorID: "o", TournamentID: "t", Round: 4}})
+	require.NoError(t, err)
+	playOut(t, m)
+	wg.Wait()
+
+	require.True(t, m.Report().Done)
+	require.Equal(t, "t", raw["tournament_id"])
+	require.EqualValues(t, 4, raw["round"])
+}
+
+// Schmetterpause refuses fields it does not know, so a match without a place
+// sends none: a Schmetterpause from before tournaments keeps taking it.
+func TestAMatchWithoutAPlaceSendsNoTournamentFields(t *testing.T) {
+	var raw map[string]any
+	registry, _, wg := reporterHarness(t, func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&raw))
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"match_id":"sp-c","status":"pending"}`))
+	})
+
+	m, _, err := registry.CreateFor(scorer.Config{BestOf: 3, PointsPerSet: 11},
+		match.Setup{Handover: match.Handover{HomeID: "h", AwayID: "a", OperatorID: "o"}})
+	require.NoError(t, err)
+	playOut(t, m)
+	wg.Wait()
+
+	require.NotContains(t, raw, "tournament_id")
+	require.NotContains(t, raw, "round")
+}
+
+// A place filled meanwhile, at the kiosk or by another table, is a refusal
+// like any other: recorded on the match with Schmetterpause's sentence, not
+// taken for a delivery.
+func TestATournamentPlaceFilledMeanwhileIsAFailedReport(t *testing.T) {
+	registry, _, wg := reporterHarness(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"error":"this place already holds a result"}`))
+	})
+
+	m, _, err := registry.CreateFor(scorer.Config{BestOf: 3, PointsPerSet: 11},
+		match.Setup{Handover: match.Handover{HomeID: "h", AwayID: "a", OperatorID: "o", TournamentID: "t", Round: 1}})
+	require.NoError(t, err)
+	playOut(t, m)
+	wg.Wait()
+
+	report := m.Report()
+	require.False(t, report.Done)
+	require.ErrorContains(t, report.Err, "this place already holds a result")
+}
+
 // TestTheRulesReportedAreTheOnesPlayed covers the defaults: a match created
 // without a format still played best of five to eleven, and reporting zeroes
 // would describe a match nobody played.

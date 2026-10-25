@@ -331,6 +331,9 @@ func (r *Reporter) send(ctx context.Context, m *match.Match) error {
 		BestOf:      bestOf,
 		PointsToWin: pointsPerSet,
 		PlayedAt:    &playedAt,
+		// Unchecked here; Schmetterpause checks the place (ADR-0017).
+		TournamentID: m.Handover.TournamentID,
+		Round:        m.Handover.Round,
 	}
 	// One proof, never both: Schmetterpause refuses a result with an
 	// operator and check-ins (ADR-0010).
@@ -357,14 +360,19 @@ func (r *Reporter) send(ctx context.Context, m *match.Match) error {
 		// Loudly, per ADR-0004. The message carries Schmetterpause's own
 		// sentence — which player id is unknown, that the operator is playing —
 		// because that is what somebody at the table can act on.
+		// A tournament result can also find its place filled meanwhile, at
+		// the kiosk or by another table: a 409 with Schmetterpause's
+		// sentence, dropped like any other refusal (ADR-0017).
 		r.log.Error("the result did not reach schmetterpause",
-			"match_id", m.ID, "attempts", m.Report().Attempts, "error", err)
+			"match_id", m.ID, "attempts", m.Report().Attempts, "error", err,
+			"tournament_id", m.Handover.TournamentID, "round", m.Handover.Round)
 		return err
 	}
 
 	m.Reported(accepted.MatchID, st.CompletedSets)
 	r.log.Info("result reported to schmetterpause",
 		"match_id", m.ID, "schmetterpause_match_id", accepted.MatchID,
+		"tournament_id", m.Handover.TournamentID, "round", m.Handover.Round,
 		// Pending is the expected answer during the test phase, and saying it
 		// out loud is what stops somebody reading a green log as "it counts".
 		"status", accepted.Status)

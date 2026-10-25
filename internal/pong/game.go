@@ -102,6 +102,11 @@ type View struct {
 // browser.
 type GameConfig struct {
 	BestOf int
+	// PointsPerSet is what a set is played to; zero is zaehlwerk's default.
+	// Only a tournament match sets it, to its tournament's (ADR-0017). The
+	// game itself never applies it: it counts rallies, and the sets are
+	// zaehlwerk's (see Truth).
+	PointsPerSet int
 	// Players are the names on the panel; BotNames when empty.
 	Players [2]string
 	// Driver is DriverBots, DriverBrowser, DriverServer or DriverCheck;
@@ -289,7 +294,7 @@ func (g *Game) start(ctx context.Context) error {
 	var st scorer.State
 	var err error
 	if g.cfg.Handover != nil {
-		st, err = g.client.CreateLeagueMatch(ctx, g.cfg.Players, g.cfg.BestOf, *g.cfg.Handover)
+		st, err = g.client.CreateLeagueMatch(ctx, g.cfg.Players, g.cfg.BestOf, g.cfg.PointsPerSet, *g.cfg.Handover)
 	} else {
 		st, err = g.client.CreateMatch(ctx, g.cfg.Players, g.cfg.BestOf)
 	}

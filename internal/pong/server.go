@@ -77,13 +77,20 @@ type League struct {
 	// so the last result is out before the next match starts.
 	Pause  time.Duration
 	Roster LeagueRoster
+	// Tournaments has league mode play the open places of Schmetterpause's
+	// tournaments before it draws a random pair (ADR-0017),
+	// PONG_TOURNAMENTS=on.
+	Tournaments bool
 }
 
 // LeagueRoster is the half of the Schmetterpause client league mode needs:
-// who can play, and who can be named as counting.
+// who can play, who can be named as counting, and which tournament places are
+// open.
 type LeagueRoster interface {
 	Roster
 	Operators(ctx context.Context) ([]schmetterpause.Operator, error)
+	Tournaments(ctx context.Context) ([]schmetterpause.Tournament, error)
+	Pairings(ctx context.Context, tournamentID string) ([]schmetterpause.Place, error)
 }
 
 // Roster is the half of the Schmetterpause client the lobby needs.

@@ -128,6 +128,24 @@ func TestLeagueModeIsOnWithTheTokenAndSchmetterpause(t *testing.T) {
 	require.Equal(t, 30*time.Second, cfg.League.Pause, "outlasts zaehlwerk's 15s grace period")
 	require.Equal(t, "schwer", cfg.League.Skills["Ada"].Name)
 	require.Equal(t, 0.2, cfg.League.Skills["Bert"].Miss)
+	require.False(t, cfg.League.Tournaments, "tournaments wait for PONG_TOURNAMENTS")
+}
+
+func TestPongTournamentsIsOnOrOffAndNothingElse(t *testing.T) {
+	t.Setenv("ZAEHLWERK_TOKEN", "matches-secret")
+	t.Setenv("SCHMETTERPAUSE_URL", "http://sp.invalid")
+	t.Setenv("SCHMETTERPAUSE_TOKEN", "sp-secret")
+
+	for raw, want := range map[string]bool{"on": true, "off": false, "": false} {
+		t.Setenv("PONG_TOURNAMENTS", raw)
+		cfg, err := config()
+		require.NoError(t, err)
+		require.Equal(t, want, cfg.League.Tournaments, "PONG_TOURNAMENTS=%q", raw)
+	}
+
+	t.Setenv("PONG_TOURNAMENTS", "true")
+	_, err := config()
+	require.ErrorContains(t, err, `PONG_TOURNAMENTS "true": want on or off`)
 }
 
 func TestLeagueModeNextToAttractModeIsRefusedAtStartup(t *testing.T) {

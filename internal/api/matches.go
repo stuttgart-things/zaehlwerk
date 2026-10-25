@@ -36,6 +36,11 @@ type createRequest struct {
 	HomeID     string `json:"home_id"`
 	AwayID     string `json:"away_id"`
 	OperatorID string `json:"operator_id"`
+	// TournamentID and Round name a place in a Schmetterpause draw, both or
+	// neither, and only next to the three ids above (ADR-0017). zaehlwerk
+	// passes them on with the result and checks nothing about the place.
+	TournamentID string `json:"tournament_id"`
+	Round        int    `json:"round"`
 }
 
 // errHandoverOff is the answer to a body with an id while MATCHES_TOKEN or
@@ -50,7 +55,8 @@ var errHandoverToken = errors.New("a match with player ids needs the matches tok
 
 // names reports whether the body names anybody by id.
 func (req createRequest) names() bool {
-	return req.HomeID != "" || req.AwayID != "" || req.OperatorID != ""
+	return req.HomeID != "" || req.AwayID != "" || req.OperatorID != "" ||
+		req.TournamentID != "" || req.Round != 0
 }
 
 // handover checks the ids for their shape only. Whether they are players,
@@ -73,7 +79,22 @@ func (req createRequest) handover() (match.Handover, error) {
 	if ids[0] == ids[1] {
 		return match.Handover{}, errors.New("home_id and away_id must differ")
 	}
-	return match.Handover{HomeID: ids[0], AwayID: ids[1], OperatorID: ids[2]}, nil
+	h := match.Handover{HomeID: ids[0], AwayID: ids[1], OperatorID: ids[2]}
+
+	if (req.TournamentID == "") != (req.Round == 0) {
+		return match.Handover{}, errors.New("tournament_id and round go together")
+	}
+	if req.TournamentID != "" {
+		id, err := checkin.CanonicalUUID(req.TournamentID)
+		if err != nil {
+			return match.Handover{}, fmt.Errorf("tournament_id: %w", err)
+		}
+		if req.Round < 1 {
+			return match.Handover{}, errors.New("round counts from 1")
+		}
+		h.TournamentID, h.Round = id, req.Round
+	}
+	return h, nil
 }
 
 // firstServerRally is the first_server value that asks for a serve rally,
