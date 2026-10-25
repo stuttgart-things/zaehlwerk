@@ -43,7 +43,7 @@ services:
     # Kept equal to the pin in schmetterpause's compose.yaml, so the chain
     # runs against what that repository runs. Written out in both services
     # rather than through an anchor, so renovate sees and bumps each.
-    image: ghcr.io/stuttgart-things/schmetterpause:v0.17.0
+    image: ghcr.io/stuttgart-things/schmetterpause:v0.18.0
     environment:
       <<: *db-url
       SP_LOG_LEVEL: ${SP_LOG_LEVEL:-info}
@@ -80,7 +80,7 @@ services:
   # what starts it — after the app, whose start applies the migrations the
   # seed writes into.
   seed:
-    image: ghcr.io/stuttgart-things/schmetterpause:v0.17.0
+    image: ghcr.io/stuttgart-things/schmetterpause:v0.18.0
     profiles: [seed]
     command: ["seed"]
     environment:
