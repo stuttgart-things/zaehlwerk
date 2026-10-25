@@ -1769,6 +1769,7 @@ base whose removal can prune somebody else's panel.
 | [0014](docs/adr/0014-bot-games-played-by-the-service.md) | Bot games played by the service: the physics in Go, every tab only watches through the relay |
 | [0015](docs/adr/0015-pong-plays-reported-matches.md) | Pong plays reported matches in a sandbox: `POST /matches` takes a handover behind `MATCHES_TOKEN`, bot players have strengths of their own (proposed) |
 | [0016](docs/adr/0016-the-sandbox-on-the-office-panel.md) | The sandbox on the office panel: its own stream among the idle streams, never a catcher switch (proposed) |
+| [0017](docs/adr/0017-tournament-matches-through-zaehlwerk.md) | Tournament matches through zaehlwerk: the handover carries a tournament slot, Pong plays open places before random pairs (proposed) |
 
 ## Related
 
