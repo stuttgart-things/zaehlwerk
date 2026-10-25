@@ -98,6 +98,11 @@ type Result struct {
 	BestOf        int        `json:"best_of"`
 	PointsToWin   int        `json:"points_to_win"`
 	PlayedAt      *time.Time `json:"played_at,omitempty"`
+	// TournamentID and Round are the place in a draw, sent only when the
+	// match has one (ADR-0017). Schmetterpause refuses unknown fields, so a
+	// Schmetterpause from before its ADR-0028 still takes every other result.
+	TournamentID string `json:"tournament_id,omitempty"`
+	Round        int    `json:"round,omitempty"`
 }
 
 // Accepted is what Schmetterpause says about a result it stored.

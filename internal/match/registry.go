@@ -76,6 +76,12 @@ type Handover struct {
 	// right half, so home's is a's and away's is b's (ADR-0005).
 	HomeCheckinID string
 	AwayCheckinID string
+	// TournamentID and Round are the place in a Schmetterpause draw this match
+	// fills, both or neither, and only with the two players (ADR-0017).
+	// Carried to the report unchecked: whether the place is open is
+	// Schmetterpause's to say, when the result arrives.
+	TournamentID string
+	Round        int
 }
 
 // Wanted reports whether this match is meant to be reported.

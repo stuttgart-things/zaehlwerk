@@ -132,3 +132,68 @@ func TestADemoWithPlayerIdsIsStillRefused(t *testing.T) {
 	_, ok := c.registry.Occupied()
 	require.False(t, ok)
 }
+
+// tournamentID is a place's tournament in Schmetterpause.
+const tournamentID = "99999999-9999-4999-8999-999999999999"
+
+func tournamentBody(round int) string {
+	return fmt.Sprintf(`{"players":["Clara","Dora"],"home_id":%q,"away_id":%q,"operator_id":%q,"tournament_id":%q,"round":%d}`,
+		claraID, doraID, pongOperatorID, tournamentID, round)
+}
+
+func TestAHandoverCarriesItsTournamentPlace(t *testing.T) {
+	c := handoverClient(t)
+	c.bearer = matchesToken
+
+	m, err := c.registry.Get(c.newMatch(tournamentBody(3)))
+	require.NoError(t, err)
+	require.Equal(t, match.Handover{
+		HomeID: claraID, AwayID: doraID, OperatorID: pongOperatorID,
+		TournamentID: tournamentID, Round: 3,
+	}, m.Handover)
+	require.True(t, m.Handover.Wanted())
+}
+
+func TestATournamentPlaceComesWholeAndOnlyWithThePlayers(t *testing.T) {
+	cases := map[string]struct{ body, want string }{
+		"a place without players": {
+			`{"tournament_id":"` + tournamentID + `","round":1}`,
+			"home_id, away_id and operator_id go together",
+		},
+		"a tournament without a round": {
+			`{"home_id":"` + claraID + `","away_id":"` + doraID + `","operator_id":"` + pongOperatorID +
+				`","tournament_id":"` + tournamentID + `"}`,
+			"tournament_id and round go together",
+		},
+		"a round without a tournament": {
+			`{"home_id":"` + claraID + `","away_id":"` + doraID + `","operator_id":"` + pongOperatorID + `","round":2}`,
+			"tournament_id and round go together",
+		},
+		"round below one": {tournamentBody(-1), "round counts from 1"},
+		"not a UUID": {
+			`{"home_id":"` + claraID + `","away_id":"` + doraID + `","operator_id":"` + pongOperatorID +
+				`","tournament_id":"montag","round":1}`,
+			"tournament_id: must be a UUID",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := handoverClient(t)
+			c.bearer = matchesToken
+
+			body := c.failure(http.StatusBadRequest, http.MethodPost, "/matches", tc.body)
+			require.Equal(t, tc.want, body.Error)
+		})
+	}
+}
+
+// A place is part of the handover, so it is behind the same door: without the
+// token it starts nothing, even with no player ids beside it.
+func TestATournamentPlaceWithoutTheMatchesTokenStartsNothing(t *testing.T) {
+	c := handoverClient(t)
+
+	rec, raw := c.do(http.MethodPost, "/matches", `{"tournament_id":"`+tournamentID+`","round":1}`)
+	require.Equalf(t, http.StatusUnauthorized, rec.Code, "%s", raw)
+	_, ok := c.registry.Occupied()
+	require.False(t, ok)
+}
