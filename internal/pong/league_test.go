@@ -300,7 +300,7 @@ func tournamentRoster() *fakeRoster {
 	r.places = map[string][]schmetterpause.Place{
 		mondayID: {
 			{Round: 2, HomeID: bertID, AwayID: adaID, HomeName: "Bert", AwayName: "Ada"},
-			{Round: 3, HomeID: adaID, AwayID: bertID, HomeName: "Ada", AwayName: "Bert"},
+			{Round: 3, Final: true, HomeID: adaID, AwayID: bertID, HomeName: "Ada", AwayName: "Bert"},
 		},
 		tuesdayID: {
 			{Round: 1, HomeID: adaID, AwayID: bertID, HomeName: "Ada", AwayName: "Bert"},
@@ -407,4 +407,14 @@ func TestLeagueModePlaysATournamentThroughBeforeTheLeague(t *testing.T) {
 		return len(rounds) >= 3
 	}, 30*time.Second, 10*time.Millisecond)
 	require.Equal(t, []int{2, 3, 0}, rounds[:3], "both places of Montag, then a league match")
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, g := range p.games {
+		if g.cfg.Handover != nil && g.cfg.Handover.Round == 3 {
+			m, err := zw.registry.Get(g.matchIDNow())
+			require.NoError(t, err)
+			require.True(t, m.Handover.Final, "the final reaches zaehlwerk as the final")
+		}
+	}
 }

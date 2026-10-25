@@ -197,3 +197,24 @@ func TestATournamentPlaceWithoutTheMatchesTokenStartsNothing(t *testing.T) {
 	_, ok := c.registry.Occupied()
 	require.False(t, ok)
 }
+
+func TestAFinalPlaceSaysSoOnTheHandover(t *testing.T) {
+	c := handoverClient(t)
+	c.bearer = matchesToken
+
+	body := fmt.Sprintf(`{"home_id":%q,"away_id":%q,"operator_id":%q,"tournament_id":%q,"round":7,"final":true}`,
+		claraID, doraID, pongOperatorID, tournamentID)
+	m, err := c.registry.Get(c.newMatch(body))
+	require.NoError(t, err)
+	require.True(t, m.Handover.Final)
+	require.Equal(t, 7, m.Handover.Round)
+}
+
+func TestAFinalWithoutATournamentIsRefused(t *testing.T) {
+	c := handoverClient(t)
+	c.bearer = matchesToken
+
+	body := fmt.Sprintf(`{"home_id":%q,"away_id":%q,"operator_id":%q,"final":true}`, claraID, doraID, pongOperatorID)
+	failure := c.failure(http.StatusBadRequest, http.MethodPost, "/matches", body)
+	require.Equal(t, "final needs tournament_id and round", failure.Error)
+}

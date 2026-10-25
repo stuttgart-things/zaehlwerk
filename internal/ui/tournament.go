@@ -159,6 +159,6 @@ func (s *Server) tournamentMatch(ctx context.Context, form url.Values, cfg score
 	cfg.Players = [2]string{place.HomeName, place.AwayName}
 	return cfg, match.Handover{
 		HomeID: place.HomeID, AwayID: place.AwayID, OperatorID: operator,
-		TournamentID: tour.ID, Round: place.Round,
+		TournamentID: tour.ID, Round: place.Round, Final: place.Final,
 	}, nil
 }

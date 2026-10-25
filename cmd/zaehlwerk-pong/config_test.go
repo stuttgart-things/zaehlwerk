@@ -165,3 +165,17 @@ func TestABadPlayerSkillIsRefusedAtStartup(t *testing.T) {
 	_, err := config()
 	require.ErrorContains(t, err, "PONG_PLAYER_SKILL")
 }
+
+func TestPongCourtSpeedIsAFactorFromOneToTen(t *testing.T) {
+	for raw, want := range map[string]float64{"": 0, "1": 1, "3": 3, "2.5": 2.5, "10": 10} {
+		t.Setenv("PONG_COURT_SPEED", raw)
+		cfg, err := config()
+		require.NoError(t, err, "PONG_COURT_SPEED=%q", raw)
+		require.Equal(t, want, cfg.CourtSpeed, "PONG_COURT_SPEED=%q", raw)
+	}
+	for _, raw := range []string{"0", "0.5", "11", "fast"} {
+		t.Setenv("PONG_COURT_SPEED", raw)
+		_, err := config()
+		require.ErrorContains(t, err, "PONG_COURT_SPEED", raw)
+	}
+}

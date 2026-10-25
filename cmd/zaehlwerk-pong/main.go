@@ -74,7 +74,7 @@ func run() error {
 		"skills", []string{cfg.Skills[0].Name, cfg.Skills[1].Name}, "faults", cfg.Faults, "seed", cfg.Seed,
 		"attract_after", cfg.AttractAfter.String(), "attract_pace", cfg.AttractPace.String(),
 		"browser_idle", cfg.BrowserIdle.String(), "check_timeout", cfg.CheckTimeout.String(),
-		"version", cfg.Build.Version)
+		"court_speed", max(cfg.CourtSpeed, 1), "version", cfg.Build.Version)
 
 	if cfg.AttractAfter == 0 {
 		log.Info("attract mode disabled, PONG_ATTRACT_AFTER not configured")
@@ -181,6 +181,13 @@ func config() (pong.Config, error) {
 	}
 	if cfg.CheckTimeout, err = duration("PONG_CHECK_TIMEOUT", defaultCheckTimeout); err != nil {
 		return cfg, err
+	}
+	if raw := os.Getenv("PONG_COURT_SPEED"); raw != "" {
+		speed, err := strconv.ParseFloat(raw, 64)
+		if err != nil || speed < 1 || speed > pong.MaxCourtSpeed {
+			return cfg, fmt.Errorf("PONG_COURT_SPEED %q: want a number from 1 to %d", raw, pong.MaxCourtSpeed)
+		}
+		cfg.CourtSpeed = speed
 	}
 
 	// The lobby's names. The same two variables zaehlwerk reads, and the

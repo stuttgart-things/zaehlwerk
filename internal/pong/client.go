@@ -97,6 +97,7 @@ type createBody struct {
 	OperatorID   string    `json:"operator_id,omitempty"`
 	TournamentID string    `json:"tournament_id,omitempty"`
 	Round        int       `json:"round,omitempty"`
+	Final        bool      `json:"final,omitempty"`
 }
 
 // Handover is who a league match is between, by Schmetterpause id, and who is
@@ -108,6 +109,7 @@ type Handover struct {
 	OperatorID   string `json:"operator_id"`
 	TournamentID string `json:"tournament_id,omitempty"`
 	Round        int    `json:"round,omitempty"`
+	Final        bool   `json:"final,omitempty"`
 }
 
 // CreateMatch starts a match the way it starts at the table: a warm-up, the
@@ -140,7 +142,7 @@ func (c *Client) create(ctx context.Context, players [2]string, bestOf, pointsPe
 	bearer := ""
 	if h != nil {
 		body.HomeID, body.AwayID, body.OperatorID = h.HomeID, h.AwayID, h.OperatorID
-		body.TournamentID, body.Round = h.TournamentID, h.Round
+		body.TournamentID, body.Round, body.Final = h.TournamentID, h.Round, h.Final
 		bearer = c.matchesToken
 	}
 	st, status, err := c.call(ctx, c.http, http.MethodPost, "/matches", body, bearer)

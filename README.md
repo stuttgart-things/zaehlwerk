@@ -154,7 +154,8 @@ the place is still open, and the pairing right, Schmetterpause decides when
 the result arrives. Its mode is the tournament's, so the body sets `best_of`
 and `points_per_set` to the tournament's `best_of` and `points_to_win`;
 Schmetterpause refuses a result in another mode. A UUID and a round from 1, or
-400.
+400. `"final": true` marks the place as the final, for the panel's `final=1`
+tag only; it needs the tournament and the round.
 
 ```bash
 curl -s -X POST localhost:8080/matches -H "authorization: Bearer $MATCHES_TOKEN" \
@@ -679,10 +680,23 @@ needs to draw the whole match instead of the title alone:
 | `played` | finished sets, space-separated: `11-8 9-11` — absent before the first |
 | `phase` | `warmup`, `serve_rally`, `playing`, `change_ends`, `complete` (ADR-0005) |
 | `ends` | who stands at the left and the right half, `b:a` after a change of ends |
-| `demo` | `1` on a demo match, always the last tag (ADR-0008) — absent on a real one, so a display rule can label or hide a demo without learning any table tennis |
+| `demo` | `1` on a demo match (ADR-0008) — absent on a real one, so a display rule can label or hide a demo without learning any table tennis |
+
+Last come what the match around the transition says, which the score alone
+does not. Each is absent when it does not apply:
+
+| Tag | Value |
+| --- | ----- |
+| `stake`, `stake_side` | `set_point` or `match_point`, and `a` or `b`: what the next point decides and who holds it. Absent outside play and once the match is over |
+| `tournament`, `round` | `1` and the round, on a match that fills a place in a Schmetterpause draw (ADR-0017) |
+| `final` | `1` on the tournament's final |
+
+A light at the table pulses on the side that holds a match point, or makes
+more of a won final than of a won group match, from these alone (invariant 7).
 
 ```
 match=36c17b30,set=3,transition=point,side=b,points=5:10,sets=1:1,serve=b,player_a=Anna,player_b=Bernd,played=11-8 9-11,phase=playing,ends=a:b
+match=36c17b30,set=3,transition=point,side=b,points=5:10,…,ends=a:b,stake=match_point,stake_side=b,tournament=1,round=7,final=1
 ```
 
 Who serves is said here because the rules are here: the catcher draws the
@@ -1651,6 +1665,7 @@ wrong half must report exactly that.
 | `PONG_OPERATOR` | `Pong` | League mode: the display name of the account named as counting every match, the observer the sandbox's seed creates |
 | `PONG_PLAYER_SKILL` | none | League mode: a strength per display name, `name=preset` or `name=share`, comma-separated, e.g. `Ada=schwer,Bert=0.2`. A share is above 0 and at most 0.55. Anything else stops the service at startup |
 | `PONG_LEAGUE_PAUSE` | `30s` | League mode: the wait after a match, and after a start that did not happen. Longer than zaehlwerk's `SCHMETTERPAUSE_REPORT_DELAY` |
+| `PONG_COURT_SPEED` | `1` | How many times faster than real time a served game's court runs, from 1 to 10: the same rallies, sooner. A demo in front of a screen wants a match in minutes; a game watched at `/play/{id}` runs as fast. Anything else stops the service at startup |
 | `PONG_TOURNAMENTS` | `off` | League mode: `on` plays the open places of Schmetterpause's tournaments, oldest tournament first, before random pairs (ADR-0017). Anything but `on` or `off` stops the service at startup |
 
 Every duration is a Go duration and must be above zero; anything else stops

@@ -82,6 +82,10 @@ type Handover struct {
 	// Schmetterpause's to say, when the result arrives.
 	TournamentID string
 	Round        int
+	// Final says the place is the tournament's final. Only for the panel and
+	// the lights (a `final=1` tag): Schmetterpause knows its final by the
+	// round, so the report does not send it.
+	Final bool
 }
 
 // Wanted reports whether this match is meant to be reported.

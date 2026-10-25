@@ -57,7 +57,13 @@ type Config struct {
 	// League turns on league mode (ADR-0015), nil off: in the sandbox only,
 	// where zaehlwerk takes player ids.
 	League *League
-	Build  BuildInfo
+	// CourtSpeed runs a served game's court that many times faster than the
+	// page's 60 frames a second; zero or one is real time. A demo in front of
+	// a TV wants a match in minutes, not in a quarter of an hour, and the
+	// court's physics count ticks, not seconds, so the game plays the same
+	// rallies, only sooner.
+	CourtSpeed float64
+	Build      BuildInfo
 }
 
 // League is league mode: one real match after another between Schmetterpause
@@ -163,7 +169,7 @@ func New(cfg Config, log *slog.Logger) *Server {
 		games:     make(map[string]*Game),
 		heartbeat: DefaultHeartbeat,
 		idle:      cfg.BrowserIdle,
-		tick:      servedTick,
+		tick:      courtTickFor(cfg.CourtSpeed),
 		now:       time.Now,
 	}
 	s.mux.HandleFunc("GET /healthz", s.healthz)

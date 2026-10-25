@@ -134,8 +134,9 @@ func New(p Pitcher, cfg Config) *Sink {
 // pitch is one transition on its way to the panel, with what the panel says
 // about its match beyond the score.
 type pitch struct {
-	t    scorer.Transition
-	demo bool
+	t     scorer.Transition
+	demo  bool
+	match Match
 }
 
 // Observe is the scorer observer. Register it with [match.WithMatchObserver]:
@@ -157,8 +158,16 @@ func (s *Sink) Observe(m *match.Match, t scorer.Transition) {
 	}
 
 	// Demo is fixed when the match is created, so it is read here without a
-	// lock and travels with the transition.
+	// lock and travels with the transition. So is the tournament place. The
+	// stake is asked of the scorer whose lock this runs under: Stake reads
+	// only the rules, which never change, and takes no lock of its own.
 	p := pitch{t: t, demo: m != nil && m.Demo}
+	if m != nil {
+		p.match = Match{
+			Tournament: m.Handover.TournamentID != "", Round: m.Handover.Round, Final: m.Handover.Final,
+		}
+		p.match.Stake, p.match.StakeSide = stakeOf(m.Scorer, t.State)
+	}
 	select {
 	case s.queue <- p:
 	default:
@@ -231,6 +240,7 @@ func (s *Sink) pitch(p pitch) {
 
 	t := p.t
 	msg := Message(t, p.demo, s.cfg.System, s.cfg.Author, s.cfg.Now())
+	msg.Tags += MatchTags(p.match)
 	if _, _, err := s.pitcher.Enqueue(ctx, msg, s.cfg.Stream); err != nil {
 		s.failed.Add(1)
 		s.cfg.Logger.Warn("panel pitch failed, point not shown",
@@ -287,10 +297,10 @@ func Message(t scorer.Transition, demo bool, system, author string, now time.Tim
 // ends has to show. Both are left out of a state that has no phase, so a
 // catcher that never heard of them sees the tags it always saw.
 //
-// `demo=1` is the very last, on a demo match only (ADR-0008): a catcher can
+// `demo=1` is the last of these, on a demo match only (ADR-0008): a catcher can
 // label or hide a demo from a display rule without learning anything about
 // table tennis (invariant 7). It is absent from a real match, not `demo=0`, for
-// the same reason as the phase.
+// the same reason as the phase. The sink appends MatchTags after it.
 func Tags(t scorer.Transition, demo bool) string {
 	st := t.State
 	tags := fmt.Sprintf("match=%s,set=%d,transition=%s", st.MatchID, st.SetNumber, t.Kind)
@@ -455,4 +465,56 @@ func winnerName(st scorer.State) string {
 	default:
 		return string(st.Winner)
 	}
+}
+
+// Match is what the sink knows about the match around a transition that the
+// transition itself does not carry: what the next point decides, and the
+// tournament place. It comes from the scorer's rules and the handover, not
+// from the state, which is why it is not in Tags.
+type Match struct {
+	// Stake is "set_point" or "match_point" when the next point decides the
+	// set or the match, empty otherwise; StakeSide is who holds it.
+	Stake     string
+	StakeSide scorer.Player
+	// Tournament, Round and Final are the handover's place (ADR-0017).
+	Tournament bool
+	Round      int
+	Final      bool
+}
+
+// stakeOf asks the scorer what the next point decides at st.
+func stakeOf(s *scorer.Scorer, st scorer.State) (string, scorer.Player) {
+	p, match := s.Stake(st)
+	switch {
+	case p == "":
+		return "", ""
+	case match:
+		return "match_point", p
+	default:
+		return "set_point", p
+	}
+}
+
+// MatchTags is the tags of m, each with its leading comma, to go after Tags.
+// They come last, after `demo=1`, so every rule written against the tags
+// before them still matches.
+//
+// A light at the table pulses on the side that holds a set or match point
+// (`stake=match_point,stake_side=a`) and makes more of a won tournament match,
+// and most of the final (`tournament=1,round=7,final=1`), without learning any
+// table tennis (invariant 7). Each is absent rather than empty when it does
+// not apply, like the phase: a rule asking for it cannot be met by a
+// transition without it.
+func MatchTags(m Match) string {
+	var tags string
+	if m.Stake != "" {
+		tags += ",stake=" + m.Stake + ",stake_side=" + string(m.StakeSide)
+	}
+	if m.Tournament {
+		tags += fmt.Sprintf(",tournament=1,round=%d", m.Round)
+		if m.Final {
+			tags += ",final=1"
+		}
+	}
+	return tags
 }

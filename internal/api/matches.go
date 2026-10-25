@@ -41,6 +41,9 @@ type createRequest struct {
 	// passes them on with the result and checks nothing about the place.
 	TournamentID string `json:"tournament_id"`
 	Round        int    `json:"round"`
+	// Final marks the place as the tournament's final, for the panel's tags.
+	// Only with tournament_id and round.
+	Final bool `json:"final"`
 }
 
 // errHandoverOff is the answer to a body with an id while MATCHES_TOKEN or
@@ -56,7 +59,7 @@ var errHandoverToken = errors.New("a match with player ids needs the matches tok
 // names reports whether the body names anybody by id.
 func (req createRequest) names() bool {
 	return req.HomeID != "" || req.AwayID != "" || req.OperatorID != "" ||
-		req.TournamentID != "" || req.Round != 0
+		req.TournamentID != "" || req.Round != 0 || req.Final
 }
 
 // handover checks the ids for their shape only. Whether they are players,
@@ -94,6 +97,10 @@ func (req createRequest) handover() (match.Handover, error) {
 		}
 		h.TournamentID, h.Round = id, req.Round
 	}
+	if req.Final && h.TournamentID == "" {
+		return match.Handover{}, errors.New("final needs tournament_id and round")
+	}
+	h.Final = req.Final
 	return h, nil
 }
 
