@@ -65,6 +65,17 @@ _secretEnv = [
             secretKeyRef: {name: labels.secretName, key: "CHECKIN_TOKEN", optional: True}
         }
     }
+    # The door for a match with player ids (ADR-0015), which the sandbox's
+    # Pong plays through. Never in the ExternalSecret: only a sandbox sets it,
+    # and there the Secret is written by hand or by its deployment. Read here
+    # anyway, so such a Secret reaches the container without a patch -- until
+    # now Flux and Argo CD each added this entry themselves.
+    {
+        name: "MATCHES_TOKEN"
+        valueFrom: {
+            secretKeyRef: {name: labels.secretName, key: "MATCHES_TOKEN", optional: True}
+        }
+    }
 ] if labels.renderSecret else []
 
 # Where the cluster CA bundle is mounted, and what Go is told to read. A
