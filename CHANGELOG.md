@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.34.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.33.0...v0.34.0) (2026-10-25)
+
+
+### Features
+
+* panel tags for stake and tournament place, and a faster Pong court ([#183](https://github.com/stuttgart-things/zaehlwerk/issues/183)) ([8612eaf](https://github.com/stuttgart-things/zaehlwerk/commit/8612eaf8fdd0c942cea186bcf8eccccd90c48033))
+
 ## [0.33.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.32.0...v0.33.0) (2026-10-25)
 
 
