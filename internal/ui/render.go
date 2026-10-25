@@ -49,6 +49,13 @@ type view struct {
 	// Operators is who may keep score: the players plus the observers, who
 	// never play and so are never in Roster. Observers come first.
 	Operators []RosterPlayer
+	// Tournaments is the open places of Schmetterpause's open tournaments,
+	// for a tournament match (ADR-0017). Empty when none has a place left,
+	// and when the Schmetterpause behind the roster knows no tournaments.
+	Tournaments []tournamentView
+	// TournamentErr says why the places are missing. The ordinary form still
+	// works, so it is said in the tournament card only.
+	TournamentErr string
 	// ReportsTo is the Schmetterpause base URL, empty when the coupling is off.
 	ReportsTo string
 	// Follow is set on a page opened without ?match, the scoring page as

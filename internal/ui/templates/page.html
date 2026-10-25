@@ -473,6 +473,10 @@
 
         .fields label { display: flex; flex-direction: column; gap: 0.25rem; }
 
+        /* The place of a tournament match names the round and both players,
+           which half a phone's width cuts off after the first name. */
+        .fields .wide { grid-column: 1 / -1; }
+
         /* 16px and up, or iOS zooms the whole page in on focus and leaves it
            there. */
         select {
@@ -687,48 +691,47 @@
                         <li>How many sets the match can last; whoever wins more than half of them wins. Best of 5 means three sets won.</li>
                     </ul>
                 </fieldset>
-                <fieldset>
-                    <legend>First serve</legend>
-                    <div class="picks">
-                        <label class="pick"><input type="radio" name="first_server" value="a" checked><span>Left</span></label>
-                        <label class="pick"><input type="radio" name="first_server" value="b"><span>Right</span></label>
-                        {{/* One rally decides it at the table; the winner's side
-                             presses, and that press scores nothing (ADR-0005). */}}
-                        <label class="pick"><input type="radio" name="first_server" value="rally"><span>Play for it</span></label>
-                    </div>
-                    <ul class="hints">
-                        <li><b>Left / Right</b>: that player serves first.</li>
-                        <li><b>Play for it</b>: one rally decides; the winner presses their button and serves first. That press scores no point.</li>
-                    </ul>
-                </fieldset>
-                <fieldset>
-                    <legend>Before the first point</legend>
-                    <div class="picks">
-                        {{/* Both sides press once when they are ready. */}}
-                        <label class="pick"><input type="radio" name="start" value="warmup"><span>Warm-up</span></label>
-                        <label class="pick"><input type="radio" name="start" value="" checked><span>Straight in</span></label>
-                    </div>
-                    <ul class="hints">
-                        <li><b>Warm-up</b>: knock up first; nothing counts until both players have pressed their button once.</li>
-                        <li><b>Straight in</b>: the first press is already a point.</li>
-                    </ul>
-                </fieldset>
-                <fieldset>
-                    <legend>Ends</legend>
-                    <div class="picks">
-                        <label class="pick"><input type="radio" name="change_ends" value="" checked><span>Stay</span></label>
-                        {{/* After every set, and at five in the deciding set; play
-                             waits until each player has pressed at the new half. */}}
-                        <label class="pick"><input type="radio" name="change_ends" value="on"><span>Change</span></label>
-                    </div>
-                    <ul class="hints">
-                        <li><b>Stay</b>: each player keeps their side of the table for the whole match.</li>
-                        <li><b>Change</b>: players swap sides after every set, and at 5 points in the deciding set, as the rules say. Play pauses until both have pressed the button on their new side.</li>
-                    </ul>
-                </fieldset>
+                {{template "matchoptions"}}
                 <button type="submit" class="start">Start</button>
             </form>
         </details>
+        {{/* A tournament match (ADR-0017): one open place of a draw brings the
+             two players, their sides and the mode, so only who keeps score is
+             asked. A card of its own rather than a field in the one above:
+             there the players are required, and here they are not asked at
+             all. Only shown while some tournament has a place open. */}}
+        {{if or .Tournaments .TournamentErr}}
+        <details class="card newmatch"{{if and .Tournaments (not (and .Match .Match.Running))}} open{{end}}>
+            <summary>Tournament match</summary>
+            {{if .TournamentErr}}<p class="rostererr">The tournaments did not all load: {{.TournamentErr}}</p>{{end}}
+            {{if .Tournaments}}
+            <form hx-post="/ui/matches" hx-target="#live" hx-swap="outerHTML">
+                <div class="fields">
+                    <label class="wide">Place
+                        <select name="place" required>
+                            <option value="">Pick a place of the draw</option>
+                            {{range .Tournaments}}<optgroup label="{{.Name}} · {{.Mode}}">
+                                {{range .Places}}<option value="{{.Value}}">{{.Label}}</option>{{end}}
+                            </optgroup>{{end}}
+                        </select>
+                    </label>
+                    <label>Keeping score
+                        <select name="operator_id" required>
+                            <option value="">Pick who keeps score</option>
+                            {{range .Operators}}<option value="{{.ID}}">{{.Name}}{{if .Observer}} (observer){{end}}</option>{{end}}
+                        </select>
+                    </label>
+                </div>
+                <ul class="hints">
+                    <li>The first name plays on the left and serves first unless you pick otherwise below. The mode is the tournament's.</li>
+                    <li>The result goes into the draw; if somebody enters that place at the kiosk first, Schmetterpause refuses this one.</li>
+                </ul>
+                {{template "matchoptions"}}
+                <button type="submit" class="start">Start</button>
+            </form>
+            {{end}}
+        </details>
+        {{end}}
     </main>
 
     <footer class="footer">
@@ -769,4 +772,48 @@
     </script>
 </body>
 </html>
+{{end}}
+
+{{/* What both new-match forms ask besides who plays: the serve, the warm-up and
+     the ends. One copy, so the tournament card cannot drift from the other. */}}
+{{define "matchoptions"}}
+                <fieldset>
+                    <legend>First serve</legend>
+                    <div class="picks">
+                        <label class="pick"><input type="radio" name="first_server" value="a" checked><span>Left</span></label>
+                        <label class="pick"><input type="radio" name="first_server" value="b"><span>Right</span></label>
+                        {{/* One rally decides it at the table; the winner's side
+                             presses, and that press scores nothing (ADR-0005). */}}
+                        <label class="pick"><input type="radio" name="first_server" value="rally"><span>Play for it</span></label>
+                    </div>
+                    <ul class="hints">
+                        <li><b>Left / Right</b>: that player serves first.</li>
+                        <li><b>Play for it</b>: one rally decides; the winner presses their button and serves first. That press scores no point.</li>
+                    </ul>
+                </fieldset>
+                <fieldset>
+                    <legend>Before the first point</legend>
+                    <div class="picks">
+                        {{/* Both sides press once when they are ready. */}}
+                        <label class="pick"><input type="radio" name="start" value="warmup"><span>Warm-up</span></label>
+                        <label class="pick"><input type="radio" name="start" value="" checked><span>Straight in</span></label>
+                    </div>
+                    <ul class="hints">
+                        <li><b>Warm-up</b>: knock up first; nothing counts until both players have pressed their button once.</li>
+                        <li><b>Straight in</b>: the first press is already a point.</li>
+                    </ul>
+                </fieldset>
+                <fieldset>
+                    <legend>Ends</legend>
+                    <div class="picks">
+                        <label class="pick"><input type="radio" name="change_ends" value="" checked><span>Stay</span></label>
+                        {{/* After every set, and at five in the deciding set; play
+                             waits until each player has pressed at the new half. */}}
+                        <label class="pick"><input type="radio" name="change_ends" value="on"><span>Change</span></label>
+                    </div>
+                    <ul class="hints">
+                        <li><b>Stay</b>: each player keeps their side of the table for the whole match.</li>
+                        <li><b>Change</b>: players swap sides after every set, and at 5 points in the deciding set, as the rules say. Play pauses until both have pressed the button on their new side.</li>
+                    </ul>
+                </fieldset>
 {{end}}

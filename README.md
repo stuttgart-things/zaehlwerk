@@ -465,6 +465,20 @@ in the deciding set). The defaults are the match as it always was. While a phase
 is waiting, a click on a side is that side's press rather than a point, and the
 board says what it is waiting for.
 
+**A tournament match** ([ADR-0017](docs/adr/0017-tournament-matches-through-zaehlwerk.md))
+has a card of its own under the new-match form, shown while one of
+Schmetterpause's open tournaments has a place left. One select lists those
+places, grouped by tournament with its mode and in the draw's order, the final
+once the table names it ("Round 2: Bernd – Anna"); a second names whoever
+keeps score. The place brings the two players — the first on the left, side A
+— and the tournament's best-of and points, whatever the rest of the form says;
+first serve, warm-up and ends are asked as for any match. Both lists are read
+from Schmetterpause when the page renders and the place is read again when the
+form is posted, so a place filled at the kiosk in between starts nothing and
+says so. The result is reported with `tournament_id` and `round`, and
+Schmetterpause checks the place as it checks Pong's. Without `SCHMETTERPAUSE_URL`,
+or against a Schmetterpause that knows no tournaments, the card is not there.
+
 `/` redirects to it, `a` and `b` score, `u` takes a point back. Opening the
 page joins the match a button would score into, the same one `/ingest/button`
 resolves; a match that has finished is still there, at `/ui?match=<id>` with

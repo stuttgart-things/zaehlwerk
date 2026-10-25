@@ -273,6 +273,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	v.Follow = following(r)
 	s.listen(&v, false)
 	s.fillRoster(r.Context(), &v)
+	s.fillTournaments(r.Context(), &v)
 	v.ReportsTo = s.reportsTo
 	v.Nav = s.nav()
 
@@ -459,7 +460,14 @@ func (s *Server) createMatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	handover, err := s.handoverFrom(r.PostForm)
+	var handover match.Handover
+	if r.PostForm.Has("place") {
+		// A tournament match: the place brings the players, their sides and
+		// the mode, so the free fields above do not apply (ADR-0017).
+		cfg, handover, err = s.tournamentMatch(r.Context(), r.PostForm, cfg)
+	} else {
+		handover, err = s.handoverFrom(r.PostForm)
+	}
 	if err != nil {
 		s.renderLive(w, r, view{Error: err.Error()})
 		return
@@ -468,8 +476,9 @@ func (s *Server) createMatch(w http.ResponseWriter, r *http.Request) {
 	// With the coupling on, the names on the panel are the ones Schmetterpause
 	// holds. Typing a third spelling of somebody's name onto the matrix while
 	// the result goes to their real account is the kind of small confusion
-	// that makes a scoreboard untrustworthy.
-	if handover.Wanted() {
+	// that makes a scoreboard untrustworthy. A tournament place brought its
+	// names along.
+	if handover.Wanted() && handover.TournamentID == "" {
 		if names, err := s.namesFor(r.Context(), handover); err == nil {
 			cfg.Players = names
 		}
