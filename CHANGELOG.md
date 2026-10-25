@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.31.0...v0.32.0) (2026-10-25)
+
+
+### Features
+
+* play tournament matches through zaehlwerk and Pong ([#178](https://github.com/stuttgart-things/zaehlwerk/issues/178)) ([80ccceb](https://github.com/stuttgart-things/zaehlwerk/commit/80ccceb810f559b552cfd306eaa7445cdd958770))
+
 ## [0.31.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.30.0...v0.31.0) (2026-10-24)
 
 
