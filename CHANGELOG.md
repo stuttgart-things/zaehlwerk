@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.32.0...v0.33.0) (2026-10-25)
+
+
+### Features
+
+* start a tournament match from the scoring page ([#181](https://github.com/stuttgart-things/zaehlwerk/issues/181)) ([ea8f219](https://github.com/stuttgart-things/zaehlwerk/commit/ea8f21949668a4ceb2e92c528f3b56624b024bd5))
+
 ## [0.32.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.31.0...v0.32.0) (2026-10-25)
 
 
