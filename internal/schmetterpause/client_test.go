@@ -164,3 +164,53 @@ func TestOperatorsFailsLoudlyOnARefusal(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "fetching operators")
 }
+
+func TestTheOpenTournamentsAndTheirPlacesAreFetchedWithTheToken(t *testing.T) {
+	var paths, auths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths, auths = append(paths, r.URL.Path), append(auths, r.Header.Get("Authorization"))
+		switch r.URL.Path {
+		case "/api/tournaments":
+			_, _ = w.Write([]byte(`[{"id":"t1","name":"Montag","best_of":3,"points_to_win":11,"side_a":"Fenster",` +
+				`"side_b":"Tür","rated":true,"matches":7,"played":2,"created_at":"2026-10-25T08:00:00Z"}]`))
+		case "/api/tournaments/t1/pairings":
+			_, _ = w.Write([]byte(`[{"round":4,"final":true,"home_id":"a","away_id":"b","home_name":"Ada","away_name":"Bert"}]`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c, err := New(Config{BaseURL: srv.URL, Token: "tok"})
+	require.NoError(t, err)
+
+	tours, err := c.Tournaments(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, []Tournament{{
+		ID: "t1", Name: "Montag", BestOf: 3, PointsToWin: 11, SideA: "Fenster", SideB: "Tür",
+		Rated: true, Matches: 7, Played: 2, CreatedAt: time.Date(2026, 10, 25, 8, 0, 0, 0, time.UTC),
+	}}, tours)
+
+	places, err := c.Pairings(context.Background(), "t1")
+	require.NoError(t, err)
+	require.Equal(t, []Place{{Round: 4, Final: true, HomeID: "a", AwayID: "b", HomeName: "Ada", AwayName: "Bert"}}, places)
+
+	require.Equal(t, []string{"/api/tournaments", "/api/tournaments/t1/pairings"}, paths)
+	require.Equal(t, []string{"Bearer tok", "Bearer tok"}, auths)
+}
+
+// A Schmetterpause from before its ADR-0028 has no tournaments on its API.
+// That is its own answer, so a caller can fall back rather than fail.
+func TestASchmetterpauseWithoutTournamentsSaysSo(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+
+	c, err := New(Config{BaseURL: srv.URL, Token: "tok"})
+	require.NoError(t, err)
+
+	_, err = c.Tournaments(context.Background())
+	require.ErrorIs(t, err, ErrNoTournaments)
+	_, err = c.Pairings(context.Background(), "t1")
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrNoTournaments, "an unknown tournament is not a missing endpoint")
+}

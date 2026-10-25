@@ -216,6 +216,86 @@ func (c *Client) Operators(ctx context.Context) ([]Operator, error) {
 	return operators, nil
 }
 
+// Tournament is one open tournament in Schmetterpause (its ADR-0028).
+//
+// The mode is what a match in it is played by: Schmetterpause refuses a result
+// in any other. Side A is home, the left half here (ADR-0005).
+type Tournament struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	BestOf      int       `json:"best_of"`
+	PointsToWin int       `json:"points_to_win"`
+	SideA       string    `json:"side_a"`
+	SideB       string    `json:"side_b"`
+	Rated       bool      `json:"rated"`
+	Matches     int       `json:"matches"`
+	Played      int       `json:"played"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// Place is an open place in a tournament's draw: a pairing in a round that no
+// result fills yet. Home is side A.
+type Place struct {
+	Round    int    `json:"round"`
+	Final    bool   `json:"final"`
+	HomeID   string `json:"home_id"`
+	AwayID   string `json:"away_id"`
+	HomeName string `json:"home_name"`
+	AwayName string `json:"away_name"`
+}
+
+// ErrNoTournaments is a Schmetterpause without tournaments on its API, one
+// from before its ADR-0028: GET /api/tournaments is a 404 there.
+var ErrNoTournaments = errors.New("schmetterpause: this schmetterpause lists no tournaments")
+
+// Tournaments fetches the open tournaments, oldest first, every time it is
+// asked. Never cached: a place is filled at the kiosk as well as here.
+func (c *Client) Tournaments(ctx context.Context) ([]Tournament, error) {
+	var tours []Tournament
+	err := c.get(ctx, "/api/tournaments", "tournaments", &tours)
+	if errors.Is(err, errNotFound) {
+		return nil, ErrNoTournaments
+	}
+	return tours, err
+}
+
+// Pairings fetches a tournament's open places, in the order of its draw, the
+// final last once the table decides it.
+func (c *Client) Pairings(ctx context.Context, tournamentID string) ([]Place, error) {
+	var places []Place
+	err := c.get(ctx, "/api/tournaments/"+url.PathEscape(tournamentID)+"/pairings", "pairings", &places)
+	return places, err
+}
+
+// errNotFound is a 404 from get, for a caller that has a meaning for it.
+var errNotFound = errors.New("not found")
+
+// get fetches path and decodes it into out. what names it in errors.
+func (c *Client) get(ctx context.Context, path, what string, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)
+	if err != nil {
+		return fmt.Errorf("schmetterpause: building the %s request: %w", what, err)
+	}
+	c.authorize(req)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("schmetterpause: fetching %s: %w", what, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("schmetterpause: fetching %s: %w: %w", what, errNotFound, statusError(resp))
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("schmetterpause: fetching %s: %w", what, statusError(resp))
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("schmetterpause: decoding %s: %w", what, err)
+	}
+	return nil
+}
+
 // Report hands a finished result over.
 //
 // Loud on failure and with nothing behind it: there is no queue, because
