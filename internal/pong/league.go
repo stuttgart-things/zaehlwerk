@@ -226,7 +226,7 @@ func (s *Server) startTournamentMatch(t schmetterpause.Tournament, p schmetterpa
 		Faults:       Faults{},
 		Handover: &Handover{
 			HomeID: p.HomeID, AwayID: p.AwayID, OperatorID: operatorID,
-			TournamentID: t.ID, Round: p.Round,
+			TournamentID: t.ID, Round: p.Round, Final: p.Final,
 		},
 	})
 }

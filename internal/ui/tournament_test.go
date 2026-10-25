@@ -115,6 +115,17 @@ func TestAPlaceBringsItsPlayersSidesAndTheTournamentsMode(t *testing.T) {
 	require.Contains(t, body, "Bernd")
 }
 
+func TestTheFinalsPlaceIsMarkedAsTheFinal(t *testing.T) {
+	f := newFixture(t, WithSchmetterpause(draws(), &stubHandover{}))
+
+	f.do(http.MethodPost, "/ui/matches", url.Values{
+		"place": {"t-monday|4|id-anna|id-cem"}, "operator_id": {"id-bernd"},
+	})
+
+	require.True(t, f.life.handover.Final, "the panel tags the final")
+	require.Equal(t, 4, f.life.handover.Round)
+}
+
 func TestAPlaceFilledSinceThePageRenderedStartsNothing(t *testing.T) {
 	r := draws()
 	f := newFixture(t, WithSchmetterpause(r, &stubHandover{}))

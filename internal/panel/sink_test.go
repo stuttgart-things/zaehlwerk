@@ -400,3 +400,71 @@ func TestThePanelTagsADemo(t *testing.T) {
 	require.True(t, strings.HasSuffix(rec.msgs[0].Tags, ",demo=1"), rec.msgs[0].Tags)
 	require.NotContains(t, rec.msgs[1].Tags, "demo", rec.msgs[1].Tags)
 }
+
+// pointsFor scores n points for p in m, counting event ids from first.
+func pointsFor(t *testing.T, m *match.Match, p scorer.Player, n int, first uint64) {
+	t.Helper()
+	for i := range n {
+		_, err := m.Scorer.Apply(scorer.ScoreEvent{MatchID: m.ID, Player: p, Delta: 1, EventID: first + uint64(i), Source: "test"})
+		require.NoError(t, err)
+	}
+}
+
+// lastTags waits for n messages and returns the tags of the last one.
+func lastTags(t *testing.T, rec *recorder, n int) string {
+	t.Helper()
+	waitFor(t, "the points", func() bool { return len(rec.titles()) == n })
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	return rec.msgs[n-1].Tags
+}
+
+// A light pulses on the side that holds a set or match point, so the tag says
+// what the next point decides and for whom.
+func TestThePanelSaysWhatTheNextPointDecides(t *testing.T) {
+	rec := newRecorder()
+	sink := New(rec, Config{Logger: quiet()})
+	defer func() { require.NoError(t, sink.Close()) }()
+	registry := match.NewRegistry(match.WithMatchObserver(sink.Observe))
+
+	m, err := registry.Create(scorer.Config{BestOf: 3, PointsPerSet: 11, Players: [2]string{"Anna", "Bernd"}})
+	require.NoError(t, err)
+
+	pointsFor(t, m, scorer.PlayerB, 9, 1)
+	require.NotContains(t, lastTags(t, rec, 9), "stake", "0:9 decides nothing yet")
+
+	pointsFor(t, m, scorer.PlayerB, 1, 10)
+	require.Contains(t, lastTags(t, rec, 10), ",stake=set_point,stake_side=b")
+
+	pointsFor(t, m, scorer.PlayerB, 1, 11) // the set
+	pointsFor(t, m, scorer.PlayerB, 10, 12)
+	require.Contains(t, lastTags(t, rec, 21), ",stake=match_point,stake_side=b")
+
+	pointsFor(t, m, scorer.PlayerB, 1, 22) // the match
+	require.NotContains(t, lastTags(t, rec, 22), "stake", "a won match has nothing left to decide")
+}
+
+func TestATournamentMatchIsTaggedWithItsPlace(t *testing.T) {
+	rec := newRecorder()
+	sink := New(rec, Config{Logger: quiet()})
+	defer func() { require.NoError(t, sink.Close()) }()
+	registry := match.NewRegistry(match.WithMatchObserver(sink.Observe))
+
+	group, _, err := registry.CreateFor(scorer.Config{Players: [2]string{"Anna", "Bernd"}},
+		match.Setup{Handover: match.Handover{HomeID: "h", AwayID: "a", OperatorID: "o", TournamentID: "t", Round: 3}})
+	require.NoError(t, err)
+	pointsFor(t, group, scorer.PlayerA, 1, 1)
+	require.True(t, strings.HasSuffix(lastTags(t, rec, 1), ",tournament=1,round=3"), lastTags(t, rec, 1))
+
+	// A table of its own: one registry runs one match at a time.
+	other := match.NewRegistry(match.WithMatchObserver(sink.Observe))
+	final, _, err := other.CreateFor(scorer.Config{Players: [2]string{"Anna", "Bernd"}},
+		match.Setup{Handover: match.Handover{HomeID: "h", AwayID: "a", OperatorID: "o", TournamentID: "t", Round: 4, Final: true}})
+	require.NoError(t, err)
+	pointsFor(t, final, scorer.PlayerA, 1, 1)
+	require.True(t, strings.HasSuffix(lastTags(t, rec, 2), ",tournament=1,round=4,final=1"), lastTags(t, rec, 2))
+}
+
+func TestAnOrdinaryMatchHasNoMatchTags(t *testing.T) {
+	require.Empty(t, MatchTags(Match{}))
+}
