@@ -362,17 +362,24 @@ func (s *Server) watch(sc screen) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		v := view{Screen: sc.path, Live: sc == liveScreen}
 
+		var shown *match.Match
 		if id := r.URL.Query().Get("match"); id != "" {
 			m, err := s.registry.Get(id)
 			if err != nil {
 				v.Error = err.Error()
 			} else {
-				v.Match = s.matchView(m, kindOf(m.Scorer.State()))
+				shown = m
 			}
 		} else {
 			v.Follow = true
 			if m, ok := s.current(sc); ok {
-				v.Match = s.matchView(m, kindOf(m.Scorer.State()))
+				shown = m
+			}
+		}
+		if shown != nil {
+			v.Match = s.matchView(shown, kindOf(shown.Scorer.State()))
+			if shown.Demo && s.pong != "" {
+				v.PongLive = s.pong + "/live"
 			}
 		}
 

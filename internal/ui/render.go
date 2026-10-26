@@ -78,6 +78,10 @@ type view struct {
 	// for the polls that page makes. Live is set on the second.
 	Screen string
 	Live   bool
+	// PongLive is the game's /live on a spectator screen while the match it
+	// shows is a demo: the same game drawn on its table, following every
+	// game after it. Empty without PONG_URL and for a real match.
+	PongLive string
 }
 
 // RosterPlayer is one option in the name pickers.

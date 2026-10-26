@@ -37,6 +37,15 @@
         .brand { display: inline-flex; align-items: center; gap: 0.6em; font-weight: 700; font-size: clamp(1.2rem, 2.2vw, 2rem); letter-spacing: -0.02em; }
         .brand-mark { color: var(--accent-text); }
         .brand-logo { display: block; flex: none; width: 1.4em; height: 1.4em; }
+        .pong-live {
+            margin-left: auto;
+            font-family: var(--font-mono);
+            font-size: clamp(0.7rem, 1vw, 0.95rem);
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--accent-text);
+            text-decoration: none;
+        }
         .tagline {
             font-family: var(--font-mono);
             font-size: clamp(0.7rem, 1vw, 0.95rem);
@@ -312,6 +321,12 @@
     <header class="topbar">
         <span class="brand"><img class="brand-logo" src="/ui/static/mark-180.png" width="28" height="28" alt=""><span>Zähl<span class="brand-mark">werk</span></span></span>
         <span class="tagline">Table tennis · {{if .Live}}live at the table{{else}}live score{{end}}</span>
+        {{- with .PongLive}}
+        {{/* A demo is a game of Pong: its table is worth watching too, and
+             /live stays on it from one game to the next. A link, never a
+             button: nothing here acts on the match. */}}
+        <a class="pong-live" href="{{.}}" target="_blank" rel="noopener">Watch the game ↗</a>
+        {{- end}}
     </header>
 
     <main class="watch"{{if .Stream}} hx-ext="sse" sse-connect="/ui/matches/{{.Match.ID}}/stream?view=watch"{{end}}>
