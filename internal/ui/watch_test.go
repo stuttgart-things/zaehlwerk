@@ -99,3 +99,24 @@ func TestTheSpectatorViewShowsTheMascotWhileItWaits(t *testing.T) {
 	require.Contains(t, body, `<img class="brand-logo" src="/ui/static/mark-180.png"`)
 	require.Regexp(t, `<div class="mascot" style="--paddle: #[0-9a-f]{6}"><svg id="mascot"`, body)
 }
+
+// A demo is a game of Pong, and the screen links to its /live, which stays on
+// the game from one to the next (#153). A real match gets no such link.
+func TestTheSpectatorViewLinksAPongDemoToTheGamesLivePage(t *testing.T) {
+	f := newFixture(t, WithServiceLinks("", "https://pong.example.com/"))
+	f.demo()
+
+	_, body := f.do(http.MethodGet, "/ui/watch", nil)
+	require.Contains(t, body, `href="https://pong.example.com/live"`)
+	require.NotContains(t, body, "<button")
+
+	g := newFixture(t, WithServiceLinks("", "https://pong.example.com"))
+	g.match("Anna", "Bernd")
+	_, body = g.do(http.MethodGet, "/ui/watch", nil)
+	require.NotContains(t, body, `class="pong-live"`, "a real match is not a game of Pong")
+
+	h := newFixture(t)
+	h.demo()
+	_, body = h.do(http.MethodGet, "/ui/watch", nil)
+	require.NotContains(t, body, `class="pong-live"`, "no game without PONG_URL")
+}
