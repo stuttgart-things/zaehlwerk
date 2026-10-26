@@ -79,8 +79,9 @@ type view struct {
 	Screen string
 	Live   bool
 	// PongLive is the game's /live on a spectator screen while the match it
-	// shows is a demo: the same game drawn on its table, following every
-	// game after it. Empty without PONG_URL and for a real match.
+	// shows is one Pong plays, a demo or a sandbox league match: the same
+	// game drawn on its table, following every game after it. Empty without
+	// PONG_URL and for a match at the table.
 	PongLive string
 }
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 )
 
@@ -100,8 +101,9 @@ func TestTheSpectatorViewShowsTheMascotWhileItWaits(t *testing.T) {
 	require.Regexp(t, `<div class="mascot" style="--paddle: #[0-9a-f]{6}"><svg id="mascot"`, body)
 }
 
-// A demo is a game of Pong, and the screen links to its /live, which stays on
-// the game from one to the next (#153). A real match gets no such link.
+// A demo or a sandbox league match is a game of Pong, and the screen links to
+// its /live, which stays on the game from one to the next (#153). A match at
+// the table gets no such link.
 func TestTheSpectatorViewLinksAPongDemoToTheGamesLivePage(t *testing.T) {
 	f := newFixture(t, WithServiceLinks("", "https://pong.example.com/"))
 	f.demo()
@@ -110,10 +112,16 @@ func TestTheSpectatorViewLinksAPongDemoToTheGamesLivePage(t *testing.T) {
 	require.Contains(t, body, `href="https://pong.example.com/live"`)
 	require.NotContains(t, body, "<button")
 
+	l := newFixture(t, WithServiceLinks("", "https://pong.example.com"))
+	_, _, err := l.registry.CreateFor(scorer.Config{Players: [2]string{"Waldner", "Boll"}}, match.Setup{League: true})
+	require.NoError(t, err)
+	_, body = l.do(http.MethodGet, "/ui/watch", nil)
+	require.Contains(t, body, `href="https://pong.example.com/live"`, "a sandbox league match is Pong's game too")
+
 	g := newFixture(t, WithServiceLinks("", "https://pong.example.com"))
 	g.match("Anna", "Bernd")
 	_, body = g.do(http.MethodGet, "/ui/watch", nil)
-	require.NotContains(t, body, `class="pong-live"`, "a real match is not a game of Pong")
+	require.NotContains(t, body, `class="pong-live"`, "a match at the table is not a game of Pong")
 
 	h := newFixture(t)
 	h.demo()
