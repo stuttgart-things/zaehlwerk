@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.37.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.36.1...v0.37.0) (2026-10-26)
+
+
+### Features
+
+* **pong:** stop and play league mode from the lobby ([#193](https://github.com/stuttgart-things/zaehlwerk/issues/193)) ([e4547f2](https://github.com/stuttgart-things/zaehlwerk/commit/e4547f296941df321c78574d65912fb581c6a50d))
+
 ## [0.36.1](https://github.com/stuttgart-things/zaehlwerk/compare/v0.36.0...v0.36.1) (2026-10-26)
 
 
