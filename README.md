@@ -1401,6 +1401,14 @@ ends it: `/presses` answers it with a 409, and the relay of a served game takes
 no frames from outside. It takes mode `cvc` or none, players and bots; pace
 and the diagonal serve are refused, the latter for now.
 
+`GET /live` is one address for a screen that stays on, the TV next to the
+table say. It draws the game playing now on the same page as `/play/{id}`, and
+once that game is over it leaves the result up for a few seconds and loads the
+next one by itself. Between two games, the league's pause or nothing started
+at all, it shows a waiting page that looks again every three seconds. It only
+watches: it holds no token and ends nothing. The lobby links to it next to
+*Zuschauen*.
+
 `POST /ui/demo` is zaehlwerk's *Demo* button: a served game with the lobby's
 defaults, answered with a redirect to its page and the token in the fragment.
 A game already playing is not refused but shown, without its token; a real

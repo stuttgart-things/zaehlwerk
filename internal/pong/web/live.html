@@ -1,0 +1,29 @@
+{{/* GET /live with no game playing: the league's pause between two
+     matches, or nothing started at all. A screen left on this page looks
+     again every few seconds and draws the next game as soon as it starts. */}}
+{{define "live-wait"}}<!DOCTYPE html>
+<html lang="de">
+<head>
+    {{template "head"}}
+    <meta http-equiv="refresh" content="3">
+    <title>Zählwerk Pong · Live</title>
+    <style>
+        .waiting { text-align: center; padding: 3rem 1rem; }
+        .waiting .say { font-size: clamp(2rem, 8vw, 4rem); font-weight: 700; color: var(--muted); }
+    </style>
+</head>
+<body>
+<header>
+    <h1><a class="home" href="/" title="Zur Startseite">Zählwerk Pong</a></h1>
+    <a href="/">Lobby</a>
+    <span class="muted">Live: zeigt jedes Spiel, eins nach dem anderen</span>
+</header>
+<main>
+    <section class="card waiting">
+        <div class="say">Gleich geht es weiter</div>
+        <p class="muted">Gerade läuft kein Spiel. Das nächste erscheint hier von selbst.</p>
+    </section>
+</main>
+</body>
+</html>
+{{end}}

@@ -56,11 +56,12 @@
         body.saver canvas { width: auto; height: 100%; max-width: 100%; object-fit: contain; }
     </style>
 </head>
-<body{{if .Board.Screensaver}} class="saver"{{end}}>
+<body{{if .Board.Screensaver}} class="saver"{{end}}{{if .Live}} data-live="{{.Board.ID}}"{{end}}>
 <header>
     <h1><a class="home" href="/" title="Zur Startseite">Zählwerk Pong</a></h1>
     <a href="/">Lobby</a>
     <span class="muted mono">Spiel {{.Board.ID}} · Match {{.Board.MatchID}}</span>
+    {{if .Live}}<span class="muted">Live: zeigt jedes Spiel, eins nach dem anderen</span>{{end}}
 </header>
 <main hx-ext="sse" sse-connect="/ui/games/{{.Board.ID}}/stream">
     <section class="card score" id="score" sse-swap="score" hx-swap="innerHTML">{{template "score" .Board}}</section>
@@ -100,6 +101,7 @@
     <section class="truth" id="truth" sse-swap="truth" hx-swap="innerHTML">{{template "truth" .Board}}</section>
     {{end}}
 </main>
+{{if .Live}}<script src="/static/live.js"></script>{{end}}
 </body>
 </html>
 {{end}}
