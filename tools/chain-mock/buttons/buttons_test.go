@@ -482,3 +482,31 @@ func TestThePageDrawsTwoKeysPerHalfAndScoresThem(t *testing.T) {
 	post(t, page.URL+"/key", map[string]string{"side": "B", "key": "undo"})
 	require.Equal(t, [2]int{0, 1}, points(t, r))
 }
+
+// #168: a won match is no longer the current one, so the hub's undo names
+// the match it last scored into, as the piezo board does.
+func TestALongPressAfterTheMatchPointTakesItBack(t *testing.T) {
+	srv := httptest.NewServer(api.New(match.NewRegistry(), api.WithLogger(quiet)))
+	t.Cleanup(srv.Close)
+	resp, err := http.Post(srv.URL+"/matches", "application/json",
+		strings.NewReader(`{"players":["Anna","Bernd"],"best_of":1}`))
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	r := rig(t, srv, nil)
+	id := current(t, r).MatchID
+	for range 11 {
+		press(t, r, "A", 100*time.Millisecond)
+	}
+	_, ok, err := r.Current(context.Background())
+	require.NoError(t, err)
+	require.False(t, ok, "the match point ends the match")
+
+	press(t, r, "A", 2*time.Second)
+	require.Eventually(t, func() bool {
+		st, status, err := r.call(context.Background(), http.MethodGet, "/matches/"+id, nil)
+		return err == nil && status == http.StatusOK && st.Points == [2]int{10, 0}
+	}, time.Second, 5*time.Millisecond)
+	require.Equal(t, id, current(t, r).MatchID, "the undo reopens the won match")
+}

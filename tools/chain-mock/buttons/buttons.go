@@ -189,6 +189,11 @@ type Rig struct {
 	// checkinToken is CHECKIN_TOKEN, sent as a bearer with every check-in:
 	// zaehlwerk takes one only from the hub (#113). Set once, before use.
 	checkinToken string
+	// lastMatch is the match the hub last scored into. A won match is no
+	// longer the current one, so an undo after the match point has to name
+	// it -- as the piezo board does, holding the id in phase finished
+	// (zaehlwerk-firmware lib/report/report.cpp). Guarded by mu.
+	lastMatch string
 }
 
 // SetCheckinToken gives the hub the token zaehlwerk wants on a check-in.
@@ -530,8 +535,11 @@ func (r *Rig) long(ctx context.Context, f Frame, window time.Duration) {
 
 // ingestBody is POST /ingest/button: a batch, with no match id, because a
 // button has nowhere to get one from and the API resolves the running match.
+// The one exception is an undo after the match point, which names the match
+// the hub last scored into (#168).
 type ingestBody struct {
-	Events []ingestEvent `json:"events"`
+	MatchID string        `json:"match_id,omitempty"`
+	Events  []ingestEvent `json:"events"`
 }
 
 type ingestEvent struct {
@@ -555,6 +563,9 @@ func (r *Rig) point(ctx context.Context, f Frame) (scorer.State, bool) {
 		r.note("api", "no match running — start one on the zaehlwerk page; the press goes nowhere", true)
 		return cur, false
 	}
+	r.mu.Lock()
+	r.lastMatch = cur.MatchID
+	r.mu.Unlock()
 
 	// The ingest contract takes a player, a button only knows its half. Who
 	// stands on which half is the board's to know (zaehlwerk-firmware
@@ -597,15 +608,33 @@ func (r *Rig) undo(ctx context.Context, f Frame) (scorer.State, bool) {
 		r.note("api", err.Error(), true)
 		return cur, false
 	}
+	// No match running: the one the hub last scored into may just have been
+	// won, and zaehlwerk takes an undo on a won match that names it
+	// (ADR-0007, ADR-0012). Anything else has nothing to take back.
+	var matchID string
 	if status != http.StatusOK {
-		r.note("api", "no match running, nothing to take back", true)
-		return cur, false
+		r.mu.Lock()
+		last := r.lastMatch
+		r.mu.Unlock()
+		if last != "" {
+			cur, status, err = r.call(ctx, http.MethodGet, "/matches/"+last, nil)
+			if err != nil {
+				r.note("api", err.Error(), true)
+				return cur, false
+			}
+		}
+		if last == "" || status != http.StatusOK {
+			r.note("api", "no match running, nothing to take back", true)
+			return cur, false
+		}
+		matchID = last
+		r.note("hub", fmt.Sprintf("no match running, the undo names the last one, %s", last), false)
 	}
 
 	// The undo is an ingest event with the press's own id (ADR-0012), so a
 	// retry of it, or a repeat the radio delivered, is a duplicate and takes
 	// back nothing. It names no half: it takes back the last point.
-	body := ingestBody{Events: []ingestEvent{{
+	body := ingestBody{MatchID: matchID, Events: []ingestEvent{{
 		Source: f.SourceID, Action: "undo", EventID: f.EventID,
 	}}}
 	before := cur
