@@ -1455,6 +1455,11 @@ it is won, after its grace period. Pong reports nothing itself.
   `PONG_LEAGUE_PAUSE`, which has to outlast zaehlwerk's
   `SCHMETTERPAUSE_REPORT_DELAY` so the results arrive in the order they were
   played.
+- The lobby's *Liga* card stops it (`POST /ui/league`, `action=stop`): the
+  match playing ends at once, and as it is not won zaehlwerk reports nothing of
+  it; no next match starts until *Weiter* (`action=play`), after the pause.
+  `/live` then says the league is stopped. Kept in memory only: a restart plays
+  the league again.
 - It is refused at startup next to `PONG_ATTRACT_AFTER`: both start matches by
   themselves. Without `ZAEHLWERK_TOKEN`, or without `SCHMETTERPAUSE_URL` and
   `SCHMETTERPAUSE_TOKEN`, it is off, and the log says which.

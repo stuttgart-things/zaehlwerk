@@ -41,6 +41,7 @@ func (s *Server) routeUI() {
 	s.mux.HandleFunc("GET /ui/attract", s.attractCard)
 	s.mux.HandleFunc("POST /ui/games", s.startFromLobby)
 	s.mux.HandleFunc("POST /ui/demo", s.demoButton)
+	s.mux.HandleFunc("POST /ui/league", s.leagueButton)
 	s.mux.HandleFunc("GET /join", s.joinPage)
 	s.mux.HandleFunc("POST /ui/join", s.joinFromForm)
 	s.mux.HandleFunc("GET /play/{id}", s.playPage)
@@ -57,6 +58,8 @@ type lobbyView struct {
 	Running *View
 	// Attract is attract mode as the lobby tells it; nil when it is off.
 	Attract *attractView
+	// League is league mode as the lobby tells it; nil when it is off.
+	League  *leagueView
 	Bots    [2]botView
 	Faults  []faultField
 	Correct bool
@@ -130,8 +133,50 @@ func (s *Server) lobby(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Unlock()
 	v.Attract = s.attractView(time.Now())
+	v.League = s.leagueView()
 	v.Players, v.PlayersErr = s.playerNames(r.Context())
 	render(w, "lobby", v)
+}
+
+// leagueView is league mode in the lobby: playing or stopped.
+type leagueView struct {
+	Held bool
+}
+
+func (s *Server) leagueView() *leagueView {
+	if s.cfg.League == nil {
+		return nil
+	}
+	return &leagueView{Held: s.leagueHeldNow()}
+}
+
+// leagueButton is the lobby's stop and play for league mode: action=stop ends
+// the match playing and starts none after it, action=play lets the league go
+// on. htmx swaps the card; a page without it is sent back to the lobby.
+func (s *Server) leagueButton(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.League == nil {
+		http.Error(w, "league mode is off", http.StatusNotFound)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxLobbyForm)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	switch r.PostForm.Get("action") {
+	case "stop":
+		s.holdLeague()
+	case "play":
+		s.resumeLeague()
+	default:
+		http.Error(w, "action: want stop or play", http.StatusBadRequest)
+		return
+	}
+	if r.Header.Get("HX-Request") == "" {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	render(w, "league", s.leagueView())
 }
 
 // playerNames is who the lobby offers, read from Schmetterpause on every load
@@ -509,7 +554,7 @@ func (s *Server) livePage(w http.ResponseWriter, r *http.Request) {
 	g := s.running
 	s.mu.Unlock()
 	if g == nil {
-		render(w, "live-wait", nil)
+		render(w, "live-wait", s.leagueView())
 		return
 	}
 	s.renderPlay(w, g, true)

@@ -39,6 +39,8 @@
 
     {{with .Attract}}{{template "attract" .}}{{end}}
 
+    {{with .League}}{{template "league" .}}{{end}}
+
     {{/* #new-game is where zaehlwerk's "Pong" link lands: whoever comes
          from there wants to set a game up, not read what is running. */}}
     <form class="card" id="new-game" hx-post="/ui/games" hx-target="#start-error" hx-swap="innerHTML"
@@ -143,6 +145,23 @@
     {{end}}
     </p>
 </section>
+{{end}}
+
+{{/* League mode (ADR-0015): one reported match after another. Stopping it
+     ends the match playing, which as it is not won is reported nowhere, and
+     starts none until it plays again. A restart of the service plays it
+     again too: nothing here is kept. */}}
+{{define "league"}}
+<form class="card" id="league" hx-post="/ui/league" hx-swap="outerHTML" action="/ui/league" method="post">
+    <h2>Liga</h2>
+    {{if .Held}}
+    <p>Die Liga ist angehalten. Es startet kein Match, bis sie weiterläuft.</p>
+    <button type="submit" name="action" value="play">Weiter</button>
+    {{else}}
+    <p>Die Liga spielt ein Match nach dem anderen. Anhalten beendet das laufende Match sofort, ohne Ergebnis.</p>
+    <button type="submit" name="action" value="stop">Anhalten</button>
+    {{end}}
+</form>
 {{end}}
 
 {{define "lobby-error"}}
