@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.36.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.35.0...v0.36.0) (2026-10-26)
+
+
+### Features
+
+* **ui:** the watch screen links Pong's /live while a demo plays ([#189](https://github.com/stuttgart-things/zaehlwerk/issues/189)) ([c3d44d2](https://github.com/stuttgart-things/zaehlwerk/commit/c3d44d256890050ac7a200978fb34d199977ef1c))
+
 ## [0.35.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.34.0...v0.35.0) (2026-10-26)
 
 
