@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.36.1](https://github.com/stuttgart-things/zaehlwerk/compare/v0.36.0...v0.36.1) (2026-10-26)
+
+
+### Bug Fixes
+
+* **ui:** link Pong's /live for the sandbox's league matches too ([#191](https://github.com/stuttgart-things/zaehlwerk/issues/191)) ([cc1f302](https://github.com/stuttgart-things/zaehlwerk/commit/cc1f302f60c0c0fafc7512457c4dc34d8e66a26f))
+
 ## [0.36.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.35.0...v0.36.0) (2026-10-26)
 
 
