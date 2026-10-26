@@ -112,6 +112,11 @@ type Setup struct {
 	// Demo marks a match that is no result and gives way to one, as
 	// zaehlwerk-pong's are (ADR-0008).
 	Demo bool
+	// League marks a match the sandbox's Pong started behind MATCHES_TOKEN
+	// (ADR-0015): a real, reported match that a game plays. Nothing in the
+	// rules or the report reads it; the spectator screen does, to link the
+	// game that is playing it.
+	League bool
 }
 
 // Report is what became of the handover.
@@ -156,6 +161,9 @@ type Match struct {
 	// reason. It lives here and not in the scorer: whether a match is a demo
 	// has no bearing on set logic (invariant 5).
 	Demo bool
+	// League is fixed the same way, and read without the lock for the same
+	// reason (Setup.League).
+	League bool
 
 	mu      sync.Mutex
 	endedAt time.Time
@@ -373,7 +381,8 @@ func (r *Registry) CreateFor(cfg scorer.Config, setup Setup) (*Match, []*Match, 
 	// returns or the registry lock is let go. So an observer handed m never
 	// sees half of it.
 	now := time.Now()
-	m := &Match{ID: id, Scorer: s, Created: now, Handover: setup.Handover, Demo: setup.Demo}
+	m := &Match{ID: id, Scorer: s, Created: now, Handover: setup.Handover, Demo: setup.Demo,
+		League: setup.League}
 	for _, build := range r.observers {
 		s.Observe(build(m))
 	}

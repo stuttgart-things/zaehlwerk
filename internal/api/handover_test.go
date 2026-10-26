@@ -45,6 +45,7 @@ func TestAMatchWithPlayerIdsIsAHandoverForWhoeverHoldsTheMatchesToken(t *testing
 	require.Equal(t, match.Handover{HomeID: claraID, AwayID: doraID, OperatorID: pongOperatorID}, m.Handover)
 	require.True(t, m.Handover.Wanted(), "reported like a match from the page")
 	require.False(t, m.Demo)
+	require.True(t, m.League, "the sandbox's Pong plays it")
 }
 
 func TestAMatchWithPlayerIdsIsARealMatchThatADemoWaitsFor(t *testing.T) {

@@ -174,6 +174,7 @@ func (s *Server) createMatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		setup.Handover = h
+		setup.League = true
 	}
 
 	m, err := s.start(cfg, setup)

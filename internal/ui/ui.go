@@ -378,7 +378,7 @@ func (s *Server) watch(sc screen) http.HandlerFunc {
 		}
 		if shown != nil {
 			v.Match = s.matchView(shown, kindOf(shown.Scorer.State()))
-			if shown.Demo && s.pong != "" {
+			if (shown.Demo || shown.League) && s.pong != "" {
 				v.PongLive = s.pong + "/live"
 			}
 		}

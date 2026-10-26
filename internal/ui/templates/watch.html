@@ -322,9 +322,10 @@
         <span class="brand"><img class="brand-logo" src="/ui/static/mark-180.png" width="28" height="28" alt=""><span>Zähl<span class="brand-mark">werk</span></span></span>
         <span class="tagline">Table tennis · {{if .Live}}live at the table{{else}}live score{{end}}</span>
         {{- with .PongLive}}
-        {{/* A demo is a game of Pong: its table is worth watching too, and
-             /live stays on it from one game to the next. A link, never a
-             button: nothing here acts on the match. */}}
+        {{/* A demo or a sandbox league match is a game of Pong: its table
+             is worth watching too, and /live stays on it from one game to
+             the next. A link, never a button: nothing here acts on the
+             match. */}}
         <a class="pong-live" href="{{.}}" target="_blank" rel="noopener">Watch the game ↗</a>
         {{- end}}
     </header>
