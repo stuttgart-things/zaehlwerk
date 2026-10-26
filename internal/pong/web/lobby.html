@@ -32,6 +32,7 @@
         <p>{{index .Players 0}} gegen {{index .Players 1}}
            {{if .Attract}}als Demo, bis jemand spielen will{{else if eq .Driver "server"}}auf dem Server, zum Zuschauen{{else if eq .Driver "check"}}als Tasterprüfung{{else if eq .Mode "remote"}}auf zwei Geräten{{else if eq .Driver "browser"}}im Browser{{else}}ohne Bildschirm (Bots){{end}}.
            <a class="button quiet" href="/play/{{.ID}}">Zuschauen</a>
+           <a class="button quiet" href="/live" title="Eine Adresse für einen Bildschirm, der an bleibt: zeigt jedes Spiel, eins nach dem anderen">Live</a>
            {{if and (eq .Mode "remote") .Remote}}{{if not .Remote.Joined}}<a class="button" href="/join">Als Gast beitreten</a>{{end}}{{end}}</p>
     </section>
     {{end}}

@@ -44,6 +44,7 @@ func (s *Server) routeUI() {
 	s.mux.HandleFunc("GET /join", s.joinPage)
 	s.mux.HandleFunc("POST /ui/join", s.joinFromForm)
 	s.mux.HandleFunc("GET /play/{id}", s.playPage)
+	s.mux.HandleFunc("GET /live", s.livePage)
 	s.mux.HandleFunc("GET /ui/games/{id}/stream", s.boardStream)
 	s.mux.HandleFunc("GET /static/{file}", s.script)
 	s.mux.HandleFunc("GET /static/mark-32.png", s.mark)
@@ -484,6 +485,9 @@ type playView struct {
 	Board boardView
 	// Bots is the bots as JSON for the canvas, player a and b.
 	Bots string
+	// Live is the page at /live: it watches whatever plays, and moves on to
+	// the next game by itself once this one is over.
+	Live bool
 }
 
 func (s *Server) playPage(w http.ResponseWriter, r *http.Request) {
@@ -492,6 +496,26 @@ func (s *Server) playPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Dieses Spiel gibt es nicht (mehr).", http.StatusNotFound)
 		return
 	}
+	s.renderPlay(w, g, false)
+}
+
+// livePage is GET /live: one address for a screen that stays on, the TV next
+// to the table say. It draws the game playing now, on the same page as
+// /play/{id}, and live.js reloads it once that game is over, so the next one
+// shows without anybody touching the screen. Between games -- the league's
+// pause, or no game at all -- it waits and looks again.
+func (s *Server) livePage(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	g := s.running
+	s.mu.Unlock()
+	if g == nil {
+		render(w, "live-wait", nil)
+		return
+	}
+	s.renderPlay(w, g, true)
+}
+
+func (s *Server) renderPlay(w http.ResponseWriter, g *Game, live bool) {
 	v := g.View()
 	if v.Driver != DriverBrowser && v.Driver != DriverServer {
 		// A headless game and a button check have no canvas to draw; their
@@ -503,7 +527,7 @@ func (s *Server) playPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	render(w, "play", playView{Board: newBoardView(v), Bots: string(bots)})
+	render(w, "play", playView{Board: newBoardView(v), Bots: string(bots), Live: live})
 }
 
 // boardStream is the board as rendered HTML over SSE, for htmx to swap.
@@ -533,7 +557,7 @@ func (s *Server) boardStream(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) script(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("file")
-	if name != "game.js" && name != "serve.js" && name != "check.js" && name != "tab.js" && name != "saver.js" {
+	if name != "game.js" && name != "serve.js" && name != "check.js" && name != "tab.js" && name != "saver.js" && name != "live.js" {
 		http.NotFound(w, r)
 		return
 	}
