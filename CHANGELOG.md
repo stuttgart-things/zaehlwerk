@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.35.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.34.0...v0.35.0) (2026-10-26)
+
+
+### Features
+
+* **pong:** GET /live, one address that follows every game ([#187](https://github.com/stuttgart-things/zaehlwerk/issues/187)) ([188a14d](https://github.com/stuttgart-things/zaehlwerk/commit/188a14d07c45aa2016bf82f11effa36222a1d7d4))
+
+
+### Bug Fixes
+
+* **buttons:** an undo after the match point names the won match ([#186](https://github.com/stuttgart-things/zaehlwerk/issues/186)) ([f6fad18](https://github.com/stuttgart-things/zaehlwerk/commit/f6fad18caa139d2fc941117ec15d9af1284c895f)), closes [#168](https://github.com/stuttgart-things/zaehlwerk/issues/168)
+
 ## [0.34.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.33.0...v0.34.0) (2026-10-25)
 
 
