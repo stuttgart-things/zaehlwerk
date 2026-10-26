@@ -135,6 +135,12 @@ type Server struct {
 	played  int64
 	wg      sync.WaitGroup
 	attract attractState
+	// leagueHeld is league mode stopped from the lobby, and leagueNow the
+	// league match playing; leagueWake tells a held league to look again.
+	// In memory like everything here: a restart plays the league again.
+	leagueHeld bool
+	leagueNow  *Game
+	leagueWake chan struct{}
 
 	// resetQuiet is the gap before a counter reset, zero for the real one,
 	// and only the tests set it. idle is how long a browser game waits for a
@@ -171,6 +177,9 @@ func New(cfg Config, log *slog.Logger) *Server {
 		idle:      cfg.BrowserIdle,
 		tick:      courtTickFor(cfg.CourtSpeed),
 		now:       time.Now,
+		// One waiting wake is enough: a held league only needs to know
+		// that it should look again.
+		leagueWake: make(chan struct{}, 1),
 	}
 	s.mux.HandleFunc("GET /healthz", s.healthz)
 	s.mux.HandleFunc("POST /games", s.startGame)

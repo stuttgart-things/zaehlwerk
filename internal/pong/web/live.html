@@ -20,8 +20,13 @@
 </header>
 <main>
     <section class="card waiting">
+        {{if and . .Held}}
+        <div class="say">Die Liga ist angehalten</div>
+        <p class="muted">Läuft sie in der Lobby weiter, erscheint das nächste Spiel hier von selbst.</p>
+        {{else}}
         <div class="say">Gleich geht es weiter</div>
         <p class="muted">Gerade läuft kein Spiel. Das nächste erscheint hier von selbst.</p>
+        {{end}}
     </section>
 </main>
 </body>

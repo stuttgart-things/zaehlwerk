@@ -330,6 +330,10 @@ var errMatchEnded = errors.New("zaehlwerk ended the match")
 // errStopped is a browser game ended by its own page.
 var errStopped = errors.New("ended in the browser")
 
+// errHeld is a league match ended because league mode was stopped from the
+// lobby.
+var errHeld = errors.New("league mode was stopped in the lobby")
+
 // run plays the match to its end and watches the table while it does. table
 // is /live/stream, already past the event that said the table was free.
 // stopped is the game's own context, which g.stop cancels with the reason the
@@ -369,7 +373,7 @@ func (g *Game) run(stopped context.Context, table <-chan TableEvent) {
 		g.finish(StatusEnded, err.Error())
 		return
 	case errors.Is(err, errDisplaced), errors.Is(err, errTableLost), errors.Is(err, errStopped),
-		errors.Is(err, errIdle), errors.Is(err, errYielded), errors.Is(err, errIntruded),
+		errors.Is(err, errHeld), errors.Is(err, errIdle), errors.Is(err, errYielded), errors.Is(err, errIntruded),
 		errors.Is(err, errNobodyPresses), ctx.Err() != nil:
 		// The match is no longer the game's to play, the game can no longer
 		// tell whether it is, nobody is playing it any more, a demo made way
@@ -377,7 +381,7 @@ func (g *Game) run(stopped context.Context, table <-chan TableEvent) {
 		// stopping. Either way it is ended rather than left running, so it
 		// does not sit in the registry as current with nobody scoring it.
 		reason := "the service stopped"
-		for _, known := range []error{errDisplaced, errTableLost, errStopped, errIdle, errYielded, errIntruded,
+		for _, known := range []error{errDisplaced, errTableLost, errStopped, errHeld, errIdle, errYielded, errIntruded,
 			errNobodyPresses} {
 			if errors.Is(err, known) {
 				reason = err.Error()

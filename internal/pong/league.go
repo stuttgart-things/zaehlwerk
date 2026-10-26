@@ -35,6 +35,10 @@ import (
 // and a random pair only when no tournament has a place left. The final comes
 // by itself: Schmetterpause lists it once the group is played out, which the
 // pause gives the last group result time to be.
+//
+// The lobby can stop it ([Server.holdLeague]): the match playing is ended,
+// and as it is not won zaehlwerk reports nothing of it; no next one starts
+// until the lobby lets the league play again.
 
 // leagueSalt keeps the league's draw of players apart from the rallies of the
 // games it starts, whose seeds come from the same PONG_SEED.
@@ -52,6 +56,9 @@ func (s *Server) runLeague(ctx context.Context) {
 	told := &leagueTold{names: map[string]bool{}}
 
 	for ctx.Err() == nil {
+		if s.waitLeague(ctx) != nil {
+			return
+		}
 		g, err := s.startLeagueMatch(ctx, rnd, told)
 		switch {
 		case ctx.Err() != nil:
@@ -59,11 +66,22 @@ func (s *Server) runLeague(ctx context.Context) {
 		case err != nil:
 			s.log.Warn("no league match, trying again after the pause", "error", err, "pause", l.Pause.String())
 		default:
+			// Held between the start and here: the match goes at once.
+			s.mu.Lock()
+			s.leagueNow = g
+			held := s.leagueHeld
+			s.mu.Unlock()
+			if held {
+				g.stop(errHeld)
+			}
 			select {
 			case <-g.Done():
 			case <-ctx.Done():
 				return
 			}
+			s.mu.Lock()
+			s.leagueNow = nil
+			s.mu.Unlock()
 			v := g.View()
 			s.log.Info("league match over", "game", g.ID, "match_id", v.MatchID, "status", v.Status,
 				"reason", v.Reason, "players", v.Players, "unexplained", v.Unexplained)
@@ -72,6 +90,56 @@ func (s *Server) runLeague(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// waitLeague returns at once while league mode plays, and otherwise when the
+// lobby lets it play again or the service stops.
+func (s *Server) waitLeague(ctx context.Context) error {
+	for {
+		s.mu.Lock()
+		held := s.leagueHeld
+		s.mu.Unlock()
+		if !held {
+			return nil
+		}
+		select {
+		case <-s.leagueWake:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+// holdLeague stops league mode: the match playing ends now, unreported, and
+// none follows until [Server.resumeLeague].
+func (s *Server) holdLeague() {
+	s.mu.Lock()
+	s.leagueHeld = true
+	g := s.leagueNow
+	s.mu.Unlock()
+	if g != nil {
+		g.stop(errHeld)
+	}
+	s.log.Info("league mode stopped in the lobby")
+}
+
+// resumeLeague lets a held league play again, after its pause.
+func (s *Server) resumeLeague() {
+	s.mu.Lock()
+	s.leagueHeld = false
+	s.mu.Unlock()
+	select {
+	case s.leagueWake <- struct{}{}:
+	default:
+	}
+	s.log.Info("league mode playing again from the lobby")
+}
+
+// leagueHeldNow says whether the lobby has stopped league mode.
+func (s *Server) leagueHeldNow() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.leagueHeld
 }
 
 // leagueTold is what league mode has said once and will not say again, so a
