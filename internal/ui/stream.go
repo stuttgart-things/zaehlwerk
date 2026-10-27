@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stuttgart-things/zaehlwerk/internal/face"
 	"github.com/stuttgart-things/zaehlwerk/internal/live"
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 )
@@ -67,6 +68,9 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	rc := openEvents(w)
 
 	var rows []logRow
+	// streak is the faces' memory, this connection's like the timeline: the
+	// points in a row a side has lost since the page opened (ADR-0018).
+	var streak face.Streak
 	if err := s.send(rc, w, board, s.liveView(m, kindOf(m.Scorer.State()))); err != nil {
 		s.log.DebugContext(r.Context(), "ui stream ended on the snapshot", "match", m.ID, "error", err)
 		return
@@ -90,7 +94,10 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 			// moment it has something to say.
 			v.Match.Reported = s.reportView(m, ev.State)
 			stake(v.Match, m, ev.State)
-			paint(v.Match, m, ev.State)
+			s.paint(v.Match, m, ev.State)
+			var faces face.Faces
+			faces, streak = face.Read(moment(m, ev.Kind, ev.Side, ev.State), streak)
+			s.dress(v.Match, m, faces)
 
 			if ev.Kind != live.KindSnapshot {
 				rows = append([]logRow{s.logRow(kind, ev.State)}, rows...)

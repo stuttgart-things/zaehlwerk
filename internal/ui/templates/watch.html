@@ -131,11 +131,25 @@
             font-variant-numeric: tabular-nums;
         }
 
+        /* The player's figure from Schmetterpause, above the name, with the
+           face the match gives it (ADR-0018). The number gives up the height
+           it takes, so the card still fits the screen: the score is what the
+           room reads, the figure is who it belongs to. */
+        .figure {
+            display: block;
+            width: auto;
+            height: clamp(4rem, 18vh, 14rem);
+            aspect-ratio: 1;
+        }
+        .side.dressed .points { font-size: clamp(4rem, min(24vw, 36vh), 26rem); }
+
         /* A tablet or phone held upright: side by side, each card was a
            narrow strip with the score lost in the middle of it. */
         @media (orientation: portrait) {
             .score { grid-template-columns: minmax(0, 1fr); gap: 1.5vh; }
             .points { font-size: clamp(5rem, min(45vw, 24vh), 30rem); }
+            .figure { height: clamp(3rem, 9vh, 8rem); }
+            .side.dressed .points { font-size: clamp(4rem, min(40vw, 18vh), 26rem); }
         }
 
         .sets {
@@ -353,7 +367,8 @@
 {{define "spectator"}}
 {{- if .Match}}
 <div class="score">
-  <div class="side{{if .Match.A.Serving}} serving{{end}}{{if .Match.A.Winner}} winner{{end}}" style="{{.Match.A.Blade}}">
+  <div class="side{{if .Match.A.Serving}} serving{{end}}{{if .Match.A.Winner}} winner{{end}}{{if .Match.A.Figure}} dressed{{end}}" style="{{.Match.A.Blade}}">
+    {{- with .Match.A.Figure}}<img class="figure" src="{{.}}" alt="">{{end}}
     <div class="name">{{.Match.A.Name}}</div>
     <div class="status">
       {{- if .Match.A.Winner}}<span class="state state-won">won</span>
@@ -363,7 +378,8 @@
     <div class="points">{{.Match.A.Points}}</div>
     <div class="sets">sets <b>{{.Match.A.Sets}}</b></div>
   </div>
-  <div class="side{{if .Match.B.Serving}} serving{{end}}{{if .Match.B.Winner}} winner{{end}}" style="{{.Match.B.Blade}}">
+  <div class="side{{if .Match.B.Serving}} serving{{end}}{{if .Match.B.Winner}} winner{{end}}{{if .Match.B.Figure}} dressed{{end}}" style="{{.Match.B.Blade}}">
+    {{- with .Match.B.Figure}}<img class="figure" src="{{.}}" alt="">{{end}}
     <div class="name">{{.Match.B.Name}}</div>
     <div class="status">
       {{- if .Match.B.Winner}}<span class="state state-won">won</span>

@@ -104,6 +104,10 @@ type Server struct {
 	// buttons and pong are the table mock's and the game's pages, empty when
 	// they are not deployed. Only linked, never called.
 	buttons, pong string
+
+	// figures is the players' figures from Schmetterpause, nil without
+	// SCHMETTERPAUSE_URL: the spectator view then shows none.
+	figures *figureCache
 }
 
 // Option configures a Server.
@@ -240,6 +244,9 @@ func New(registry *match.Registry, lifecycle Lifecycle, opts ...Option) *Server 
 	s.mux.HandleFunc("POST /ui/matches/{id}/report", s.report)
 	s.mux.HandleFunc("GET /ui/matches/{id}/handover", s.handoverCard)
 	s.mux.HandleFunc("GET /ui/matches/{id}/stream", s.stream)
+	if s.figures != nil {
+		s.mux.HandleFunc("GET /ui/matches/{id}/figures/{side}", s.figure)
+	}
 
 	return s
 }
