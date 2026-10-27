@@ -411,7 +411,7 @@ data: {"kind":"no_match"}
 
 data: {"kind":"snapshot","state":{"match_id":"a1b2c3d4","points":[0,0],…},"home_id":"…","away_id":"…"}
 
-data: {"kind":"point","state":{"match_id":"a1b2c3d4","points":[1,0],…},"home_id":"…","away_id":"…"}
+data: {"kind":"point","state":{"match_id":"a1b2c3d4","points":[1,0],…},"home_id":"…","away_id":"…","faces":["happy","skeptical"]}
 ```
 
 - On connect: the current match's `snapshot`, or `no_match` between matches.
@@ -426,6 +426,10 @@ data: {"kind":"point","state":{"match_id":"a1b2c3d4","points":[1,0],…},"home_i
 - `demo: true` is on every event of a demo match (ADR-0008) and absent on a
   real one, added at the same layer. A page that follows the table can label
   a demo, or leave it out.
+- `faces` is on every event that has a `state`: the face each side's figure
+  pulls, side a then side b — `neutral`, `happy`, `surprised`, `skeptical`,
+  `angry` or `sad`, Schmetterpause's keys. Which moment gets which face is
+  ADR-0018. Schmetterpause's running score sets them on the players' figures.
 
 Same guarantees as the per-match stream: `ALLOWED_ORIGINS`, heartbeat, a write
 deadline, slow clients dropped rather than waited for. One table, one current

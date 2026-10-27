@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/stuttgart-things/zaehlwerk/internal/face"
 	"github.com/stuttgart-things/zaehlwerk/internal/live"
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
@@ -120,7 +121,8 @@ func TestTheSnapshotOfANewMatchIsWhereItStoodAtTheEventThatStartedIt(t *testing.
 
 	rec := httptest.NewRecorder()
 	current := ""
-	require.NoError(t, f.api.tableTransition(http.NewResponseController(rec), rec, started, &current,
+	streak := face.Streak{2, 0}
+	require.NoError(t, f.api.tableTransition(http.NewResponseController(rec), rec, started, &current, &streak,
 		func() error { return nil }))
 
 	line, ok := strings.CutPrefix(strings.TrimSpace(rec.Body.String()), "data: ")
@@ -130,6 +132,7 @@ func TestTheSnapshotOfANewMatchIsWhereItStoodAtTheEventThatStartedIt(t *testing.
 	require.Equal(t, live.KindSnapshot, ev.Kind)
 	require.Equal(t, m.ID, current)
 	require.Equal(t, [2]int{0, 0}, ev.State.Points, "the point is still to come, as its own event")
+	require.Equal(t, face.Streak{}, streak, "a new match starts its faces afresh")
 }
 
 func TestTheTableStreamSaysNoMatchOnConnectBetweenMatches(t *testing.T) {
@@ -244,4 +247,28 @@ func TestTheTableStreamWithoutAHubIs503(t *testing.T) {
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+}
+
+// The faces ride on the table stream (ADR-0018): the point's winner happy, its
+// loser skeptical, angry by the third in a row -- counted here, per connection,
+// from the side each transition went to. Between matches there is no state and
+// no face.
+func TestTheTableStreamCarriesTheFacesOfThePoint(t *testing.T) {
+	f := newTableFixture(t)
+	r, _ := f.connect()
+	require.Nil(t, readTableEvent(t, r).Faces, "no_match has nobody to pull a face")
+
+	m := f.start(match.Handover{})
+	ev := readTableEvent(t, r)
+	require.Equal(t, &face.Faces{face.Neutral, face.Neutral}, ev.Faces, "the snapshot of a fresh match")
+
+	point(t, m, scorer.PlayerB, 1)
+	require.Equal(t, &face.Faces{face.Skeptical, face.Happy}, readTableEvent(t, r).Faces)
+	point(t, m, scorer.PlayerB, 2)
+	readTableEvent(t, r)
+	point(t, m, scorer.PlayerB, 3)
+	require.Equal(t, &face.Faces{face.Angry, face.Happy}, readTableEvent(t, r).Faces, "the third in a row")
+
+	point(t, m, scorer.PlayerA, 4)
+	require.Equal(t, &face.Faces{face.Happy, face.Skeptical}, readTableEvent(t, r).Faces, "a's point ends a's streak")
 }

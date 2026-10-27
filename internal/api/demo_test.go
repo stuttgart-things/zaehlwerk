@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/stuttgart-things/zaehlwerk/internal/face"
 	"github.com/stuttgart-things/zaehlwerk/internal/live"
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/panel"
@@ -83,7 +84,7 @@ func TestTheStreamSaysAMatchIsADemo(t *testing.T) {
 	require.True(t, readTableEvent(t, r).Demo, "on every event, not only the snapshot")
 
 	// And on the wire it is absent for a real match, not false.
-	raw, err := json.Marshal(f.api.withIDs(nil, live.KindSnapshot, scorer.State{}))
+	raw, err := json.Marshal(f.api.withIDs(nil, live.Event{Kind: live.KindSnapshot}, &face.Streak{}))
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), "demo")
 }

@@ -75,6 +75,11 @@ type Subscription struct {
 type Event struct {
 	Kind  string       `json:"kind"`
 	State scorer.State `json:"state"`
+	// Side is who the transition went to (scorer.Transition.Side), which the
+	// state after it cannot say. Empty for an undo, a snapshot and anything
+	// announced. The faces on the table stream need it: a point's winner is
+	// not visible in a score that a won set has already reset.
+	Side scorer.Player `json:"side,omitempty"`
 }
 
 // KindSnapshot is the kind of the event sent on connect. It is not a
@@ -106,7 +111,7 @@ func (h *Hub) Subscribe(matchID string) *Subscription {
 // not keeping up loses its oldest queued transition rather than holding up the
 // match, or the other watchers.
 func (h *Hub) Observe(t scorer.Transition) {
-	h.publish(Event{Kind: string(t.Kind), State: t.State})
+	h.publish(Event{Kind: string(t.Kind), State: t.State, Side: t.Side})
 }
 
 func (h *Hub) publish(ev Event) {

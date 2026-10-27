@@ -62,6 +62,7 @@ supersedes it, not a quiet rewrite.
 | 0015 | Pong plays reported matches in a sandbox — a handover through the JSON API, behind its own token (proposed) |
 | 0016 | The sandbox on the office panel — an idle stream of its own, displaced by any real match (proposed) |
 | 0017 | Tournament matches through zaehlwerk — a slot on the handover, checked by Schmetterpause (proposed) |
+| 0018 | The faces come from the game — one face per side on the table stream, decided from the score |
 
 ## Terms
 

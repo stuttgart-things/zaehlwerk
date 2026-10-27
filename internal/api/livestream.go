@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/stuttgart-things/zaehlwerk/internal/face"
 	"github.com/stuttgart-things/zaehlwerk/internal/live"
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
@@ -21,12 +22,17 @@ const KindNoMatch = "no_match"
 // reported to Schmetterpause (its Handover is wanted), and demo exactly when
 // the match is one (ADR-0008). Both are added here, at the API layer -- the
 // scorer stays rule-only and knows players by name (invariant 5).
+//
+// Faces is on every event that has a state: the face each side's figure
+// pulls, a then b (ADR-0018). Schmetterpause's running score sets them on the
+// players' figures; without the field there they stay neutral.
 type tableEvent struct {
 	Kind   string        `json:"kind"`
 	State  *scorer.State `json:"state,omitempty"`
 	HomeID string        `json:"home_id,omitempty"`
 	AwayID string        `json:"away_id,omitempty"`
 	Demo   bool          `json:"demo,omitempty"`
+	Faces  *face.Faces   `json:"faces,omitempty"`
 }
 
 // liveStream serves the table rather than one match, as Server-Sent Events.
@@ -71,16 +77,22 @@ func (s *Server) liveStream(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	current := ""
+	// streak is the faces' memory (face.Streak), per connection like current:
+	// the points in a row a side has lost since this page started following
+	// the match. A page that joins mid-streak counts from where it joined,
+	// which is also what the people in front of it saw.
+	var streak face.Streak
 	// follow points the stream at whatever is current now: its snapshot, or
 	// no_match. It is what connect does, and what every end of a match does.
 	follow := func() error {
+		streak = face.Streak{}
 		m, err := s.registry.Current()
 		if err != nil {
 			current = ""
 			return s.writeTableEvent(rc, w, tableEvent{Kind: KindNoMatch})
 		}
 		current = m.ID
-		return s.writeTableEvent(rc, w, s.withIDs(m, live.KindSnapshot, m.Scorer.State()))
+		return s.writeTableEvent(rc, w, s.withIDs(m, live.Event{Kind: live.KindSnapshot, State: m.Scorer.State()}, &streak))
 	}
 
 	if err := follow(); err != nil {
@@ -97,7 +109,7 @@ func (s *Server) liveStream(w http.ResponseWriter, r *http.Request) {
 			return
 
 		case ev := <-sub.Events():
-			if err := s.tableTransition(rc, w, ev, &current, follow); err != nil {
+			if err := s.tableTransition(rc, w, ev, &current, &streak, follow); err != nil {
 				s.log.DebugContext(r.Context(), "table stream ended", "match", ev.State.MatchID, "error", err)
 				return
 			}
@@ -112,8 +124,8 @@ func (s *Server) liveStream(w http.ResponseWriter, r *http.Request) {
 }
 
 // tableTransition handles one hub event for a table stream currently on match
-// *current.
-func (s *Server) tableTransition(rc *http.ResponseController, w http.ResponseWriter, ev live.Event, current *string, follow func() error) error {
+// *current, whose faces have got to *streak.
+func (s *Server) tableTransition(rc *http.ResponseController, w http.ResponseWriter, ev live.Event, current *string, streak *face.Streak, follow func() error) error {
 	if ev.State.MatchID != *current {
 		// Another match. It is the table's only if it is now current -- a match
 		// just started, or a point on one that took over. Anything else is a
@@ -127,8 +139,8 @@ func (s *Server) tableTransition(rc *http.ResponseController, w http.ResponseWri
 		// and are sent next, so a fresh state that already held them would
 		// send each of them twice, once in the snapshot and once as itself
 		// (#141).
-		*current = m.ID
-		return s.writeTableEvent(rc, w, s.withIDs(m, live.KindSnapshot, ev.State))
+		*current, *streak = m.ID, face.Streak{}
+		return s.writeTableEvent(rc, w, s.withIDs(m, live.Event{Kind: live.KindSnapshot, State: ev.State}, streak))
 	}
 
 	m, err := s.registry.Get(ev.State.MatchID)
@@ -136,7 +148,7 @@ func (s *Server) tableTransition(rc *http.ResponseController, w http.ResponseWri
 		// Evicted under us; nothing left to name the players by.
 		m = nil
 	}
-	if err := s.writeTableEvent(rc, w, s.withIDs(m, ev.Kind, ev.State)); err != nil {
+	if err := s.writeTableEvent(rc, w, s.withIDs(m, ev, streak)); err != nil {
 		return err
 	}
 	if ev.State.Complete || ev.Kind == live.KindEnded {
@@ -146,15 +158,26 @@ func (s *Server) tableTransition(rc *http.ResponseController, w http.ResponseWri
 }
 
 // withIDs builds a table event, adding the players' Schmetterpause ids when the
-// match is being reported, and that it is a demo when it is one. m may be nil.
-func (s *Server) withIDs(m *match.Match, kind string, st scorer.State) tableEvent {
-	ev := tableEvent{Kind: kind, State: &st}
+// match is being reported, that it is a demo when it is one, and the faces,
+// moving *streak on. m may be nil.
+func (s *Server) withIDs(m *match.Match, hev live.Event, streak *face.Streak) tableEvent {
+	st := hev.State
+	ev := tableEvent{Kind: hev.Kind, State: &st}
+	moment := face.Moment{Kind: scorer.TransitionKind(hev.Kind), Side: hev.Side, State: st}
 	if m != nil && m.Handover.Wanted() {
 		ev.HomeID, ev.AwayID = m.Handover.HomeID, m.Handover.AwayID
 	}
 	if m != nil {
 		ev.Demo = m.Demo
+		// The rules are the scorer's, so the stake and the length of a set
+		// are asked of it rather than known here. An evicted match has
+		// none, and its faces go without set points and deuce.
+		moment.Stake, _ = m.Scorer.Stake(st)
+		_, moment.PointsPerSet = m.Scorer.Rules()
 	}
+	faces, next := face.Read(moment, *streak)
+	*streak = next
+	ev.Faces = &faces
 	return ev
 }
 
