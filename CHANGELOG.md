@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.38.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.37.0...v0.38.0) (2026-10-27)
+
+
+### Features
+
+* send the players' faces on the table stream ([#197](https://github.com/stuttgart-things/zaehlwerk/issues/197)) ([9d2f5ad](https://github.com/stuttgart-things/zaehlwerk/commit/9d2f5ada1f3e069ec1c0337dcb86a07115370dbd))
+
 ## [0.37.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.36.1...v0.37.0) (2026-10-26)
 
 
