@@ -88,6 +88,7 @@ not know shows neutral there, and a consumer that does not read the field
   derived from the transitions that undo can leave out of step.
 - A new face is a change in both repositories, here in the mapping and in
   Schmetterpause in the parts it draws.
-- This service's own screen does not show the figures yet. That, and taking the
-  cord's colour from the blade a player chose rather than recomputing it, is
-  the second half of #195.
+- The spectator view shows each side's figure with these faces, counted the
+  same way per connection on its own stream. It fetches the figures once per
+  match from Schmetterpause and takes each side's colour, and so the referee's
+  cord, from the blade on the figure rather than recomputing it from the id.

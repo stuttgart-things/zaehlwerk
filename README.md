@@ -553,12 +553,23 @@ its rules, so it is right for best of 1, 3 or 5 and for the advantage at 10:10.
 Next to the sets stands the referee, the mascot, with its whistle's cord in
 the colour of whoever leads: the winner once the match is over, else more sets,
 else more points in the set in play, and the drawing's own gold while it is
-level. Each name is underlined in its side's colour, which is the key. For a
-player schmetterpause knows, that colour is the blade their mascot carries
-there: schmetterpause derives it from the player id, and this screen makes the
-same sum. A match with free-text names gets light blue on the left and pink on
-the right, and two players who share a blade there are told apart here by
-moving the right-hand one on to the next colour.
+level. Each name is underlined in its side's colour, which is the key.
+
+With `SCHMETTERPAUSE_URL` set, each card shows that player's figure above the
+name: the one they assembled in Schmetterpause, or a random one for a side
+with nobody behind it — free-text names, a demo, Pong against itself. Each
+figure pulls the face the match gives it (ADR-0018). The figures are fetched
+once per match and served from `GET /ui/matches/{id}/figures/{a|b}.svg?face=…`,
+so a point only changes an image address and each face comes from the
+browser's cache after the first time. The side's colour is then the blade on
+its figure. A side whose figure cannot be fetched shows the mascot, and the
+screen is what it was without Schmetterpause.
+
+Without figures the colour is worked out from the player id, the way
+Schmetterpause did before players chose their blade; a match with free-text
+names gets light blue on the left and pink on the right. Either way, two
+players who share a colour are told apart by moving the right-hand one on to
+the next one.
 
 #### The live screen
 
