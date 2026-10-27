@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/stuttgart-things/zaehlwerk/internal/face"
+	"github.com/stuttgart-things/zaehlwerk/internal/live"
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/panel"
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
@@ -134,8 +136,11 @@ type sideView struct {
 	// next rally is worth, the person keeping score does not.
 	Stake string
 	// Blade is this side's colour, as a --blade declaration: the one the
-	// player's mascot carries in schmetterpause. See [blades].
+	// player's mascot carries in schmetterpause. See [Server.blades].
 	Blade template.CSS
+	// Figure is the address of this side's figure with its face, empty
+	// without figures (see [WithFigures]).
+	Figure string
 }
 
 // logRow is one transition, in the words the panel gets it in: the title the
@@ -153,14 +158,18 @@ func (s *Server) matchView(m *match.Match, kind scorer.TransitionKind) *matchVie
 	v := s.stateView(st, m.Running(), kind)
 	v.Reported = s.reportView(m, st)
 	stake(v, m, st)
-	paint(v, m, st)
+	s.paint(v, m, st)
+	// A page that opens shows the faces the score says by itself; the points
+	// that came before it are not its to know (face.Read, "at rest").
+	faces, _ := face.Read(moment(m, live.KindSnapshot, "", st), face.Streak{})
+	s.dress(v, m, faces)
 	return v
 }
 
 // paint gives each side its colour and the referee's cord the colour of the
 // side that leads at st.
-func paint(v *matchView, m *match.Match, st scorer.State) {
-	a, b := blades(m.Handover)
+func (s *Server) paint(v *matchView, m *match.Match, st scorer.State) {
+	a, b := s.blades(m)
 	v.A.Blade = template.CSS("--blade: " + a)
 	v.B.Blade = template.CSS("--blade: " + b)
 	switch leader(st) {
@@ -171,14 +180,55 @@ func paint(v *matchView, m *match.Match, st scorer.State) {
 	}
 }
 
-// blades is the colour of each side.
+// blades is the colour of each side: the blade its figure carries, once the
+// figures are here (see [WithFigures]).
 //
-// For a player schmetterpause knows it is the blade their mascot carries
-// there: schmetterpause derives it from the player id (PaddleClass in its
-// internal/templates/view.go) as FNV-1a over the seven colours, and the same
-// sum here gives the same colour, with nothing stored on either side. A match
-// with free-text names has no ids, and gets the widest-apart pair in the
-// palette, light blue on the left and pink on the right.
+// Since Schmetterpause ADR-0029 a player chooses their blade, so the figure is
+// the only place that knows it. Before the figures arrive, without them, or
+// for a side whose fetch failed, it is [blades] — right for every player who
+// never chose, and for the rest only until the figures land, which is well
+// before the first point.
+func (s *Server) blades(m *match.Match) (a, b string) {
+	a, b = blades(m.Handover)
+	if s.figures == nil {
+		return a, b
+	}
+	f := s.figures.ready(m.ID)
+	if f == nil {
+		return a, b
+	}
+	if c := f.side[0].blade; c != "" {
+		a = c
+	}
+	if c := f.side[1].blade; c != "" {
+		b = c
+	}
+	if a == b {
+		b = nextColour(a)
+	}
+	return a, b
+}
+
+// nextColour is the palette colour after c, so that two players with the same
+// blade do not share the cord. The first colour for one not in the palette.
+func nextColour(c string) string {
+	for i, p := range paddleColours {
+		if p == c {
+			return paddleColours[(i+1)%len(paddleColours)]
+		}
+	}
+	return paddleColours[0]
+}
+
+// blades is the colour of each side, worked out from the ids alone.
+//
+// For a player schmetterpause knows it is the blade their mascot carried
+// there before players chose their own: schmetterpause derives it from the
+// player id (PaddleClass in its internal/templates/view.go) as FNV-1a over the
+// seven colours, and the same sum here gives the same colour, with nothing
+// stored on either side. A match with free-text names has no ids, and gets the
+// widest-apart pair in the palette, light blue on the left and pink on the
+// right.
 //
 // Two players can share a colour there; here they would share the cord, and
 // the cord would say nothing. So b moves on to the next colour when they do.

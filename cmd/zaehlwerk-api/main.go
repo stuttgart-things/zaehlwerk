@@ -169,7 +169,10 @@ func run() error {
 	if spClient != nil {
 		uiOpts = append(uiOpts,
 			ui.WithSchmetterpause(spClient, reporter),
-			ui.WithReportsTo(spClient.BaseURL()))
+			ui.WithReportsTo(spClient.BaseURL()),
+			// The players' figures on the spectator view. Their routes are
+			// public there, so this needs SCHMETTERPAUSE_URL and no token.
+			ui.WithFigures(spClient))
 	}
 
 	// The scoring page links the services around the table. Addresses for
