@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.39.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.38.0...v0.39.0) (2026-10-28)
+
+
+### Features
+
+* show the players' figures on the scoring page ([#202](https://github.com/stuttgart-things/zaehlwerk/issues/202)) ([85e1fd0](https://github.com/stuttgart-things/zaehlwerk/commit/85e1fd017943b1311a1d0c9f27ba8890a1ec7291))
+
 ## [0.38.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.37.0...v0.38.0) (2026-10-27)
 
 
