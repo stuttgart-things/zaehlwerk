@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.40.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.39.0...v0.40.0) (2026-10-28)
+
+
+### Features
+
+* name the winner's figure to the LED panel ([#205](https://github.com/stuttgart-things/zaehlwerk/issues/205)) ([7032e03](https://github.com/stuttgart-things/zaehlwerk/commit/7032e035d1418baf16e6f354aab1400fa558a370)), closes [#204](https://github.com/stuttgart-things/zaehlwerk/issues/204)
+
 ## [0.39.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.38.0...v0.39.0) (2026-10-28)
 
 
