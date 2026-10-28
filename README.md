@@ -57,6 +57,7 @@ go run ./cmd/zaehlwerk-api
 | `REDIS_PORT` | `6379` | |
 | `REDIS_PASSWORD` | — | |
 | `PANEL_STREAM` | `tabletennis` | Stream the score is published to |
+| `PANEL_FIGURES_URL` | `SCHMETTERPAUSE_URL` when it is `https://` | Schmetterpause as the panel reaches it: a won set or match names the winner's figure there (`figure` tag). The catcher fetches it itself, over https only, so an in-cluster `http://` Service gives no figures |
 | `ALLOWED_ORIGINS` | — | Comma-separated browser origins that may read the live stream. Empty means none |
 | `STREAM_HEARTBEAT` | `25s` | Keepalive interval on an idle stream |
 | `CATCHER_URL` | — | LED catcher base URL. Unset disables stream switching |
@@ -711,6 +712,7 @@ does not. Each is absent when it does not apply:
 | `stake`, `stake_side` | `set_point` or `match_point`, and `a` or `b`: what the next point decides and who holds it. Absent outside play and once the match is over |
 | `tournament`, `round` | `1` and the round, on a match that fills a place in a Schmetterpause draw (ADR-0017) |
 | `final` | `1` on the tournament's final |
+| `figure` | on `set_won` and `match_won`, the winner's figure as a GIF from Schmetterpause: `<PANEL_FIGURES_URL>/avatars/<id>.gif` (Schmetterpause ADR-0030). The catcher's shipped profile plays it, cheering, before it holds the board. Absent without figures configured and for a winner with nobody behind them |
 
 A light at the table pulses on the side that holds a match point, or makes
 more of a won final than of a won group match, from these alone (invariant 7).
