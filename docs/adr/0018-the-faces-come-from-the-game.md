@@ -92,3 +92,5 @@ not know shows neutral there, and a consumer that does not read the field
   same way per connection on its own stream. It fetches the figures once per
   match from Schmetterpause and takes each side's colour, and so the referee's
   cord, from the blade on the figure rather than recomputing it from the id.
+- The scoring page shows the same figures and faces, smaller: whoever keeps
+  score is there for the buttons.

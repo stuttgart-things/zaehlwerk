@@ -195,6 +195,17 @@
             background: color-mix(in srgb, var(--ok) 8%, var(--panel));
         }
 
+        /* The player's figure from Schmetterpause, with the face the match
+           gives it (ADR-0018). Smaller than on the spectator view: whoever
+           holds this page is a step from the table and is here for the score
+           and the buttons, not to be shown who is playing. */
+        .figure {
+            display: block;
+            height: clamp(2.5rem, 9vw, 3.5rem);
+            margin: 0 auto 0.2rem;
+            aspect-ratio: 1;
+        }
+
         .name {
             font-weight: 600;
             font-size: 1.05rem;

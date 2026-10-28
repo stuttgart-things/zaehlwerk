@@ -564,6 +564,7 @@ so a point only changes an image address and each face comes from the
 browser's cache after the first time. The side's colour is then the blade on
 its figure. A side whose figure cannot be fetched shows the mascot, and the
 screen is what it was without Schmetterpause.
+The scoring page at `/ui` carries the same figures, smaller, above the names.
 
 Without figures the colour is worked out from the player id, the way
 Schmetterpause did before players chose their blade; a match with free-text

@@ -6,6 +6,7 @@
      the request is issued, which looks exactly like a dead button. */}}
 <div class="score">
   <div class="side{{if .Match.A.Serving}} serving{{end}}{{if .Match.A.Winner}} winner{{end}}">
+    {{- with .Match.A.Figure}}<img class="figure" src="{{.}}" alt="">{{end}}
     <div class="name">{{.Match.A.Name}}</div>
     <div class="status">
       {{- if .Match.A.Winner}}<span class="state state-won">won</span>
@@ -19,6 +20,7 @@
             {{if not .Match.Running}}disabled{{end}}>+1<kbd>a</kbd></button>
   </div>
   <div class="side{{if .Match.B.Serving}} serving{{end}}{{if .Match.B.Winner}} winner{{end}}">
+    {{- with .Match.B.Figure}}<img class="figure" src="{{.}}" alt="">{{end}}
     <div class="name">{{.Match.B.Name}}</div>
     <div class="status">
       {{- if .Match.B.Winner}}<span class="state state-won">won</span>

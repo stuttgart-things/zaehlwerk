@@ -90,6 +90,20 @@ func TestASpectatorSeesBothPlayersFiguresWithTheirFaces(t *testing.T) {
 	require.Contains(t, svg, `id="figure-id-bernd"`)
 }
 
+// The referee's board carries the same figures, smaller, and the stream that
+// keeps it current gives them the faces of each point like the spectator's.
+func TestTheRefereeSeesBothPlayersFiguresToo(t *testing.T) {
+	src := &fakeFigures{blades: map[string]string{"id-anna": "#159c8c", "id-bernd": "#2f6fd0"}}
+	f := newFixture(t, WithFigures(src))
+	m := f.reportedBetween("id-anna", "id-bernd")
+
+	_, body := f.do(http.MethodGet, "/ui", nil)
+	require.Equal(t, []string{
+		"/ui/matches/" + m.ID + "/figures/a.svg?face=neutral",
+		"/ui/matches/" + m.ID + "/figures/b.svg?face=neutral",
+	}, figureSrcs(t, body))
+}
+
 // Fetched once per match: a random figure is a new one per request there, and
 // a side that changed its figure every point would not be one figure.
 func TestAMatchWithNobodyBehindItGetsTwoRandomFiguresOnce(t *testing.T) {
@@ -170,6 +184,8 @@ func TestWithoutFiguresTheSpectatorViewIsUnchanged(t *testing.T) {
 	_, body := f.do(http.MethodGet, "/ui/watch", nil)
 	require.NotContains(t, body, `class="figure"`)
 	require.NotRegexp(t, `class="side[^"]*dressed`, body)
+	_, body = f.do(http.MethodGet, "/ui", nil)
+	require.NotContains(t, body, `<img class="figure"`)
 
 	rec, _ := f.do(http.MethodGet, "/ui/matches/"+m.ID+"/figures/a.svg", nil)
 	require.Equal(t, http.StatusNotFound, rec.Code)
