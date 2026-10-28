@@ -560,7 +560,7 @@ func panelSink(log *slog.Logger) *panel.Sink {
 		log.Info("panel enabled via omni-pitcher", "url", url, "expected_stream", stream,
 			"authenticated", os.Getenv("OMNI_PITCHER_TOKEN") != "")
 
-		return panel.New(pitcher, panel.Config{Stream: stream, Logger: log})
+		return panel.New(pitcher, panel.Config{Stream: stream, Figures: panelFigures(log), Logger: log})
 	}
 
 	addr := os.Getenv("REDIS_ADDR")
@@ -580,9 +580,30 @@ func panelSink(log *slog.Logger) *panel.Sink {
 	// One pitcher for the process lifetime. NewPitcher opens a connection pool,
 	// so the per-message form would open and leak one per point.
 	return panel.New(homerun.NewPitcher(rc), panel.Config{
-		Stream: rc.Stream,
-		Logger: log,
+		Stream:  rc.Stream,
+		Figures: panelFigures(log),
+		Logger:  log,
 	})
+}
+
+// panelFigures is where the panel fetches the winner's figure from after a
+// won set or match (panel.FigureTag), or empty for none.
+//
+// PANEL_FIGURES_URL names it. Without it, SCHMETTERPAUSE_URL is taken when
+// it is https: that is then an address with a certificate, which is what the
+// catcher accepts, and usually the public one. An http SCHMETTERPAUSE_URL is
+// the in-cluster Service, which a catcher by the table cannot reach and would
+// not fetch from; it gives no figures rather than a panel that tries.
+func panelFigures(log *slog.Logger) string {
+	if u := os.Getenv("PANEL_FIGURES_URL"); u != "" {
+		log.Info("panel shows the winner's figure", "url", u)
+		return u
+	}
+	if u := os.Getenv("SCHMETTERPAUSE_URL"); strings.HasPrefix(u, "https://") {
+		log.Info("panel shows the winner's figure", "url", u)
+		return u
+	}
+	return ""
 }
 
 func logLevel() slog.Level {

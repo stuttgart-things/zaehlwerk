@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -60,6 +61,12 @@ type Config struct {
 	// queued. The last transition of a match is usually the final score, and
 	// discarding it on shutdown would leave the panel a set behind.
 	DrainTimeout time.Duration
+
+	// Figures is the address of Schmetterpause as the panel reaches it, from
+	// which a won set or match names the winner's figure (FigureTag). Empty
+	// means no figures. The panel fetches it itself, so it has to be an
+	// address the panel can reach, over https.
+	Figures string
 
 	Logger *slog.Logger
 	// Now is the clock stamped onto messages. Overridable for tests.
@@ -165,6 +172,7 @@ func (s *Sink) Observe(m *match.Match, t scorer.Transition) {
 	if m != nil {
 		p.match = Match{
 			Tournament: m.Handover.TournamentID != "", Round: m.Handover.Round, Final: m.Handover.Final,
+			Players: [2]string{m.Handover.HomeID, m.Handover.AwayID},
 		}
 		p.match.Stake, p.match.StakeSide = stakeOf(m.Scorer, t.State)
 	}
@@ -241,6 +249,7 @@ func (s *Sink) pitch(p pitch) {
 	t := p.t
 	msg := Message(t, p.demo, s.cfg.System, s.cfg.Author, s.cfg.Now())
 	msg.Tags += MatchTags(p.match)
+	msg.Tags += FigureTag(s.cfg.Figures, t, p.match.Players)
 	if _, _, err := s.pitcher.Enqueue(ctx, msg, s.cfg.Stream); err != nil {
 		s.failed.Add(1)
 		s.cfg.Logger.Warn("panel pitch failed, point not shown",
@@ -480,6 +489,9 @@ type Match struct {
 	Tournament bool
 	Round      int
 	Final      bool
+	// Players is the Schmetterpause id behind each side, a then b, empty for
+	// a side with nobody behind it.
+	Players [2]string
 }
 
 // stakeOf asks the scorer what the next point decides at st.
@@ -517,4 +529,35 @@ func MatchTags(m Match) string {
 		}
 	}
 	return tags
+}
+
+// FigureTag is `,figure=<URL>` on a won set or match: the winner's figure,
+// cheering, as a GIF Schmetterpause draws for the panel (Schmetterpause
+// ADR-0030). The catcher's shipped profile plays it before it holds the board
+// with SATZ or SIEG, and a catcher whose profile does not know the tag
+// ignores it, like every tag it has no rule for (invariant 7).
+//
+// Empty on every other transition, without figures configured, and for a
+// winner with nobody behind them. That side shows a random figure on the
+// spectator view, and a random one on the panel would be a different random
+// one: better none.
+//
+// It comes after MatchTags, last, so every rule written against the tags
+// before it still matches.
+func FigureTag(figures string, t scorer.Transition, players [2]string) string {
+	if figures == "" || (t.Kind != scorer.TransitionSetWon && t.Kind != scorer.TransitionMatchWon) {
+		return ""
+	}
+	var id string
+	switch t.Side {
+	case scorer.PlayerA:
+		id = players[0]
+	case scorer.PlayerB:
+		id = players[1]
+	default:
+	}
+	if id == "" {
+		return ""
+	}
+	return ",figure=" + strings.TrimSuffix(figures, "/") + "/avatars/" + url.PathEscape(id) + ".gif"
 }

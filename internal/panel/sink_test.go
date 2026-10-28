@@ -468,3 +468,37 @@ func TestATournamentMatchIsTaggedWithItsPlace(t *testing.T) {
 func TestAnOrdinaryMatchHasNoMatchTags(t *testing.T) {
 	require.Empty(t, MatchTags(Match{}))
 }
+
+// A won set or match names the winner's figure, which the catcher plays before
+// it holds the board (Schmetterpause ADR-0030). A point does not.
+func TestAWonSetNamesTheWinnersFigure(t *testing.T) {
+	rec := newRecorder()
+	sink := New(rec, Config{Figures: "https://sp.example/", Logger: quiet()})
+	defer func() { require.NoError(t, sink.Close()) }()
+	registry := match.NewRegistry(match.WithMatchObserver(sink.Observe))
+
+	m, _, err := registry.CreateFor(scorer.Config{BestOf: 3, PointsPerSet: 11, Players: [2]string{"Anna", "Bernd"}},
+		match.Setup{Handover: match.Handover{HomeID: "id-anna", AwayID: "id-bernd", OperatorID: "o"}})
+	require.NoError(t, err)
+
+	pointsFor(t, m, scorer.PlayerB, 10, 1)
+	require.NotContains(t, lastTags(t, rec, 10), "figure=", "a point is not a moment for a figure")
+
+	pointsFor(t, m, scorer.PlayerB, 1, 11) // the set
+	require.True(t, strings.HasSuffix(lastTags(t, rec, 11), ",figure=https://sp.example/avatars/id-bernd.gif"), lastTags(t, rec, 11))
+
+	pointsFor(t, m, scorer.PlayerA, 11, 12) // the second set, to Anna
+	require.True(t, strings.HasSuffix(lastTags(t, rec, 22), ",figure=https://sp.example/avatars/id-anna.gif"), lastTags(t, rec, 22))
+}
+
+func TestNoFigureWithoutSomebodyBehindTheWinnerOrWithoutFigures(t *testing.T) {
+	won := scorer.Transition{Kind: scorer.TransitionMatchWon, Side: scorer.PlayerA}
+
+	require.Empty(t, FigureTag("", won, [2]string{"id-anna", "id-bernd"}), "figures not configured")
+	require.Empty(t, FigureTag("https://sp.example", won, [2]string{"", "id-bernd"}),
+		"a free-text name has a random figure on the screen, and a different random one here would be wrong")
+	require.Empty(t, FigureTag("https://sp.example", scorer.Transition{Kind: scorer.TransitionPoint, Side: scorer.PlayerA},
+		[2]string{"id-anna", "id-bernd"}))
+	require.Equal(t, ",figure=https://sp.example/avatars/a%2Fb.gif",
+		FigureTag("https://sp.example", won, [2]string{"a/b", ""}), "an id is a path segment, whatever it holds")
+}
