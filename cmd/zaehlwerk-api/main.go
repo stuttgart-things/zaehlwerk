@@ -18,6 +18,7 @@ import (
 
 	"github.com/stuttgart-things/zaehlwerk/internal/api"
 	"github.com/stuttgart-things/zaehlwerk/internal/checkin"
+	"github.com/stuttgart-things/zaehlwerk/internal/figure"
 	"github.com/stuttgart-things/zaehlwerk/internal/live"
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/panel"
@@ -173,6 +174,13 @@ func run() error {
 			// The players' figures on the spectator view. Their routes are
 			// public there, so this needs SCHMETTERPAUSE_URL and no token.
 			ui.WithFigures(spClient))
+		// A match by names shows the figures of the players Schmetterpause
+		// has under them, on the spectator view and the panel. The list
+		// needs SCHMETTERPAUSE_TOKEN; without it such a match shows a random
+		// figure on the view and none on the panel, as before.
+		if os.Getenv("SCHMETTERPAUSE_TOKEN") != "" {
+			apiOpts = append(apiOpts, api.WithFigureNames(figure.NewNames(spClient, log)))
+		}
 	}
 
 	// The scoring page links the services around the table. Addresses for

@@ -102,3 +102,11 @@ not know shows neutral there, and a consumer that does not read the field
   that player's figure, and the running score shows the match's figures from
   zaehlwerk's own route, with the faces `/live/stream` sent. It decides no face
   itself.
+- A match by names -- a demo, a game of Pong's, one started on the page --
+  shows the figures of the players Schmetterpause has under those names, on
+  the spectator view and the panel, looked up once a minute from the player
+  list (`match.Setup.Figures`). Before, it showed random figures on the view
+  and none on the panel. The ids only pick a drawing: the match is still not
+  reported and the stream still carries no ids (ADR-0008). A name nobody has,
+  or two players share, keeps a random figure on the view and none on the
+  panel, for the reason `panel.FigureTag` gives.

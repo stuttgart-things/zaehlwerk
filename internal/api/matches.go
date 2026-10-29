@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -312,6 +313,12 @@ func (s *Server) start(cfg scorer.Config, setup match.Setup) (*match.Match, erro
 func (s *Server) create(cfg scorer.Config, setup match.Setup) (*match.Match, error) {
 	if cfg.SetOpener == "" {
 		cfg.SetOpener = s.setOpener
+	}
+	// A match without player ids has names only; the players Schmetterpause
+	// has under them show their own figures. Not for a match with ids: the
+	// desk creates those under its lock, and they need no lookup.
+	if s.names != nil && setup.Handover.HomeID == "" && setup.Handover.AwayID == "" {
+		setup.Figures = s.names.IDs(context.Background(), cfg.Players)
 	}
 	m, ended, err := s.registry.CreateFor(cfg, setup)
 	if err != nil {
