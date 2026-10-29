@@ -1133,6 +1133,15 @@ task chain:run               # zaehlwerk with check-in on
 task chain:buttons           # then hold a fob and press
 ```
 
+With `SCHMETTERPAUSE_URL` set, the page shows the players' figures too
+(ADR-0018): each player's fob carries that player's figure, a half somebody
+checked in at shows theirs before the match, and the running score shows the
+two figures zaehlwerk's spectator view shows, from zaehlwerk's own route, with
+the faces its `/live/stream` gives them. The figures are public on
+Schmetterpause and need no token, but the fobs, and with them a checked-in
+player's figure, need the player list. The fake Schmetterpause has no figures,
+so against it the fobs carry the mascot.
+
 The log names fobs by their label and never writes a UID, as the firmware must
 not; neither does the page. "API response lost" sends
 the check-in twice with one event id, and the second answer is the first one

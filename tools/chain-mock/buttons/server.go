@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/stuttgart-things/zaehlwerk/internal/figure"
 	"github.com/stuttgart-things/zaehlwerk/internal/schmetterpause"
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 	"github.com/stuttgart-things/zaehlwerk/tools/chain-mock/piezo"
@@ -23,13 +24,14 @@ import (
 var pageFS embed.FS
 
 var page = template.Must(template.New("").Funcs(template.FuncMap{
-	"ms":    func(d time.Duration) int64 { return d.Milliseconds() },
-	"clock": func(t time.Time) string { return t.Format("15:04:05.000") },
-	"name":  func(st scorer.State, half string) string { return st.Players[index(playerOn(half, st.SetNumber))] },
-	"pct":   func(share float64) int { return int(share*100 + 0.5) },
-	"ago":   func(t time.Time) string { return time.Since(t).Round(time.Second).String() },
-	"share": func(left time.Duration) int { return int(100 * left / FobWindow) },
-	"sides": func() []string { return []string{"A", "B"} },
+	"ms":     func(d time.Duration) int64 { return d.Milliseconds() },
+	"clock":  func(t time.Time) string { return t.Format("15:04:05.000") },
+	"name":   func(st scorer.State, half string) string { return st.Players[index(playerOn(half, st.SetNumber))] },
+	"pct":    func(share float64) int { return int(share*100 + 0.5) },
+	"ago":    func(t time.Time) string { return time.Since(t).Round(time.Second).String() },
+	"share":  func(left time.Duration) int { return int(100 * left / FobWindow) },
+	"sides":  func() []string { return []string{"A", "B"} },
+	"figure": figureURL,
 }).ParseFS(pageFS, "page.html"))
 
 // maxHold caps a press posted by the page. Longer than anybody holds a button,
@@ -54,8 +56,13 @@ type Server struct {
 	// roster is nil when SCHMETTERPAUSE_URL is unset: the page then offers
 	// only the fobs that belong to nobody.
 	roster Roster
-	log    *slog.Logger
-	mux    *http.ServeMux
+	// figures is nil when SCHMETTERPAUSE_URL is unset: the page then shows
+	// no player's figure. faces is what zaehlwerk's table stream said about
+	// the running match's.
+	figures figure.Source
+	faces   *tableFaces
+	log     *slog.Logger
+	mux     *http.ServeMux
 
 	// fobs is the list the page was last drawn with, and fobsErr why it has
 	// no players in it. A press on a fob is looked up here, so the fob held is
@@ -75,7 +82,7 @@ func (s *Server) WithRoster(roster Roster) *Server {
 // empty leaves the piezo section off the page.
 func NewServer(rig *Rig, zaehlwerkUI, piezoURL string, log *slog.Logger) *Server {
 	s := &Server{rig: rig, zaehlwerkUI: zaehlwerkUI, piezo: newPiezoClient(piezoURL), log: log, mux: http.NewServeMux(),
-		fobs: FobsFor(nil)}
+		fobs: FobsFor(nil), faces: &tableFaces{}}
 	s.mux.HandleFunc("GET /{$}", s.index)
 	s.mux.HandleFunc("GET /live", s.live)
 	s.mux.HandleFunc("POST /press", s.press)
@@ -88,6 +95,7 @@ func NewServer(rig *Rig, zaehlwerkUI, piezoURL string, log *slog.Logger) *Server
 	s.mux.HandleFunc("POST /fob", s.holdFob)
 	s.mux.HandleFunc("GET /reader", s.reader)
 	s.mux.HandleFunc("POST /piezo", s.setPiezo)
+	s.mux.HandleFunc("GET /figures/{file}", s.figure)
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	})
@@ -112,6 +120,14 @@ type view struct {
 	FobsError string
 	Reader    readerView
 
+	// Figures is the running match's two figures, a then b, from zaehlwerk's
+	// own route, with the faces its table stream gave them. Halves is who is
+	// checked in at the left and the right half while nothing runs.
+	Figures [2]string
+	Halves  [2]half
+	// FiguresOn is whether the fobs carry their players' figures.
+	FiguresOn bool
+
 	// PiezoOn is whether the page has a piezo section at all. Piezo is nil
 	// when the board did not answer, and PiezoError says why.
 	PiezoOn    bool
@@ -126,6 +142,7 @@ func (s *Server) view(ctx context.Context) view {
 		Entries:     s.rig.Entries(),
 		ZaehlwerkUI: s.zaehlwerkUI,
 		Sources:     [2]string{s.rig.buttons["A"].source, s.rig.buttons["B"].source},
+		FiguresOn:   s.figures != nil,
 	}
 	s.fobsMu.Lock()
 	v.Fobs, v.FobsError = s.fobs, s.fobsErr
@@ -136,6 +153,15 @@ func (s *Server) view(ctx context.Context) view {
 		v.APIError = err.Error()
 	}
 	v.Running, v.State = ok, st
+	switch {
+	case ok && s.figures != nil:
+		faces := s.faces.of(st.MatchID)
+		for i, side := range []string{"a", "b"} {
+			v.Figures[i] = s.zaehlwerkUI + "/matches/" + st.MatchID + "/figures/" + side + ".svg?face=" + string(faces[i])
+		}
+	case !ok && err == nil:
+		v.Halves = s.halves(ctx)
+	}
 
 	if s.piezo != nil {
 		v.PiezoOn = true
@@ -433,7 +459,9 @@ func RunFromEnv(ctx context.Context, log *slog.Logger) error {
 		if err != nil {
 			return fmt.Errorf("SCHMETTERPAUSE_URL: %w", err)
 		}
-		pages.WithRoster(sp)
+		// The figures are public on Schmetterpause: they need no token.
+		pages.WithRoster(sp).WithFigures(sp)
+		go pages.faces.follow(ctx, api+"/live/stream", log)
 	}
 	srv := &http.Server{
 		Addr:              addr,

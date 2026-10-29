@@ -98,3 +98,7 @@ not know shows neutral there, and a consumer that does not read the field
   (`internal/figure`). Its stream sends the board, not the transitions, so it
   reads the moment back from the change of the score, and a change that is no
   point keeps the faces up until the next one.
+- The table mock (zaehlwerk-buttons) shows them too: a player's fob carries
+  that player's figure, and the running score shows the match's figures from
+  zaehlwerk's own route, with the faces `/live/stream` sent. It decides no face
+  itself.
