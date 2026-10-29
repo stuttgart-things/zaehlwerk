@@ -146,6 +146,12 @@
         .score { display: flex; align-items: baseline; justify-content: center; gap: 1rem; font-family: var(--font-mono); }
         .score .pts { font-size: 2.5rem; font-weight: 700; }
         .score .sets { color: var(--muted); }
+        /* The players' figures, as zaehlwerk's spectator view shows them. */
+        .score { align-items: center; }
+        .figure { width: clamp(3rem, 12vw, 5rem); height: auto; aspect-ratio: 1; }
+        .checked { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 0.75rem; }
+        .checked > div { display: grid; justify-items: center; gap: 0.25rem; text-align: center; }
+        .checked .empty { color: var(--muted); }
         .notice { color: var(--muted); text-align: center; }
 
         /* --- Settings --------------------------------------------------- */
@@ -267,6 +273,10 @@
         .fob.down::before { animation: fill var(--read) linear forwards; }
         .fob.read { border-color: var(--ok); }
         .fob.short { animation: shake 240ms; }
+        /* The figure of the player the fob is for: part of the fob, not
+           something to drag off it while holding. */
+        .fob { display: inline-flex; align-items: center; gap: 0.5rem; }
+        .fob img { width: 2rem; height: 2rem; margin: -0.35rem 0; pointer-events: none; }
         @keyframes shake { 25% { translate: -3px 0; } 75% { translate: 3px 0; } }
 
         .reader { display: grid; gap: 0.6rem; }
@@ -385,7 +395,7 @@
                 {{/* Outside the polled partial on purpose: a refresh under a
                      finger that is holding a fob would drop the hold. */}}
                 <div class="fobs">
-                    {{range .Fobs}}<button class="fob" data-fob="{{.Key}}" aria-label="Hold {{.Label}} to the reader">{{.Label}}</button>{{end}}
+                    {{range .Fobs}}<button class="fob" data-fob="{{.Key}}" aria-label="Hold {{.Label}} to the reader">{{if and $.FiguresOn .Player}}<img src="{{figure .Key}}" alt="" width="32" height="32" draggable="false">{{end}}{{.Label}}</button>{{end}}
                 </div>
                 {{if .FobsError}}<p class="notice" style="text-align:left">{{.FobsError}} — only the fobs that belong to nobody.</p>{{end}}
             </div>
@@ -521,15 +531,28 @@
             <div class="notice">zaehlwerk is not answering: <span class="mono">{{.APIError}}</span></div>
         {{else if .Running}}
             <div class="score">
+                {{/* The figures come from zaehlwerk, which shows none when it
+                     has no SCHMETTERPAUSE_URL: then the image goes. */}}
+                {{with index .Figures 0}}<img class="figure" src="{{.}}" alt="" width="80" height="80" onerror="this.remove()">{{end}}
                 <span>{{index .State.Players 0}}</span>
                 <span class="pts">{{index .State.Points 0}}:{{index .State.Points 1}}</span>
                 <span>{{index .State.Players 1}}</span>
+                {{with index .Figures 1}}<img class="figure" src="{{.}}" alt="" width="80" height="80" onerror="this.remove()">{{end}}
             </div>
             <div class="notice">set {{.State.SetNumber}} · sets {{index .State.Sets 0}}:{{index .State.Sets 1}}
                 · half A is {{name .State "A"}}, half B is {{name .State "B"}}
                 · match <span class="mono">{{.State.MatchID}}</span></div>
         {{else}}
             <div class="notice">No match running. <a href="{{.ZaehlwerkUI}}" target="_blank" rel="noopener">Start one on the zaehlwerk page</a> — a button never starts one.</div>
+            {{if or (index .Halves 0).Name (index .Halves 1).Name}}
+            <div class="checked">
+                {{range $i, $h := .Halves}}<div>
+                    {{if $h.Figure}}<img class="figure" src="{{$h.Figure}}" alt="" width="80" height="80">{{end}}
+                    <span class="muted">{{if eq $i 0}}left{{else}}right{{end}} half</span>
+                    {{if $h.Name}}<b>{{$h.Name}}</b>{{else}}<span class="empty">nobody checked in</span>{{end}}
+                </div>{{end}}
+            </div>
+            {{end}}
         {{end}}
         {{if .PiezoOn}}
             <div class="notice" style="margin-top:0.5rem">piezo board:

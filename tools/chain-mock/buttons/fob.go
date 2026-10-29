@@ -25,6 +25,9 @@ type Fob struct {
 	Key   string
 	Label string
 	UID   string
+	// Player is the name of the player the fob is for, empty for the fobs
+	// that belong to nobody.
+	Player string
 }
 
 // The fobs that belong to nobody: a new one, the kind a player links in
@@ -47,7 +50,7 @@ var (
 func FobsFor(players []schmetterpause.Player) []Fob {
 	fobs := make([]Fob, 0, len(players)+2)
 	for _, p := range players {
-		fobs = append(fobs, Fob{Key: p.ID, Label: p.DisplayName + "'s fob", UID: fobuid.For(p.ID)})
+		fobs = append(fobs, Fob{Key: p.ID, Label: p.DisplayName + "'s fob", UID: fobuid.For(p.ID), Player: p.DisplayName})
 	}
 	return append(fobs, SpareFob, StrangerFob)
 }
@@ -303,4 +306,64 @@ func (r *Rig) postCheckin(ctx context.Context, body checkinBody) (int, checkinAn
 		return resp.StatusCode, a, fmt.Errorf("decoding the check-in answer: %w", err)
 	}
 	return resp.StatusCode, a, nil
+}
+
+// half is one half of the table as the page shows it before a match: who is
+// checked in there, and their figure.
+type half struct {
+	Name   string
+	Figure string
+}
+
+// halves is who is checked in at the left and the right half. Nothing when
+// zaehlwerk has no check-in or does not answer: the page then shows the
+// halves as it always did.
+func (s *Server) halves(ctx context.Context) [2]half {
+	var out [2]half
+	names, err := s.rig.CheckedIn(ctx)
+	if err != nil {
+		return out
+	}
+	for i, name := range names {
+		out[i] = half{Name: name, Figure: s.playerFigure(name)}
+	}
+	return out
+}
+
+// checkinStatus is the part of GET /checkin the page reads: a name per half,
+// and no ids (ADR-0004).
+type checkinStatus struct {
+	Left, Right *claimed
+}
+
+type claimed struct {
+	Name string `json:"name"`
+}
+
+// CheckedIn is the names of the players checked in at the left and the right
+// half, empty for a half nobody claimed.
+func (r *Rig) CheckedIn(ctx context.Context) ([2]string, error) {
+	var names [2]string
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.api+"/checkin", nil)
+	if err != nil {
+		return names, fmt.Errorf("building GET /checkin: %w", err)
+	}
+	resp, err := r.http.Do(req)
+	if err != nil {
+		return names, fmt.Errorf("GET /checkin: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return names, fmt.Errorf("GET /checkin: %s", resp.Status)
+	}
+	var st checkinStatus
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&st); err != nil {
+		return names, fmt.Errorf("decoding GET /checkin: %w", err)
+	}
+	for i, h := range []*claimed{st.Left, st.Right} {
+		if h != nil {
+			names[i] = h.Name
+		}
+	}
+	return names, nil
 }
