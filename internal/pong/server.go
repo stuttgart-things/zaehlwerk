@@ -15,6 +15,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/stuttgart-things/zaehlwerk/internal/figure"
 	"github.com/stuttgart-things/zaehlwerk/internal/schmetterpause"
 )
 
@@ -51,9 +52,13 @@ type Config struct {
 	CheckTimeout time.Duration
 	// Roster is where the lobby gets the names it offers, nil when
 	// SCHMETTERPAUSE_URL is unset. Names only: a game from the lobby is a
-	// demo and is never reported (ADR-0008), so no id from it is ever used.
-	// League mode reads the ids, through League.Roster (ADR-0015).
+	// demo and is never reported (ADR-0008), so no id from it is ever
+	// reported. League mode reads the ids, through League.Roster (ADR-0015);
+	// the board looks a name up only to show that player's figure.
 	Roster Roster
+	// Figures shows each side's figure on the board, with the face the match
+	// gives it (zaehlwerk ADR-0018), nil without SCHMETTERPAUSE_URL.
+	Figures figure.Source
 	// League turns on league mode (ADR-0015), nil off: in the sandbox only,
 	// where zaehlwerk takes player ids.
 	League *League
@@ -128,6 +133,9 @@ type Server struct {
 	// and a requested game ends the demo under it.
 	starting sync.Mutex
 
+	// figures is the players' figures, nil without Config.Figures.
+	figures *figure.Cache
+
 	mu      sync.Mutex
 	games   map[string]*Game
 	order   []string
@@ -180,6 +188,9 @@ func New(cfg Config, log *slog.Logger) *Server {
 		// One waiting wake is enough: a held league only needs to know
 		// that it should look again.
 		leagueWake: make(chan struct{}, 1),
+	}
+	if cfg.Figures != nil {
+		s.figures = figure.NewCache(cfg.Figures, log)
 	}
 	s.mux.HandleFunc("GET /healthz", s.healthz)
 	s.mux.HandleFunc("POST /games", s.startGame)

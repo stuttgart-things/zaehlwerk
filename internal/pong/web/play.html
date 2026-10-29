@@ -16,6 +16,11 @@
         .points { font-family: var(--font-mono); font-size: clamp(2rem, 7vw, 3.4rem); font-weight: 700; }
         .sets { color: var(--muted); font-family: var(--font-mono); }
         .serve::before { content: "● "; color: var(--ok); }
+        /* The players' figures above their names (zaehlwerk ADR-0018), as on
+           zaehlwerk's spectator view. A fixed box, so a face that changes
+           never moves the score. */
+        .side .figure { width: clamp(4rem, 14vw, 7.5rem); height: auto; aspect-ratio: 1; }
+        .side.right .figure { justify-self: end; }
         .stage { padding: 0.5rem; }
         canvas { display: block; width: 100%; height: auto; border-radius: var(--radius-sm); touch-action: none; background: #0b1220; }
         .controls { display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; padding: 0.6rem 0.3rem 0.2rem; font-size: 0.85rem; }
@@ -111,12 +116,14 @@
 {{if and .Over .Reason}}<p class="reason muted">{{.Reason}}</p>{{end}}
 <div class="sides">
     <div class="side">
+        {{if .Left.Figure}}<img class="figure" src="{{.Left.Figure}}" alt="" width="120" height="120">{{end}}
         <span class="name{{if .Left.Serving}} serve{{end}}">{{.Left.Name}}</span>
         <span class="sets">Sätze {{.Left.Sets}}</span>
         {{if .Left.Waiting}}<span class="tag">wartet auf Taste</span>{{end}}
     </div>
     <div class="points">{{.Left.Points}} : {{.Right.Points}}</div>
     <div class="side right">
+        {{if .Right.Figure}}<img class="figure" src="{{.Right.Figure}}" alt="" width="120" height="120">{{end}}
         <span class="name{{if .Right.Serving}} serve{{end}}">{{.Right.Name}}</span>
         <span class="sets">Sätze {{.Right.Sets}}</span>
         {{if .Right.Waiting}}<span class="tag">wartet auf Taste</span>{{end}}

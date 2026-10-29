@@ -199,6 +199,10 @@ func config() (pong.Config, error) {
 			return cfg, fmt.Errorf("SCHMETTERPAUSE_URL: %w", err)
 		}
 		cfg.Roster = client
+		// The figures need neither the token nor the API: Schmetterpause
+		// serves them to anybody, so the board shows them even where the
+		// lobby offers no names, random ones then.
+		cfg.Figures = client
 	}
 
 	if cfg.League, err = league(cfg); err != nil {
