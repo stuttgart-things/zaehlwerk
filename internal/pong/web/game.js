@@ -90,6 +90,9 @@
   let awaiting = false;       // a rally is reported and the next serve waits for zaehlwerk's answer
   let readySent = {};
   let phaseSince = 0, restingSince = 0, warmServer = 0, serveRallyServer = null;
+  // clock is the game's time in milliseconds, which the bots and the serve
+  // waits run on: the page's, except that it stands still while paused.
+  let clock = performance.now();
   let ball = null, resting = null; // resting: the half whose server holds the ball
   let message = '', messageUntil = 0;
   const paddles = [0, 1].map(() => ({ y: T.y + T.h / 2, vy: 0, target: null, since: 0, aim: null }));
@@ -146,7 +149,7 @@
       resting = null;
       readySent = {};
       serveRallyServer = null;
-      phaseSince = performance.now();
+      phaseSince = clock;
     }
     if (v.status !== 'playing') {
       ball = null;
@@ -261,7 +264,7 @@
       if (b.next === b.bounces.length && b.touched) {
         ball = null;
         resting = b.hitter;
-        restingSince = performance.now();
+        restingSince = clock;
         return say('NETZ – Aufschlag wiederholen');
       }
     }
@@ -355,6 +358,10 @@
     if (e.repeat) return;
     held.add(e.key);
     if (e.key === 'm' || e.key === 'M') toggleMute();
+    if (pausable()) {
+      if (e.key === 'p' || e.key === 'P') paused = !paused;
+      if (e.key === '.' && paused) steps++;
+    }
     for (const h of [0, 1]) {
       const any = (mode === 'pvc' || remote) && (ACTION[0][e.key] || ACTION[1][e.key] || e.key === ' ' || e.key === 'Enter');
       if ((mode === 'pvp' && ACTION[h][e.key]) || (any && controlled(h))) action(h);
@@ -521,6 +528,7 @@
     g.font = '700 30px "Space Grotesk", system-ui, sans-serif';
     let centre = '';
     if (view && view.status !== 'playing') centre = view.status === 'won' && st.winner ? 'SIEG ' + st.players[idx(st.winner)] : 'SPIEL BEENDET';
+    else if (paused && pausable()) centre = 'PAUSE · [P] weiter · [.] ein Schritt';
     else if (now < messageUntil) centre = message;
     else if (remote && reporter && view && view.status === 'playing' && !guestHere(now)) centre = guestAt ? 'Gast getrennt – warten' : 'Warten auf den Gast';
     else if (relayed && !reporter && view && view.status === 'playing' && !(now - frameAt < SILENCE_MS)) centre = served ? 'Warten auf den Server' : 'Gastgeber getrennt';
@@ -548,9 +556,9 @@
       return;
     }
     el.textContent = {
-      pvp: 'Links: W/S bewegen, D Aufschlag/Bereit · Rechts: ↑/↓ bewegen, ← Aufschlag/Bereit · Touch: ziehen bewegt, tippen schlägt auf · [M] Ton',
-      pvc: 'W/S oder ↑/↓ bewegen, Leertaste Aufschlag/Bereit · Touch: ziehen bewegt, tippen schlägt auf · [M] Ton',
-      cvc: 'Die Computer spielen. [M] Ton',
+      pvp: 'Links: W/S bewegen, D Aufschlag/Bereit · Rechts: ↑/↓ bewegen, ← Aufschlag/Bereit · Touch: ziehen bewegt, tippen schlägt auf · [P] Pause · [M] Ton',
+      pvc: 'W/S oder ↑/↓ bewegen, Leertaste Aufschlag/Bereit · Touch: ziehen bewegt, tippen schlägt auf · [P] Pause · [M] Ton',
+      cvc: 'Die Computer spielen. [P] Pause, dann [.] ein Schritt · [M] Ton',
       remote: (guest ? 'Du spielst B. ' : 'Du spielst A. ') + 'W/S oder ↑/↓ bewegen, Leertaste Aufschlag/Bereit · Touch: ziehen bewegt, tippen schlägt auf · [M] Ton',
     }[mode] || '';
   }
@@ -719,11 +727,30 @@
   const events = new EventSource('/games/' + id + '/events');
   events.onmessage = (e) => apply(JSON.parse(e.data));
 
+  // Pause and a single step, in a game this tab plays by itself: nobody on
+  // another device waits for it, and nothing but this tab moves the ball. A
+  // game on two devices or one the server plays runs on regardless. A step is
+  // one frame at sixty a second. The rallies are still the page's own draws,
+  // so a step shows a rally slowly, it does not replay one; a game is played
+  // again by its seed, headless (POST /games). A pause longer than
+  // PONG_BROWSER_IDLE ends the game like any game nobody presses in.
+  let paused = false, steps = 0;
+  const pausable = () => reporter && !relayed && !!view && view.status === 'playing';
   let last = performance.now();
   function frame(now) {
     const dt = Math.min(0.033, (now - last) / 1000);
     last = now;
-    update(dt, now);
+    if (!pausable()) {
+      clock = now;
+      update(dt, clock);
+    } else if (!paused) {
+      clock += dt * 1000;
+      update(dt, clock);
+    } else if (steps > 0) {
+      steps--;
+      clock += 1000 / 60;
+      update(1 / 60, clock);
+    }
     draw(now);
     requestAnimationFrame(frame);
   }

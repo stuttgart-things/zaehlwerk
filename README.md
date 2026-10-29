@@ -1337,7 +1337,11 @@ sliders, reaction time, paddle speed and aim error, which can then be moved —
 and the faults below. The game's page (`/play/{id}`) is the table from above,
 one bounce per half, height as shadow and ball size, spin from the paddle's
 movement, an angle from where the ball meets the paddle, rallies that speed up,
-and a tock on paddle and table (`M` mutes it). Above it are the banner and the
+and a tock on paddle and table (`M` mutes it). In a game the tab plays by
+itself — not one on two devices, not one the server plays — `P` pauses it and
+`.` then steps one frame, to watch a rally slowly; the rallies are the page's
+own draws, so a game is played again by its seed headless, not here. A pause
+longer than `PONG_BROWSER_IDLE` ends the game. Above it are the banner and the
 score, the panel's words (`EINSPIELEN`, `UM DIE ANGABE`, `ANGABE <name>`,
 `SEITENWECHSEL`, `SIEG <name>`); below it, truth against zaehlwerk, with the
 first unexplained divergence marked and the expected ones told apart, and the
