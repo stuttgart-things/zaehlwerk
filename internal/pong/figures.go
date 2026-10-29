@@ -56,13 +56,17 @@ func (s *Server) figureIDs(ctx context.Context, g *Game) [2]string {
 	return ids
 }
 
-// dress gives b's sides their figures with faces, when figures are on. A
-// button check has no players, and no figures.
+// dress gives b's sides their figures with faces, and its players the blades
+// their figures carry, when figures are on. A button check has no players,
+// and no figures.
 func (s *Server) dress(b *boardView, g *Game, faces face.Faces) {
 	if s.figures == nil || b.Check != nil {
 		return
 	}
 	s.figuresOf(g)
+	if figs := s.figures.Ready(g.ID); figs != nil {
+		b.Blades = [2]string{figs.Side[0].Blade, figs.Side[1].Blade}
+	}
 	for _, sv := range []*sideView{&b.Left, &b.Right} {
 		side := "a"
 		if sv.player == scorer.PlayerB {

@@ -372,6 +372,21 @@ func TestTheBannerUsesThePanelsWords(t *testing.T) {
 	require.Equal(t, "SIEG Anna", banner(won))
 }
 
+// "Sätze 0" means something once the board says what is played for.
+func TestTheBoardSaysTheSetAndTheRules(t *testing.T) {
+	st := scorer.State{Players: [2]string{"Anna", "Bernd"}, Phase: scorer.PhasePlaying, SetNumber: 2}
+
+	require.Equal(t, "Satz 2 · Best of 3 · bis 11", newBoardView(View{Status: StatusPlaying, BestOf: 3, PointsPerSet: 11, State: st}).Context)
+	require.Equal(t, "Ein Satz · bis 11", newBoardView(View{Status: StatusPlaying, BestOf: 1, PointsPerSet: 11, State: st}).Context)
+	require.Empty(t, newBoardView(View{Status: StatusWon, BestOf: 3, PointsPerSet: 11, State: st}).Context, "over: the banner says it")
+}
+
+// Without faults "erwartet" is the truth again, and the column is left out.
+func TestTheComparisonSaysWhatIsExpectedOnlyWithFaults(t *testing.T) {
+	require.False(t, newBoardView(View{Status: StatusPlaying}).Faulty)
+	require.True(t, newBoardView(View{Status: StatusPlaying, FaultShares: Faults{Lost: 0.1}}).Faulty)
+}
+
 func mustGet(t *testing.T, u string) string {
 	t.Helper()
 	resp, err := http.Get(u)

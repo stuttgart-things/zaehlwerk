@@ -663,6 +663,17 @@ type boardView struct {
 	Findings    int
 	// Check is a button check's prompt and findings, nil for a game.
 	Check *checkBoard
+	// Blades is each player's blade colour, a then b, from their figure:
+	// the canvas fills their paddle with it. Empty without figures or before
+	// they have arrived, and the canvas then gives both its own colour.
+	Blades [2]string
+	// Context is the set and the rules under the score, "Satz 1 · Best of 3
+	// · bis 11", so "Sätze 0" means something. Empty once the game is over
+	// and for a button check.
+	Context string
+	// Faulty is a game with faults to inject: only then does the comparison
+	// say what zaehlwerk should show, which is otherwise the truth.
+	Faulty bool
 }
 
 // checkBoard is a button check on its page.
@@ -772,6 +783,10 @@ func newBoardView(v View) boardView {
 	if v.Check != nil {
 		b.Check = newCheckBoard(v.Check)
 	}
+	b.Faulty = v.FaultShares != (Faults{}) || len(v.Faults) > 0
+	if !b.Over && b.Check == nil && v.BestOf > 0 {
+		b.Context = rulesLine(st.SetNumber, v.BestOf, v.PointsPerSet)
+	}
 
 	name := func(p scorer.Player) string {
 		if p == "" {
@@ -813,6 +828,14 @@ func newBoardView(v View) boardView {
 		b.FaultRows = append(b.FaultRows, faultRow{Fault: f, Name: faultLabels[f.Kind], Effect: effect(f.Effect)})
 	}
 	return b
+}
+
+// rulesLine is the set in play and the match's rules, as the board says them.
+func rulesLine(set, bestOf, perSet int) string {
+	if bestOf == 1 {
+		return fmt.Sprintf("Ein Satz · bis %d", perSet)
+	}
+	return fmt.Sprintf("Satz %d · Best of %d · bis %d", max(set, 1), bestOf, perSet)
 }
 
 // banner is the panel's German text for where the match stands.

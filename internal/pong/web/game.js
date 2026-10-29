@@ -454,6 +454,13 @@
     if (ball) step(dt, now);
   }
 
+  // blade is player p's paddle colour: the blade on their figure when the
+  // board names one, a hex colour and nothing else, else the paddle red.
+  function blade(sides, p) {
+    const c = sides && sides.dataset['blade' + (p === 'b' ? 'B' : 'A')];
+    return /^#[0-9a-f]{6}$/i.test(c || '') ? c : '#d4334a';
+  }
+
   function draw(now) {
     g.fillStyle = '#0b1220';
     g.fillRect(0, 0, W, H);
@@ -473,18 +480,24 @@
 
     g.font = '600 20px "Space Grotesk", system-ui, sans-serif';
     g.textAlign = 'center';
+    const sides = document.querySelector('#score .sides');
     for (const h of [0, 1]) {
       const p = paddles[h];
-      g.fillStyle = h === 0 ? '#d4334a' : '#1b1b22';
-      g.strokeStyle = '#d4334a';
-      g.lineWidth = 2;
+      // Both paddles alike, filled, so neither reads as a state: in the
+      // colour of the blade the player's figure carries, which the board
+      // passes on (data-blade-a/-b), else one colour for both. A light rim
+      // keeps a dark blade visible on the table.
+      g.fillStyle = blade(sides, shownEnds[h]);
+      g.strokeStyle = 'rgba(244, 244, 248, 0.7)';
+      g.lineWidth = 1.5;
       g.fillRect(PADDLE_X[h] - 6, p.y - PADDLE_HALF, 12, PADDLE_HALF * 2);
       g.strokeRect(PADDLE_X[h] - 6, p.y - PADDLE_HALF, 12, PADDLE_HALF * 2);
       if (st) {
         const cx = h === 0 ? T.x + HALF / 2 : NET + HALF / 2;
         g.fillStyle = '#ececff';
-        const serving = st.phase === 'playing' && st.serving === shownEnds[h] ? '● ' : '';
-        g.fillText(serving + st.players[idx(shownEnds[h])], cx, T.y - 32);
+        // Who serves is said once, above the table: the banner and the dot
+        // on the score. A third mark here only repeated them.
+        g.fillText(st.players[idx(shownEnds[h])], cx, T.y - 32);
         if ((st.waiting || []).includes(HALVES[h])) {
           g.fillStyle = '#ffb547';
           g.font = '14px "Space Grotesk", system-ui, sans-serif';
@@ -513,7 +526,15 @@
     else if (relayed && !reporter && view && view.status === 'playing' && !(now - frameAt < SILENCE_MS)) centre = served ? 'Warten auf den Server' : 'Gastgeber getrennt';
     else if (!reporter && !guest && !asking && view && !served) centre = 'Zuschauen';
     else if (st && st.phase === 'change_ends') centre = 'SEITENWECHSEL';
-    if (centre) g.fillText(centre, W / 2, H / 2 + 10);
+    if (centre) {
+      // On a dark plate: straight on the table's centre line, "NETZ" read as
+      // a label of that line, which is not the net.
+      const w = g.measureText(centre).width + 32;
+      g.fillStyle = 'rgba(11, 18, 32, 0.85)';
+      g.fillRect(W / 2 - w / 2, H / 2 - 24, w, 46);
+      g.fillStyle = '#ececff';
+      g.fillText(centre, W / 2, H / 2 + 10);
+    }
   }
 
   function hint() {
@@ -521,16 +542,16 @@
     if (!el) return;
     if (!reporter && !guest) {
       el.textContent = asking || !view || view.status !== 'playing' ? ''
-        : served ? 'Die Computer spielen auf dem Server. Der Tab darf zu, das Spiel läuft weiter. M Ton'
+        : served ? 'Die Computer spielen auf dem Server. Der Tab darf zu, das Spiel läuft weiter. [M] Ton'
         : copied ? 'Dieses Spiel spielt ein anderer Tab. Hier wird nur zugeschaut.'
           : 'Zuschauen: gespielt und gemeldet wird im Tab, der das Spiel gestartet hat.';
       return;
     }
     el.textContent = {
-      pvp: 'Links: W/S bewegen, D Aufschlag/Bereit · Rechts: ↑/↓ bewegen, ← Aufschlag/Bereit · Touch: ziehen bewegt, tippen schlägt auf · M Ton',
-      pvc: 'W/S oder ↑/↓ bewegen, Leertaste Aufschlag/Bereit · Touch: ziehen bewegt, tippen schlägt auf · M Ton',
-      cvc: 'Die Computer spielen. M Ton',
-      remote: (guest ? 'Du spielst B. ' : 'Du spielst A. ') + 'W/S oder ↑/↓ bewegen, Leertaste Aufschlag/Bereit · Touch: ziehen bewegt, tippen schlägt auf · M Ton',
+      pvp: 'Links: W/S bewegen, D Aufschlag/Bereit · Rechts: ↑/↓ bewegen, ← Aufschlag/Bereit · Touch: ziehen bewegt, tippen schlägt auf · [M] Ton',
+      pvc: 'W/S oder ↑/↓ bewegen, Leertaste Aufschlag/Bereit · Touch: ziehen bewegt, tippen schlägt auf · [M] Ton',
+      cvc: 'Die Computer spielen. [M] Ton',
+      remote: (guest ? 'Du spielst B. ' : 'Du spielst A. ') + 'W/S oder ↑/↓ bewegen, Leertaste Aufschlag/Bereit · Touch: ziehen bewegt, tippen schlägt auf · [M] Ton',
     }[mode] || '';
   }
 

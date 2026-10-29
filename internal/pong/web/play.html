@@ -14,6 +14,7 @@
         .side .name { font-size: 1.1rem; font-weight: 600; }
         .side .tag { font-size: 0.75rem; color: var(--warn); }
         .points { font-family: var(--font-mono); font-size: clamp(2rem, 7vw, 3.4rem); font-weight: 700; }
+        .points .context { display: block; text-align: center; font: 400 0.85rem var(--font-ui); color: var(--muted); letter-spacing: 0; }
         .sets { color: var(--muted); font-family: var(--font-mono); }
         .serve::before { content: "● "; color: var(--ok); }
         /* The players' figures above their names (zaehlwerk ADR-0018), as on
@@ -114,14 +115,14 @@
 {{define "score"}}
 <div class="banner{{if .Over}} over{{end}}">{{if .Banner}}{{.Banner}}{{else}}&nbsp;{{end}}</div>
 {{if and .Over .Reason}}<p class="reason muted">{{.Reason}}</p>{{end}}
-<div class="sides">
+<div class="sides" data-blade-a="{{index .Blades 0}}" data-blade-b="{{index .Blades 1}}">
     <div class="side">
         {{if .Left.Figure}}<img class="figure" src="{{.Left.Figure}}" alt="" width="120" height="120">{{end}}
         <span class="name{{if .Left.Serving}} serve{{end}}">{{.Left.Name}}</span>
         <span class="sets">Sätze {{.Left.Sets}}</span>
         {{if .Left.Waiting}}<span class="tag">wartet auf Taste</span>{{end}}
     </div>
-    <div class="points">{{.Left.Points}} : {{.Right.Points}}</div>
+    <div class="points">{{.Left.Points}} : {{.Right.Points}}{{if .Context}}<span class="context">{{.Context}}</span>{{end}}</div>
     <div class="side right">
         {{if .Right.Figure}}<img class="figure" src="{{.Right.Figure}}" alt="" width="120" height="120">{{end}}
         <span class="name{{if .Right.Serving}} serve{{end}}">{{.Right.Name}}</span>
@@ -136,11 +137,12 @@
 <div class="card">
     <h2>Wahrheit gegen Zählwerk</h2>
     <table>
-        <tr><th>Spieler</th><th class="num">Wahrheit</th><th class="num">Zählwerk</th><th class="num" title="Wahrheit plus das, was die eingestreuten Fehler anrichten müssen">erwartet</th></tr>
+        {{/* "erwartet" only with faults: without, it is the truth again. */}}
+        <tr><th>Spieler</th><th class="num">Wahrheit</th><th class="num">Zählwerk</th>{{if .Faulty}}<th class="num" title="Wahrheit plus das, was die eingestreuten Fehler anrichten müssen">erwartet</th>{{end}}</tr>
         {{range .Compare}}
         <tr><td>{{.Name}}</td><td class="num">{{.Truth}}</td>
             <td class="num {{if eq .Zaehlwerk .Expected}}ok{{else}}bad{{end}}">{{.Zaehlwerk}}</td>
-            <td class="num">{{.Expected}}</td></tr>
+            {{if $.Faulty}}<td class="num">{{.Expected}}</td>{{end}}</tr>
         {{end}}
     </table>
     <p class="muted" style="margin-bottom: 0.4rem">
