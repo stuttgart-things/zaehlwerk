@@ -137,11 +137,12 @@
 <div class="card">
     <h2>Wahrheit gegen Zählwerk</h2>
     <table>
-        <tr><th>Spieler</th><th class="num">Wahrheit</th><th class="num">Zählwerk</th><th class="num" title="Wahrheit plus das, was die eingestreuten Fehler anrichten müssen">erwartet</th></tr>
+        {{/* "erwartet" only with faults: without, it is the truth again. */}}
+        <tr><th>Spieler</th><th class="num">Wahrheit</th><th class="num">Zählwerk</th>{{if .Faulty}}<th class="num" title="Wahrheit plus das, was die eingestreuten Fehler anrichten müssen">erwartet</th>{{end}}</tr>
         {{range .Compare}}
         <tr><td>{{.Name}}</td><td class="num">{{.Truth}}</td>
             <td class="num {{if eq .Zaehlwerk .Expected}}ok{{else}}bad{{end}}">{{.Zaehlwerk}}</td>
-            <td class="num">{{.Expected}}</td></tr>
+            {{if $.Faulty}}<td class="num">{{.Expected}}</td>{{end}}</tr>
         {{end}}
     </table>
     <p class="muted" style="margin-bottom: 0.4rem">

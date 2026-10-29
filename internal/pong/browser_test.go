@@ -381,6 +381,12 @@ func TestTheBoardSaysTheSetAndTheRules(t *testing.T) {
 	require.Empty(t, newBoardView(View{Status: StatusWon, BestOf: 3, PointsPerSet: 11, State: st}).Context, "over: the banner says it")
 }
 
+// Without faults "erwartet" is the truth again, and the column is left out.
+func TestTheComparisonSaysWhatIsExpectedOnlyWithFaults(t *testing.T) {
+	require.False(t, newBoardView(View{Status: StatusPlaying}).Faulty)
+	require.True(t, newBoardView(View{Status: StatusPlaying, FaultShares: Faults{Lost: 0.1}}).Faulty)
+}
+
 func mustGet(t *testing.T, u string) string {
 	t.Helper()
 	resp, err := http.Get(u)

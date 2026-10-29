@@ -671,6 +671,9 @@ type boardView struct {
 	// · bis 11", so "Sätze 0" means something. Empty once the game is over
 	// and for a button check.
 	Context string
+	// Faulty is a game with faults to inject: only then does the comparison
+	// say what zaehlwerk should show, which is otherwise the truth.
+	Faulty bool
 }
 
 // checkBoard is a button check on its page.
@@ -780,6 +783,7 @@ func newBoardView(v View) boardView {
 	if v.Check != nil {
 		b.Check = newCheckBoard(v.Check)
 	}
+	b.Faulty = v.FaultShares != (Faults{}) || len(v.Faults) > 0
 	if !b.Over && b.Check == nil && v.BestOf > 0 {
 		b.Context = rulesLine(st.SetNumber, v.BestOf, v.PointsPerSet)
 	}
