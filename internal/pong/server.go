@@ -255,6 +255,11 @@ type startBody struct {
 	Bots    [2]*BotParams `json:"bots"`
 	// Diagonal serves as in doubles; a browser game's too.
 	Diagonal bool `json:"diagonal"`
+	// Seed plays the game a seed draws instead of the service's next: the
+	// seed GET /games/{id} showed for a game, to play it again exactly. A
+	// headless game's and a served game's; a browser game's rallies are the
+	// page's.
+	Seed *int64 `json:"seed"`
 }
 
 // started is the answer to a start: the game, and for a browser game the
@@ -317,6 +322,13 @@ func (s *Server) startGame(w http.ResponseWriter, r *http.Request) {
 	default:
 		fail(w, http.StatusBadRequest, fmt.Errorf("driver %q: want bots, browser, server or check", body.Driver))
 		return
+	}
+	if body.Seed != nil {
+		if body.Driver != "" && body.Driver != DriverBots && body.Driver != DriverServer {
+			fail(w, http.StatusBadRequest, errors.New("seed is for a headless or a served game"))
+			return
+		}
+		cfg.Seed, cfg.Seeded = *body.Seed, true
 	}
 	if body.Pace != "" {
 		p, err := time.ParseDuration(body.Pace)
@@ -488,7 +500,9 @@ func (s *Server) start(cfg GameConfig) (*Game, error) {
 	if cfg.Skills == ([2]Skill{}) {
 		cfg.Skills = s.cfg.Skills
 	}
-	cfg.Seed = s.cfg.Seed + n
+	if !cfg.Seeded {
+		cfg.Seed = s.cfg.Seed + n
+	}
 	cfg.ResetQuiet, cfg.Idle = s.resetQuiet, s.idle
 	cfg.CheckTimeout, cfg.CheckGap = s.cfg.CheckTimeout, s.checkGap
 	cfg.Tick = s.tick
