@@ -526,7 +526,15 @@
     else if (relayed && !reporter && view && view.status === 'playing' && !(now - frameAt < SILENCE_MS)) centre = served ? 'Warten auf den Server' : 'Gastgeber getrennt';
     else if (!reporter && !guest && !asking && view && !served) centre = 'Zuschauen';
     else if (st && st.phase === 'change_ends') centre = 'SEITENWECHSEL';
-    if (centre) g.fillText(centre, W / 2, H / 2 + 10);
+    if (centre) {
+      // On a dark plate: straight on the table's centre line, "NETZ" read as
+      // a label of that line, which is not the net.
+      const w = g.measureText(centre).width + 32;
+      g.fillStyle = 'rgba(11, 18, 32, 0.85)';
+      g.fillRect(W / 2 - w / 2, H / 2 - 24, w, 46);
+      g.fillStyle = '#ececff';
+      g.fillText(centre, W / 2, H / 2 + 10);
+    }
   }
 
   function hint() {
@@ -534,16 +542,16 @@
     if (!el) return;
     if (!reporter && !guest) {
       el.textContent = asking || !view || view.status !== 'playing' ? ''
-        : served ? 'Die Computer spielen auf dem Server. Der Tab darf zu, das Spiel läuft weiter. M Ton'
+        : served ? 'Die Computer spielen auf dem Server. Der Tab darf zu, das Spiel läuft weiter. [M] Ton'
         : copied ? 'Dieses Spiel spielt ein anderer Tab. Hier wird nur zugeschaut.'
           : 'Zuschauen: gespielt und gemeldet wird im Tab, der das Spiel gestartet hat.';
       return;
     }
     el.textContent = {
-      pvp: 'Links: W/S bewegen, D Aufschlag/Bereit · Rechts: ↑/↓ bewegen, ← Aufschlag/Bereit · Touch: ziehen bewegt, tippen schlägt auf · M Ton',
-      pvc: 'W/S oder ↑/↓ bewegen, Leertaste Aufschlag/Bereit · Touch: ziehen bewegt, tippen schlägt auf · M Ton',
-      cvc: 'Die Computer spielen. M Ton',
-      remote: (guest ? 'Du spielst B. ' : 'Du spielst A. ') + 'W/S oder ↑/↓ bewegen, Leertaste Aufschlag/Bereit · Touch: ziehen bewegt, tippen schlägt auf · M Ton',
+      pvp: 'Links: W/S bewegen, D Aufschlag/Bereit · Rechts: ↑/↓ bewegen, ← Aufschlag/Bereit · Touch: ziehen bewegt, tippen schlägt auf · [M] Ton',
+      pvc: 'W/S oder ↑/↓ bewegen, Leertaste Aufschlag/Bereit · Touch: ziehen bewegt, tippen schlägt auf · [M] Ton',
+      cvc: 'Die Computer spielen. [M] Ton',
+      remote: (guest ? 'Du spielst B. ' : 'Du spielst A. ') + 'W/S oder ↑/↓ bewegen, Leertaste Aufschlag/Bereit · Touch: ziehen bewegt, tippen schlägt auf · [M] Ton',
     }[mode] || '';
   }
 
