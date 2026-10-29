@@ -127,11 +127,18 @@ func ParseFaults(raw string) (Faults, error) {
 	return f, f.Validate()
 }
 
+// faultKinds is every fault, in the order the README's table lists them.
+var faultKinds = []FaultKind{
+	FaultWrongHalf, FaultResend, FaultBounce, FaultLost,
+	FaultGhost, FaultWrongPhase, FaultCounterReset,
+}
+
 func faultNames() string {
-	return strings.Join([]string{
-		string(FaultWrongHalf), string(FaultResend), string(FaultBounce), string(FaultLost),
-		string(FaultGhost), string(FaultWrongPhase), string(FaultCounterReset),
-	}, ", ")
+	names := make([]string, len(faultKinds))
+	for i, k := range faultKinds {
+		names[i] = string(k)
+	}
+	return strings.Join(names, ", ")
 }
 
 // Fault is one fault injected, as GET /games/{id} lists it.

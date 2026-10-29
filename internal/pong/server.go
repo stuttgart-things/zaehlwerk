@@ -141,6 +141,8 @@ type Server struct {
 	order   []string
 	running *Game
 	played  int64
+	// series is the last series started, playing or not.
+	series  *series
 	wg      sync.WaitGroup
 	attract attractState
 	// leagueHeld is league mode stopped from the lobby, and leagueNow the
@@ -202,6 +204,8 @@ func New(cfg Config, log *slog.Logger) *Server {
 	s.mux.HandleFunc("POST /games/{id}/paddle", s.paddle)
 	s.mux.HandleFunc("POST /games/{id}/frames", s.frames)
 	s.mux.HandleFunc("GET /games/{id}/relay", s.relay)
+	s.mux.HandleFunc("POST /series", s.startSeries)
+	s.mux.HandleFunc("GET /series/{id}", s.getSeries)
 	s.routeUI()
 	s.routeScreensaver()
 	return s
