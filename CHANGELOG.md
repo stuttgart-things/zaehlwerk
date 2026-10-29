@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.41.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.40.0...v0.41.0) (2026-10-29)
+
+
+### Features
+
+* show the players' figures on the Pong board ([#208](https://github.com/stuttgart-things/zaehlwerk/issues/208)) ([9fcd65e](https://github.com/stuttgart-things/zaehlwerk/commit/9fcd65e261c61cea1b58b74467e28a9535a02892))
+* show the players' figures on the table mock ([#210](https://github.com/stuttgart-things/zaehlwerk/issues/210)) ([a6d7f70](https://github.com/stuttgart-things/zaehlwerk/commit/a6d7f70e4b5e052cd6081ad28169c1bc2a356a09))
+
 ## [0.40.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.39.0...v0.40.0) (2026-10-28)
 
 
