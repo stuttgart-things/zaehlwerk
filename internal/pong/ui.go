@@ -663,6 +663,10 @@ type boardView struct {
 	Findings    int
 	// Check is a button check's prompt and findings, nil for a game.
 	Check *checkBoard
+	// Blades is each player's blade colour, a then b, from their figure:
+	// the canvas fills their paddle with it. Empty without figures or before
+	// they have arrived, and the canvas then gives both its own colour.
+	Blades [2]string
 }
 
 // checkBoard is a button check on its page.

@@ -454,6 +454,13 @@
     if (ball) step(dt, now);
   }
 
+  // blade is player p's paddle colour: the blade on their figure when the
+  // board names one, a hex colour and nothing else, else the paddle red.
+  function blade(sides, p) {
+    const c = sides && sides.dataset['blade' + (p === 'b' ? 'B' : 'A')];
+    return /^#[0-9a-f]{6}$/i.test(c || '') ? c : '#d4334a';
+  }
+
   function draw(now) {
     g.fillStyle = '#0b1220';
     g.fillRect(0, 0, W, H);
@@ -473,11 +480,16 @@
 
     g.font = '600 20px "Space Grotesk", system-ui, sans-serif';
     g.textAlign = 'center';
+    const sides = document.querySelector('#score .sides');
     for (const h of [0, 1]) {
       const p = paddles[h];
-      g.fillStyle = h === 0 ? '#d4334a' : '#1b1b22';
-      g.strokeStyle = '#d4334a';
-      g.lineWidth = 2;
+      // Both paddles alike, filled, so neither reads as a state: in the
+      // colour of the blade the player's figure carries, which the board
+      // passes on (data-blade-a/-b), else one colour for both. A light rim
+      // keeps a dark blade visible on the table.
+      g.fillStyle = blade(sides, shownEnds[h]);
+      g.strokeStyle = 'rgba(244, 244, 248, 0.7)';
+      g.lineWidth = 1.5;
       g.fillRect(PADDLE_X[h] - 6, p.y - PADDLE_HALF, 12, PADDLE_HALF * 2);
       g.strokeRect(PADDLE_X[h] - 6, p.y - PADDLE_HALF, 12, PADDLE_HALF * 2);
       if (st) {

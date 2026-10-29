@@ -114,7 +114,7 @@
 {{define "score"}}
 <div class="banner{{if .Over}} over{{end}}">{{if .Banner}}{{.Banner}}{{else}}&nbsp;{{end}}</div>
 {{if and .Over .Reason}}<p class="reason muted">{{.Reason}}</p>{{end}}
-<div class="sides">
+<div class="sides" data-blade-a="{{index .Blades 0}}" data-blade-b="{{index .Blades 1}}">
     <div class="side">
         {{if .Left.Figure}}<img class="figure" src="{{.Left.Figure}}" alt="" width="120" height="120">{{end}}
         <span class="name{{if .Left.Serving}} serve{{end}}">{{.Left.Name}}</span>

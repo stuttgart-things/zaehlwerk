@@ -94,6 +94,18 @@ func TestTheBoardShowsTheFigureOfAPlayerSchmetterpauseKnows(t *testing.T) {
 	require.Equal(t, []string{"id-anna", ""}, f.ids, "fetched once for the game")
 }
 
+// The canvas fills each player's paddle with the blade their figure carries;
+// the board passes it on once the figures are in.
+func TestTheBoardPassesTheBladesOnOnceTheFiguresAreIn(t *testing.T) {
+	p := newDressedLobby(t, roster{players: []schmetterpause.Player{{ID: "id-anna", DisplayName: "Anna"}}}, &figures{})
+
+	_, id := playFromLobby(t, p, "Anna", "Gast")
+
+	fetch(t, p.url+"/ui/games/"+id+"/figures/a.svg") // waits for the fetch
+	_, page := fetch(t, p.url+"/play/"+id)
+	require.Contains(t, page, `data-blade-a="#159c8c" data-blade-b="#159c8c"`)
+}
+
 // Without the token there is no list to look names up in; the figures are
 // public there, so the board still shows two, random ones.
 func TestWithoutThePlayersBothSidesGetARandomFigure(t *testing.T) {
