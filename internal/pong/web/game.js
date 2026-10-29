@@ -495,8 +495,9 @@
       if (st) {
         const cx = h === 0 ? T.x + HALF / 2 : NET + HALF / 2;
         g.fillStyle = '#ececff';
-        const serving = st.phase === 'playing' && st.serving === shownEnds[h] ? '● ' : '';
-        g.fillText(serving + st.players[idx(shownEnds[h])], cx, T.y - 32);
+        // Who serves is said once, above the table: the banner and the dot
+        // on the score. A third mark here only repeated them.
+        g.fillText(st.players[idx(shownEnds[h])], cx, T.y - 32);
         if ((st.waiting || []).includes(HALVES[h])) {
           g.fillStyle = '#ffb547';
           g.font = '14px "Space Grotesk", system-ui, sans-serif';
