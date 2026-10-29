@@ -193,14 +193,14 @@ func (s *Server) blades(m *match.Match) (a, b string) {
 	if s.figures == nil {
 		return a, b
 	}
-	f := s.figures.ready(m.ID)
+	f := s.figures.Ready(m.ID)
 	if f == nil {
 		return a, b
 	}
-	if c := f.side[0].blade; c != "" {
+	if c := f.Side[0].Blade; c != "" {
 		a = c
 	}
-	if c := f.side[1].blade; c != "" {
+	if c := f.Side[1].Blade; c != "" {
 		b = c
 	}
 	if a == b {

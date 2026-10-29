@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/stuttgart-things/zaehlwerk/internal/face"
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 	"github.com/stuttgart-things/zaehlwerk/internal/ui/static"
 )
@@ -47,6 +48,9 @@ func (s *Server) routeUI() {
 	s.mux.HandleFunc("GET /play/{id}", s.playPage)
 	s.mux.HandleFunc("GET /live", s.livePage)
 	s.mux.HandleFunc("GET /ui/games/{id}/stream", s.boardStream)
+	if s.figures != nil {
+		s.mux.HandleFunc("GET /ui/games/{id}/figures/{side}", s.figure)
+	}
 	s.mux.HandleFunc("GET /static/{file}", s.script)
 	s.mux.HandleFunc("GET /static/mark-32.png", s.mark)
 	s.mux.HandleFunc("GET /static/mark-180.png", s.mark)
@@ -572,7 +576,10 @@ func (s *Server) renderPlay(w http.ResponseWriter, g *Game, live bool) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	render(w, "play", playView{Board: newBoardView(v), Bots: string(bots), Live: live})
+	b := newBoardView(v)
+	rest, _ := faces(g, nil, v.State, face.Faces{}, face.Streak{})
+	s.dress(&b, g, rest)
+	render(w, "play", playView{Board: b, Bots: string(bots), Live: live})
 }
 
 // boardStream is the board as rendered HTML over SSE, for htmx to swap.
@@ -582,8 +589,18 @@ func (s *Server) boardStream(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such game", http.StatusNotFound)
 		return
 	}
+	// The faces' memory, this connection's: the state it saw last, the faces
+	// it showed, and the points in a row (zaehlwerk ADR-0018).
+	var (
+		prev   *scorer.State
+		shown  face.Faces
+		streak face.Streak
+	)
 	s.follow(w, r, g, func(v View) ([]sseEvent, error) {
 		b := newBoardView(v)
+		shown, streak = faces(g, prev, v.State, shown, streak)
+		prev = &v.State
+		s.dress(&b, g, shown)
 		var events []sseEvent
 		names := []string{"score", "truth"}
 		if b.Check != nil {
@@ -701,12 +718,17 @@ func newCheckBoard(c *CheckView) *checkBoard {
 }
 
 type sideView struct {
+	// player is who plays at this end, for the figure.
+	player  scorer.Player
 	Name    string
 	Points  int
 	Sets    int
 	Serving bool
 	// Waiting is zaehlwerk waiting for this half's key.
 	Waiting bool
+	// Figure is the address of this side's figure with its face, empty
+	// without figures.
+	Figure string
 }
 
 // playerRow is one player in the comparison: what really happened, what
@@ -762,7 +784,7 @@ func newBoardView(v View) boardView {
 		ends = [2]scorer.Player{scorer.PlayerA, scorer.PlayerB}
 	}
 	side := func(p scorer.Player) sideView {
-		return sideView{Name: name(p), Points: st.Points[index(p)], Sets: st.Sets[index(p)],
+		return sideView{player: p, Name: name(p), Points: st.Points[index(p)], Sets: st.Sets[index(p)],
 			Serving: st.Phase == scorer.PhasePlaying && st.Serving == p}
 	}
 	b.Left, b.Right = side(ends[0]), side(ends[1])

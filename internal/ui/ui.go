@@ -30,6 +30,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stuttgart-things/zaehlwerk/internal/figure"
 	"github.com/stuttgart-things/zaehlwerk/internal/live"
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/schmetterpause"
@@ -106,8 +107,10 @@ type Server struct {
 	buttons, pong string
 
 	// figures is the players' figures from Schmetterpause, nil without
-	// SCHMETTERPAUSE_URL: the spectator view then shows none.
-	figures *figureCache
+	// SCHMETTERPAUSE_URL: the spectator view then shows none. figureSrc is
+	// where WithFigures puts them until the logger is known.
+	figures   *figure.Cache
+	figureSrc figure.Source
 }
 
 // Option configures a Server.
@@ -219,6 +222,9 @@ func New(registry *match.Registry, lifecycle Lifecycle, opts ...Option) *Server 
 	}
 	for _, opt := range opts {
 		opt(s)
+	}
+	if s.figureSrc != nil {
+		s.figures = figure.NewCache(s.figureSrc, s.log)
 	}
 
 	// Both spellings of the page: /ui is what a person types, /ui/ is what a

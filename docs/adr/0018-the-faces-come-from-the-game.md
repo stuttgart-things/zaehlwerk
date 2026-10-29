@@ -94,3 +94,7 @@ not know shows neutral there, and a consumer that does not read the field
   cord, from the blade on the figure rather than recomputing it from the id.
 - The scoring page shows the same figures and faces, smaller: whoever keeps
   score is there for the buttons.
+- zaehlwerk-pong shows the figures on its board as well, from the same cache
+  (`internal/figure`). Its stream sends the board, not the transitions, so it
+  reads the moment back from the change of the score, and a change that is no
+  point keeps the faces up until the next one.
