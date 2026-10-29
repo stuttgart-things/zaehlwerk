@@ -141,6 +141,9 @@ type GameConfig struct {
 	// for somebody watching the panel.
 	Pace time.Duration
 	Seed int64
+	// Seeded is a Seed the caller chose, to play a game again; otherwise the
+	// service gives each game its next.
+	Seeded bool
 	// Faults is what goes wrong between the truth and zaehlwerk, drawn from
 	// the seed like the rallies.
 	Faults Faults

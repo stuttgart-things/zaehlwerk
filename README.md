@@ -1671,6 +1671,44 @@ curl -s -X POST localhost:8087/games \
   -d '{"pace": "0s", "faults": {"wrong_half": 0.1, "correct": true, "lost": 0.05}}'
 ```
 
+A game with a finding is played again by its seed: `POST /games` with
+`"seed"` (the `seed` its `GET /games/{id}` showed) plays the same rallies and
+injects the same faults, for a headless game and a served one.
+
+**Series.** One game shows whether a fault was handled, a few hundred how
+often. `POST /series` plays that many headless games in a row, as fast as
+zaehlwerk answers, with the same faults (`PONG_FAULTS` when absent), on the
+service's next seeds or from `"seed"` on, one higher each game. Each game is a
+game like any other; one that does not end won ends the series. One series at
+a time, and the service remembers the last:
+
+```bash
+curl -s -X POST localhost:8087/series -d '{"games": 200, "faults": {"lost": 0.05, "resend": 0.1}}'   # 201, Location: /series/{id}
+curl -s localhost:8087/series/{id}
+```
+
+```json
+{
+  "id": "3f0c9a1e", "status": "done", "games": 200, "played": 200, "clean": 200,
+  "fault_shares": {"…": "as posted"},
+  "kinds": [
+    {"kind": "resend", "injected": 1189, "findings": 0, "accuracy": 1},
+    {"kind": "lost", "injected": 596, "findings": 0, "accuracy": 1}
+  ],
+  "unattributed": 0, "findings": []
+}
+```
+
+`kinds` lists only the faults the series injects, in the order of the table
+above. A finding counts against the fault injected at its press, and
+`accuracy` is the share of a kind's faults that caused none. A finding at a
+press without a fault is `unattributed`: zaehlwerk wrong where the table sent
+nothing wrong, or what an earlier finding set off — a reset zaehlwerk discarded
+has it discard every press after it. `findings` names each game with one, and
+its seed. `status` is `playing`, `done` or `ended`, with a `reason`.
+`counter_reset` waits its minute in every game it is drawn in, so a series
+with it on runs for hours.
+
 `task chain:e2e` plays seeded best of threes until one reaches a deciding set,
 and fails on the first rally where truth and zaehlwerk part, on a deciding set
 without its change of ends at five, and on a Pong result arriving at the fake
