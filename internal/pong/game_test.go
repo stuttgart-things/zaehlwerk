@@ -622,3 +622,39 @@ func TestAWonGameStaysWon(t *testing.T) {
 	require.Equal(t, StatusWon, v.Status, v.Reason)
 	require.True(t, v.State.Complete)
 }
+
+// A late press reaches zaehlwerk after the press that overtook it, with its
+// older event id, and zaehlwerk must discard it: the match is one point short
+// for each, as the faults explain.
+func TestALatePressArrivesAfterTheNextAndIsDiscarded(t *testing.T) {
+	tbl := newTable(t)
+	rec := &recorder{next: tbl.zaehlwerk}
+	proxy := httptest.NewServer(rec)
+	t.Cleanup(proxy.Close)
+	p := newPong(t, proxy.URL, 1)
+
+	v := p.faulty(Faults{Latency: 0.2})
+
+	require.Equal(t, StatusWon, v.Status, v.Reason)
+	require.Zero(t, v.Unexplained, "%+v", v.Divergences)
+	late := kinds(v)[FaultLatency]
+	require.Positive(t, late)
+	require.Equal(t, late, v.Rallies-(v.Zaehlwerk[0]+v.Zaehlwerk[1]), "zaehlwerk is short by exactly the late presses")
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	overtaken := 0
+	for i := 1; i < len(rec.sent); i++ {
+		id, before := rec.sent[i]["event_id"].(float64), rec.sent[i-1]["event_id"].(float64)
+		if id < before {
+			require.Equal(t, before-1, id, "the press just before the one that overtook it")
+			overtaken++
+		}
+	}
+	// One late press can be in flight when the match is won, and is then
+	// never sent.
+	require.InDelta(t, late, overtaken, 1)
+	for _, f := range v.Faults {
+		require.NotZero(t, f.EventID, "a late press has its number from when it was pressed")
+	}
+}

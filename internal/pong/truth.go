@@ -48,7 +48,7 @@ type Divergence struct {
 	Rally uint64 `json:"rally"`
 	// What disagrees: "points", "serve" or "ends", or a fault whose answer
 	// was not what zaehlwerk must answer — "resend", "wrong_phase",
-	// "counter_reset", "undo".
+	// "counter_reset", "latency", "undo".
 	What      string `json:"what"`
 	Truth     string `json:"truth"`
 	Zaehlwerk string `json:"zaehlwerk"`

@@ -1654,6 +1654,7 @@ seed, so the same seed injects the same faults:
 | `ghost` | a press for a random half, before the rally | count it | every point |
 | `wrong_phase` | the same half confirming again in `warmup` or `change_ends` | ignore it | every confirmation still waited on |
 | `counter_reset` | after a quiet gap, the counter starting again at 1 | accept it (ADR-0002) | every press |
+| `latency` | the press held back and sent after the next one, with its older `event_id` | discard it as already seen (ADR-0002) — one point short | every point |
 
 The game keeps what the faults should have done to the score next to the
 truth, as `explained`. A divergence the faults explain is `expected`; any other

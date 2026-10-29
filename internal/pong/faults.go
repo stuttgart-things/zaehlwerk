@@ -35,13 +35,19 @@ const (
 	// FaultCounterReset is the counter starting again at 1 after a quiet gap,
 	// as after a reflash. zaehlwerk accepts it (ADR-0002).
 	FaultCounterReset FaultKind = "counter_reset"
+	// FaultLatency is a press that arrives late, after the next press
+	// overtook it: a radio retrying while the table plays on. It carries the
+	// older event id, and zaehlwerk discards it as already seen (ADR-0002).
+	// A delay that overtakes nothing changes nothing, so this is the delay
+	// that matters.
+	FaultLatency FaultKind = "latency"
 )
 
 // Faults is how often each fault is injected, each a share from 0 to 1. A
 // share is a chance per opportunity, and what an opportunity is differs:
 //
 //   - wrong_half: every rally reported, the serve rally included
-//   - lost, ghost, bounce: every rally played for a point
+//   - lost, ghost, bounce, latency: every rally played for a point
 //   - wrong_phase: every confirmation zaehlwerk answers still waiting
 //   - resend, counter_reset: every press sent
 //
@@ -60,6 +66,7 @@ type Faults struct {
 	Ghost        float64 `json:"ghost"`
 	WrongPhase   float64 `json:"wrong_phase"`
 	CounterReset float64 `json:"counter_reset"`
+	Latency      float64 `json:"latency"`
 }
 
 // shares names every share, for parsing and for checking it.
@@ -72,6 +79,7 @@ func (f *Faults) shares() map[FaultKind]*float64 {
 		FaultGhost:        &f.Ghost,
 		FaultWrongPhase:   &f.WrongPhase,
 		FaultCounterReset: &f.CounterReset,
+		FaultLatency:      &f.Latency,
 	}
 }
 
@@ -130,7 +138,7 @@ func ParseFaults(raw string) (Faults, error) {
 // faultKinds is every fault, in the order the README's table lists them.
 var faultKinds = []FaultKind{
 	FaultWrongHalf, FaultResend, FaultBounce, FaultLost,
-	FaultGhost, FaultWrongPhase, FaultCounterReset,
+	FaultGhost, FaultWrongPhase, FaultCounterReset, FaultLatency,
 }
 
 func faultNames() string {
