@@ -14,6 +14,7 @@
         .side .name { font-size: 1.1rem; font-weight: 600; }
         .side .tag { font-size: 0.75rem; color: var(--warn); }
         .points { font-family: var(--font-mono); font-size: clamp(2rem, 7vw, 3.4rem); font-weight: 700; }
+        .points .context { display: block; text-align: center; font: 400 0.85rem var(--font-ui); color: var(--muted); letter-spacing: 0; }
         .sets { color: var(--muted); font-family: var(--font-mono); }
         .serve::before { content: "● "; color: var(--ok); }
         /* The players' figures above their names (zaehlwerk ADR-0018), as on
@@ -121,7 +122,7 @@
         <span class="sets">Sätze {{.Left.Sets}}</span>
         {{if .Left.Waiting}}<span class="tag">wartet auf Taste</span>{{end}}
     </div>
-    <div class="points">{{.Left.Points}} : {{.Right.Points}}</div>
+    <div class="points">{{.Left.Points}} : {{.Right.Points}}{{if .Context}}<span class="context">{{.Context}}</span>{{end}}</div>
     <div class="side right">
         {{if .Right.Figure}}<img class="figure" src="{{.Right.Figure}}" alt="" width="120" height="120">{{end}}
         <span class="name{{if .Right.Serving}} serve{{end}}">{{.Right.Name}}</span>

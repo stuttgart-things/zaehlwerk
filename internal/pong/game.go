@@ -76,6 +76,10 @@ type View struct {
 	// numbers on from there.
 	LastPress uint64   `json:"last_press,omitempty"`
 	Skills    [2]Skill `json:"skills"`
+	// BestOf and PointsPerSet are the match's rules as zaehlwerk plays them,
+	// defaults filled in; zero for rules it would refuse.
+	BestOf       int `json:"best_of"`
+	PointsPerSet int `json:"points_per_set"`
 	// Rallies is the rallies played for points; the serve rally is not one.
 	Rallies   int    `json:"rallies"`
 	Truth     [2]int `json:"truth"`
@@ -932,6 +936,10 @@ func (g *Game) View() View {
 	if b, ok := g.driver.(*browser); ok {
 		lastPress = b.last.Load()
 	}
+	var bestOf, perSet int
+	if sc := rules(g); sc != nil {
+		bestOf, perSet = sc.Rules()
+	}
 	unexplained := 0
 	for _, d := range g.divergences {
 		if !d.Expected {
@@ -951,6 +959,8 @@ func (g *Game) View() View {
 		Screensaver: g.cfg.Screensaver,
 		Mode:        g.cfg.Mode,
 		Bots:        g.cfg.Bots,
+		BestOf:       bestOf,
+		PointsPerSet: perSet,
 		Diagonal:    g.cfg.Diagonal,
 		LastPress:   lastPress,
 		Skills:      g.cfg.Skills,
