@@ -114,10 +114,8 @@ var faultLabels = map[FaultKind]string{
 	FaultGhost:        "Geisterpunkt",
 	FaultWrongPhase:   "falsche Phase",
 	FaultCounterReset: "Zählerreset",
+	FaultLatency:      "verspätet",
 }
-
-var faultOrder = []FaultKind{FaultWrongHalf, FaultResend, FaultBounce, FaultLost,
-	FaultGhost, FaultWrongPhase, FaultCounterReset}
 
 func (s *Server) lobby(w http.ResponseWriter, r *http.Request) {
 	v := lobbyView{
@@ -127,7 +125,7 @@ func (s *Server) lobby(w http.ResponseWriter, r *http.Request) {
 	}
 	f := s.cfg.Faults
 	shares := f.shares()
-	for _, kind := range faultOrder {
+	for _, kind := range faultKinds {
 		v.Faults = append(v.Faults, faultField{Kind: kind, Label: faultLabels[kind], Share: *shares[kind]})
 	}
 	s.mu.Lock()
@@ -497,7 +495,7 @@ func lobbyForm(r *http.Request, def int) (GameConfig, Faults, error) {
 
 	var f Faults
 	shares := f.shares()
-	for _, kind := range faultOrder {
+	for _, kind := range faultKinds {
 		raw := strings.TrimSpace(r.FormValue("fault_" + string(kind)))
 		if raw == "" {
 			continue
@@ -772,6 +770,7 @@ var whatLabels = map[string]string{
 	string(FaultResend):       "doppelt gesendet",
 	string(FaultWrongPhase):   "falsche Phase",
 	string(FaultCounterReset): "Zählerreset",
+	string(FaultLatency):      "verspätet",
 }
 
 // maxFaultRows is how many faults the board lists, newest first.

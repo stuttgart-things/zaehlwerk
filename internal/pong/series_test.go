@@ -181,3 +181,16 @@ func TestAGameIsPlayedAgainByItsSeed(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, status, raw)
 	}
 }
+
+func TestASeriesCountsTheLatePresses(t *testing.T) {
+	p := newPong(t, newTable(t).url, 1)
+
+	status, v := p.startSeries(seriesBody{Games: 2, Faults: &Faults{Latency: 0.1}})
+	require.Equal(t, http.StatusCreated, status)
+	v = p.seriesOver(v.ID)
+
+	require.Equal(t, SeriesDone, v.Status, v.Reason)
+	require.Equal(t, []KindTally{{Kind: FaultLatency, Injected: v.Kinds[0].Injected, Accuracy: 1}}, v.Kinds)
+	require.Positive(t, v.Kinds[0].Injected)
+	require.Equal(t, 2, v.Clean)
+}

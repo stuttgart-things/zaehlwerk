@@ -221,6 +221,16 @@ type Game struct {
 	// Only the goroutine that plays touches either.
 	rally   uint64
 	counter uint64
+	// late is a latency fault's press, held back until the next press has
+	// gone, nil while none is. Only the goroutine that plays touches it.
+	late *latePress
+}
+
+// latePress is a press held back by a latency fault, and its number in the
+// game.
+type latePress struct {
+	ev    scorer.ScoreEvent
+	rally uint64
 }
 
 // faultSalt keeps the fault draws of one game from being the rally draws of
@@ -643,6 +653,23 @@ func (g *Game) point(ctx context.Context, st scorer.State, standing [2]scorer.Pl
 		return st, nil
 	}
 
+	// One held back at a time: a second would be overtaken by a press
+	// that is itself late, which is two faults in one.
+	if g.late == nil && g.roll(g.cfg.Faults.Latency) {
+		// The press takes its number now and is sent after the next one.
+		// Until then zaehlwerk has the match one point short, as for a
+		// lost press, and the match goes on from there.
+		g.rally++
+		g.counter++
+		g.late = &latePress{rally: g.rally,
+			ev: scorer.ScoreEvent{MatchID: g.matchIDNow(), Source: g.Source, Half: half, Delta: 1, EventID: g.counter}}
+		var effect [2]int
+		effect[index(winner)] = -1
+		g.injected(Fault{Rally: g.rally, EventID: g.counter, Kind: FaultLatency, Phase: st.Phase, Half: half, Effect: effect})
+		g.points(g.rally, st)
+		return st, nil
+	}
+
 	after, n, err := g.press(ctx, half, winner)
 	if err != nil {
 		return after, err
@@ -761,6 +788,26 @@ func (g *Game) report(ctx context.Context, half scorer.Half, changes bool) (scor
 		if same(before, st) {
 			g.diverged(Divergence{Rally: g.rally, What: string(FaultCounterReset),
 				Truth: "accepted", Zaehlwerk: "discarded"})
+		}
+	}
+
+	// A late press arrives once this one has overtaken it, and must be
+	// discarded: its event id is older. Not once the match is over, for the
+	// reason below; zaehlwerk then never sees it, which its effect already
+	// says.
+	if late := g.late; late != nil {
+		g.late = nil
+		if st.Phase != scorer.PhaseComplete {
+			again, err := g.client.Ingest(ctx, late.ev)
+			if err != nil {
+				return again, g.rally, err
+			}
+			if !same(st, again) {
+				g.diverged(Divergence{Rally: late.rally, What: string(FaultLatency),
+					Truth: "discarded", Zaehlwerk: "applied: " + summary(again)})
+			}
+			g.setState(again)
+			st = again
 		}
 	}
 
