@@ -24,7 +24,7 @@ func WithFigures(f figure.Source) Option {
 // figuresOf starts fetching m's figures unless that has already happened, and
 // returns them, ready or not.
 func (s *Server) figuresOf(m *match.Match) *figure.Pair {
-	ids := [2]string{m.Handover.HomeID, m.Handover.AwayID}
+	ids := m.Figures
 	return s.figures.Ensure(m.ID, func(context.Context) [2]string { return ids })
 }
 

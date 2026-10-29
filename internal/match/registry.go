@@ -117,6 +117,10 @@ type Setup struct {
 	// rules or the report reads it; the spectator screen does, to link the
 	// game that is playing it.
 	League bool
+	// Figures is whose figures the match shows, home first, by their
+	// Schmetterpause ids, for a side the Handover names nobody on. Only a
+	// drawing: nothing reads it for the report (ADR-0008).
+	Figures [2]string
 }
 
 // Report is what became of the handover.
@@ -164,6 +168,10 @@ type Match struct {
 	// League is fixed the same way, and read without the lock for the same
 	// reason (Setup.League).
 	League bool
+	// Figures is whose figures the spectator view and the panel show, home
+	// first: the Handover's players, else Setup.Figures. Fixed the same way,
+	// and read without the lock for the same reason.
+	Figures [2]string
 
 	mu      sync.Mutex
 	endedAt time.Time
@@ -382,7 +390,12 @@ func (r *Registry) CreateFor(cfg scorer.Config, setup Setup) (*Match, []*Match, 
 	// sees half of it.
 	now := time.Now()
 	m := &Match{ID: id, Scorer: s, Created: now, Handover: setup.Handover, Demo: setup.Demo,
-		League: setup.League}
+		League: setup.League, Figures: setup.Figures}
+	for i, id := range [2]string{setup.Handover.HomeID, setup.Handover.AwayID} {
+		if id != "" {
+			m.Figures[i] = id
+		}
+	}
 	for _, build := range r.observers {
 		s.Observe(build(m))
 	}

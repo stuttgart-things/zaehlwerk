@@ -712,7 +712,7 @@ does not. Each is absent when it does not apply:
 | `stake`, `stake_side` | `set_point` or `match_point`, and `a` or `b`: what the next point decides and who holds it. Absent outside play and once the match is over |
 | `tournament`, `round` | `1` and the round, on a match that fills a place in a Schmetterpause draw (ADR-0017) |
 | `final` | `1` on the tournament's final |
-| `figure` | on `set_won` and `match_won`, the winner's figure as a GIF from Schmetterpause: `<PANEL_FIGURES_URL>/avatars/<id>.gif` (Schmetterpause ADR-0030). The catcher's shipped profile plays it, cheering, before it holds the board. Absent without figures configured and for a winner with nobody behind them |
+| `figure` | on `set_won` and `match_won`, the winner's figure as a GIF from Schmetterpause: `<PANEL_FIGURES_URL>/avatars/<id>.gif` (Schmetterpause ADR-0030). The catcher's shipped profile plays it, cheering, before it holds the board. Absent without figures configured and for a winner with nobody behind them. A match by names (a demo, a game of Pong's, one started on the page) takes the player Schmetterpause has under the winner's name, when `SCHMETTERPAUSE_TOKEN` lets zaehlwerk read the list; an unknown name has none |
 
 A light at the table pulses on the side that holds a match point, or makes
 more of a won final than of a won group match, from these alone (invariant 7).

@@ -491,6 +491,22 @@ func TestAWonSetNamesTheWinnersFigure(t *testing.T) {
 	require.True(t, strings.HasSuffix(lastTags(t, rec, 22), ",figure=https://sp.example/avatars/id-anna.gif"), lastTags(t, rec, 22))
 }
 
+// A match by names whose winner Schmetterpause knows by that name: the
+// player's own figure (match.Setup.Figures), as on the spectator view.
+func TestAMatchByNamesNamesTheFigureOfAPlayerSchmetterpauseKnows(t *testing.T) {
+	rec := newRecorder()
+	sink := New(rec, Config{Figures: "https://sp.example", Logger: quiet()})
+	defer func() { require.NoError(t, sink.Close()) }()
+	registry := match.NewRegistry(match.WithMatchObserver(sink.Observe))
+
+	m, _, err := registry.CreateFor(scorer.Config{BestOf: 1, PointsPerSet: 11, Players: [2]string{"Anna", "Gast"}},
+		match.Setup{Demo: true, Figures: [2]string{"id-anna", ""}})
+	require.NoError(t, err)
+
+	pointsFor(t, m, scorer.PlayerA, 11, 11)
+	require.True(t, strings.HasSuffix(lastTags(t, rec, 11), ",figure=https://sp.example/avatars/id-anna.gif"), lastTags(t, rec, 11))
+}
+
 func TestNoFigureWithoutSomebodyBehindTheWinnerOrWithoutFigures(t *testing.T) {
 	won := scorer.Transition{Kind: scorer.TransitionMatchWon, Side: scorer.PlayerA}
 

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/stuttgart-things/zaehlwerk/internal/checkin"
+	"github.com/stuttgart-things/zaehlwerk/internal/figure"
 	"github.com/stuttgart-things/zaehlwerk/internal/live"
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
@@ -36,6 +37,9 @@ type Server struct {
 	hub            *live.Hub
 	allowedOrigins []string
 	heartbeat      time.Duration
+	// names is nil without a player list: a match by names then shows no
+	// player's figure.
+	names *figure.Names
 	// switcher is nil when no catcher is configured. It is an interface so the
 	// api package does not depend on the panel package for one call each way.
 	switcher PanelSwitcher
@@ -175,6 +179,13 @@ func WithPhoneCheckin(d *checkin.Desk, token string) Option {
 // door off, as for the hub and the phone.
 func WithHandover(token string) Option {
 	return func(s *Server) { s.handoverToken = token }
+}
+
+// WithFigureNames looks the names of a match without player ids up, so its
+// figures are the players' own (match.Setup.Figures). Without it such a match
+// shows a random figure on the spectator view and none on the panel.
+func WithFigureNames(n *figure.Names) Option {
+	return func(s *Server) { s.names = n }
 }
 
 // WithHeartbeat sets how often an idle stream writes a keepalive comment.

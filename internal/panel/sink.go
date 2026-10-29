@@ -172,7 +172,7 @@ func (s *Sink) Observe(m *match.Match, t scorer.Transition) {
 	if m != nil {
 		p.match = Match{
 			Tournament: m.Handover.TournamentID != "", Round: m.Handover.Round, Final: m.Handover.Final,
-			Players: [2]string{m.Handover.HomeID, m.Handover.AwayID},
+			Players: m.Figures,
 		}
 		p.match.Stake, p.match.StakeSide = stakeOf(m.Scorer, t.State)
 	}
@@ -490,7 +490,8 @@ type Match struct {
 	Round      int
 	Final      bool
 	// Players is the Schmetterpause id behind each side, a then b, empty for
-	// a side with nobody behind it.
+	// a side with nobody behind it: the Handover's, or for a match by names
+	// the players Schmetterpause has under them (match.Match.Figures).
 	Players [2]string
 }
 
