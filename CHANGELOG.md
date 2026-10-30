@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.42.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.41.0...v0.42.0) (2026-10-30)
+
+
+### Features
+
+* change a Pong game's faults from its page while it plays ([#217](https://github.com/stuttgart-things/zaehlwerk/issues/217)) ([d93aaa6](https://github.com/stuttgart-things/zaehlwerk/commit/d93aaa6cd70adc92e499e3b32cae49797537de30))
+* inject a late press into Pong games, overtaken by the next ([#216](https://github.com/stuttgart-things/zaehlwerk/issues/216)) ([3220bde](https://github.com/stuttgart-things/zaehlwerk/commit/3220bde30552ff51b61ed6fda1687931c9e75673))
+* pause a Pong game in the browser and step it a frame at a time ([#215](https://github.com/stuttgart-things/zaehlwerk/issues/215)) ([1b6f668](https://github.com/stuttgart-things/zaehlwerk/commit/1b6f668195b7afaf08a5bc8590b767f907ac0f24))
+* play a series of Pong games and count each fault zaehlwerk got wrong ([#214](https://github.com/stuttgart-things/zaehlwerk/issues/214)) ([a72bffc](https://github.com/stuttgart-things/zaehlwerk/commit/a72bffc6b276d84059cb470232fa47d3fff41397))
+* Pong board optics: paddles in the figure's colour, one serve mark, the rules under the score ([#212](https://github.com/stuttgart-things/zaehlwerk/issues/212)) ([8b6c75a](https://github.com/stuttgart-things/zaehlwerk/commit/8b6c75aa804c54c72603b9ac02a462bcf38fa80e))
+* show the figures of the players a match by names is between ([#211](https://github.com/stuttgart-things/zaehlwerk/issues/211)) ([3cda84f](https://github.com/stuttgart-things/zaehlwerk/commit/3cda84fa54ff74d03aad5626662864bc09767f21))
+
 ## [0.41.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.40.0...v0.41.0) (2026-10-29)
 
 
