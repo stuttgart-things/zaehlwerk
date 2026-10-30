@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.44.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.43.0...v0.44.0) (2026-10-30)
+
+
+### Features
+
+* resolve the players' colours once, for the panel and Pong's paddles ([#221](https://github.com/stuttgart-things/zaehlwerk/issues/221)) ([7103ebd](https://github.com/stuttgart-things/zaehlwerk/commit/7103ebdc205fb78d048ba5b76ab8d3cca5ac319c))
+
 ## [0.43.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.42.0...v0.43.0) (2026-10-30)
 
 
