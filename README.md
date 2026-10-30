@@ -712,7 +712,8 @@ does not. Each is absent when it does not apply:
 | `stake`, `stake_side` | `set_point` or `match_point`, and `a` or `b`: what the next point decides and who holds it. Absent outside play and once the match is over |
 | `tournament`, `round` | `1` and the round, on a match that fills a place in a Schmetterpause draw (ADR-0017) |
 | `final` | `1` on the tournament's final |
-| `color_a`, `color_b` | each player's colour, `#c05fd0`: the blade their figure carries, which the spectator view's cord and Pong's paddles take too, so the catcher can draw the names in it. Without figures the colours the spectator view takes from the ids, light blue and pink for a match by names. Both or neither, and last, after `figure` |
+| `color_a`, `color_b` | each player's colour, `#c05fd0`: the blade their figure carries, which the spectator view's cord and Pong's paddles take too, so the catcher can draw the names in it. Without figures the colours the spectator view takes from the ids, light blue and pink for a match by names. Both or neither, after `figure` |
+| `best_of`, `to` | how long the match is: best of `1`, `3` or `5` sets, each `to` `11` points. The scoreboard counts sets won in its corner, which says nothing in a match of one set; with these it can show `BIS 11` there instead. Last of all |
 | `figure` | on `set_won` and `match_won`, the winner's figure as a GIF from Schmetterpause: `<PANEL_FIGURES_URL>/avatars/<id>.gif` (Schmetterpause ADR-0030). The catcher's shipped profile plays it, cheering, before it holds the board. Absent without figures configured and for a winner with nobody behind them. A match by names (a demo, a game of Pong's, one started on the page) takes the player Schmetterpause has under the winner's name, when `SCHMETTERPAUSE_TOKEN` lets zaehlwerk read the list; an unknown name has none |
 
 A light at the table pulses on the side that holds a match point, or makes

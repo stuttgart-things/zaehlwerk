@@ -198,6 +198,7 @@ func (s *Sink) Observe(m *match.Match, t scorer.Transition) {
 			Players: m.Figures,
 		}
 		p.match.Stake, p.match.StakeSide = stakeOf(m.Scorer, t.State)
+		p.match.BestOf, p.match.PointsPerSet = m.Scorer.Rules()
 	}
 	select {
 	case s.queue <- p:
@@ -277,6 +278,7 @@ func (s *Sink) pitch(p pitch) {
 		msg.Tags += ColourTags((*c)(ctx, p.m))
 		cancel()
 	}
+	msg.Tags += LengthTags(p.match)
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.PitchTimeout)
 	defer cancel()
@@ -523,6 +525,9 @@ type Match struct {
 	// a side with nobody behind it: the Handover's, or for a match by names
 	// the players Schmetterpause has under them (match.Match.Figures).
 	Players [2]string
+	// BestOf and PointsPerSet are the scorer's rules, for LengthTags; zero
+	// when the transition belongs to no match the registry made.
+	BestOf, PointsPerSet int
 }
 
 // stakeOf asks the scorer what the next point decides at st.
@@ -562,6 +567,18 @@ func MatchTags(m Match) string {
 	return tags
 }
 
+// LengthTags is `,best_of=3,to=11`: how long the match is. The scoreboard
+// counts the sets won in its corner, which says nothing in a match of one set;
+// with these it can show what the set is played to instead, without learning
+// the rules (invariant 7). Absent for a transition without a match. They come
+// last, after ColourTags.
+func LengthTags(m Match) string {
+	if m.BestOf <= 0 || m.PointsPerSet <= 0 {
+		return ""
+	}
+	return fmt.Sprintf(",best_of=%d,to=%d", m.BestOf, m.PointsPerSet)
+}
+
 // FigureTag is `,figure=<URL>` on a won set or match: the winner's figure,
 // cheering, as a GIF Schmetterpause draws for the panel (Schmetterpause
 // ADR-0030). The catcher's shipped profile plays it before it holds the board
@@ -574,7 +591,7 @@ func MatchTags(m Match) string {
 // one: better none.
 //
 // It comes after MatchTags, so every rule written against the tags before it
-// still matches; only ColourTags follows it.
+// still matches; only ColourTags and LengthTags follow it.
 func FigureTag(figures string, t scorer.Transition, players [2]string) string {
 	if figures == "" || (t.Kind != scorer.TransitionSetWon && t.Kind != scorer.TransitionMatchWon) {
 		return ""
@@ -604,8 +621,8 @@ var hexColour = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 // own would contradict them.
 //
 // Both or neither: a catcher drawing one name in a player's colour and the
-// other in its own would make one look picked out. It comes last, after
-// FigureTag, so every rule written against the tags before it still matches.
+// other in its own would make one look picked out. It comes after FigureTag,
+// so every rule written against the tags before it still matches.
 func ColourTags(c [2]string) string {
 	if !hexColour.MatchString(c[0]) || !hexColour.MatchString(c[1]) {
 		return ""

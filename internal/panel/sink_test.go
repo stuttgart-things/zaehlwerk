@@ -397,7 +397,7 @@ func TestThePanelTagsADemo(t *testing.T) {
 	waitFor(t, "both points", func() bool { return len(rec.titles()) == 2 })
 	rec.mu.Lock()
 	defer rec.mu.Unlock()
-	require.True(t, strings.HasSuffix(rec.msgs[0].Tags, ",demo=1"), rec.msgs[0].Tags)
+	require.Contains(t, rec.msgs[0].Tags, ",demo=1")
 	require.NotContains(t, rec.msgs[1].Tags, "demo", rec.msgs[1].Tags)
 }
 
@@ -454,7 +454,7 @@ func TestATournamentMatchIsTaggedWithItsPlace(t *testing.T) {
 		match.Setup{Handover: match.Handover{HomeID: "h", AwayID: "a", OperatorID: "o", TournamentID: "t", Round: 3}})
 	require.NoError(t, err)
 	pointsFor(t, group, scorer.PlayerA, 1, 1)
-	require.True(t, strings.HasSuffix(lastTags(t, rec, 1), ",tournament=1,round=3"), lastTags(t, rec, 1))
+	require.Contains(t, lastTags(t, rec, 1), ",tournament=1,round=3")
 
 	// A table of its own: one registry runs one match at a time.
 	other := match.NewRegistry(match.WithMatchObserver(sink.Observe))
@@ -462,7 +462,7 @@ func TestATournamentMatchIsTaggedWithItsPlace(t *testing.T) {
 		match.Setup{Handover: match.Handover{HomeID: "h", AwayID: "a", OperatorID: "o", TournamentID: "t", Round: 4, Final: true}})
 	require.NoError(t, err)
 	pointsFor(t, final, scorer.PlayerA, 1, 1)
-	require.True(t, strings.HasSuffix(lastTags(t, rec, 2), ",tournament=1,round=4,final=1"), lastTags(t, rec, 2))
+	require.Contains(t, lastTags(t, rec, 2), ",tournament=1,round=4,final=1")
 }
 
 func TestAnOrdinaryMatchHasNoMatchTags(t *testing.T) {
@@ -485,10 +485,10 @@ func TestAWonSetNamesTheWinnersFigure(t *testing.T) {
 	require.NotContains(t, lastTags(t, rec, 10), "figure=", "a point is not a moment for a figure")
 
 	pointsFor(t, m, scorer.PlayerB, 1, 11) // the set
-	require.True(t, strings.HasSuffix(lastTags(t, rec, 11), ",figure=https://sp.example/avatars/id-bernd.gif"), lastTags(t, rec, 11))
+	require.Contains(t, lastTags(t, rec, 11), ",figure=https://sp.example/avatars/id-bernd.gif")
 
 	pointsFor(t, m, scorer.PlayerA, 11, 12) // the second set, to Anna
-	require.True(t, strings.HasSuffix(lastTags(t, rec, 22), ",figure=https://sp.example/avatars/id-anna.gif"), lastTags(t, rec, 22))
+	require.Contains(t, lastTags(t, rec, 22), ",figure=https://sp.example/avatars/id-anna.gif")
 }
 
 // A match by names whose winner Schmetterpause knows by that name: the
@@ -504,7 +504,7 @@ func TestAMatchByNamesNamesTheFigureOfAPlayerSchmetterpauseKnows(t *testing.T) {
 	require.NoError(t, err)
 
 	pointsFor(t, m, scorer.PlayerA, 11, 11)
-	require.True(t, strings.HasSuffix(lastTags(t, rec, 11), ",figure=https://sp.example/avatars/id-anna.gif"), lastTags(t, rec, 11))
+	require.Contains(t, lastTags(t, rec, 11), ",figure=https://sp.example/avatars/id-anna.gif")
 }
 
 func TestNoFigureWithoutSomebodyBehindTheWinnerOrWithoutFigures(t *testing.T) {
@@ -536,7 +536,7 @@ func TestThePanelSaysThePlayersColours(t *testing.T) {
 	require.NoError(t, err)
 	pointsFor(t, m, scorer.PlayerA, 1, 1)
 
-	require.True(t, strings.HasSuffix(lastTags(t, rec, 1), ",color_a=#c05fd0,color_b=#4d7c4a"), lastTags(t, rec, 1))
+	require.Contains(t, lastTags(t, rec, 1), ",color_a=#c05fd0,color_b=#4d7c4a")
 	require.Equal(t, []string{m.ID}, asked)
 }
 
@@ -558,4 +558,21 @@ func TestColoursGoOutBothOrNeither(t *testing.T) {
 	require.Empty(t, ColourTags([2]string{"#c05fd0", ""}), "one name in a colour would look picked out")
 	require.Empty(t, ColourTags([2]string{"#c05fd0", "red"}))
 	require.Empty(t, ColourTags([2]string{"#c05fd0", "#4d7c4a,x=1"}), "a colour cannot add a tag")
+}
+
+// The board says how long the match is, so a match of one set can say what it
+// is played to where a longer one counts sets. Last of all the tags.
+func TestThePanelSaysHowLongTheMatchIs(t *testing.T) {
+	rec := newRecorder()
+	sink := New(rec, Config{Logger: quiet()})
+	defer func() { require.NoError(t, sink.Close()) }()
+	sink.ColourFrom(func(context.Context, *match.Match) [2]string { return [2]string{"#c05fd0", "#4d7c4a"} })
+	registry := match.NewRegistry(match.WithMatchObserver(sink.Observe))
+
+	m, err := registry.Create(scorer.Config{BestOf: 1, PointsPerSet: 11, Players: [2]string{"Anna", "Bernd"}})
+	require.NoError(t, err)
+	pointsFor(t, m, scorer.PlayerA, 1, 1)
+
+	require.True(t, strings.HasSuffix(lastTags(t, rec, 1), ",color_a=#c05fd0,color_b=#4d7c4a,best_of=1,to=11"), lastTags(t, rec, 1))
+	require.Empty(t, LengthTags(Match{}), "a transition without a match")
 }
