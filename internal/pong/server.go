@@ -53,11 +53,12 @@ type Config struct {
 	// Roster is where the lobby gets the names it offers, nil when
 	// SCHMETTERPAUSE_URL is unset. Names only: a game from the lobby is a
 	// demo and is never reported (ADR-0008), so no id from it is ever
-	// reported. League mode reads the ids, through League.Roster (ADR-0015);
-	// the board looks a name up only to show that player's figure.
+	// reported. League mode reads the ids, through League.Roster (ADR-0015).
 	Roster Roster
 	// Figures shows each side's figure on the board, with the face the match
-	// gives it (zaehlwerk ADR-0018), nil without SCHMETTERPAUSE_URL.
+	// gives it (zaehlwerk ADR-0018), nil without SCHMETTERPAUSE_URL. It is
+	// asked by "<match id>/<side>" for the figures zaehlwerk shows for the
+	// game's match: Client.Figure.
 	Figures figure.Source
 	// League turns on league mode (ADR-0015), nil off: in the sandbox only,
 	// where zaehlwerk takes player ids.
