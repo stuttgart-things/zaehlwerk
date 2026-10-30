@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.43.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.42.0...v0.43.0) (2026-10-30)
+
+
+### Features
+
+* say how long the match is to the panel ([#220](https://github.com/stuttgart-things/zaehlwerk/issues/220)) ([b8b4735](https://github.com/stuttgart-things/zaehlwerk/commit/b8b4735051837ffad10354f602e50e10dd9049f7))
+* say the players' colours to the panel ([#218](https://github.com/stuttgart-things/zaehlwerk/issues/218)) ([74bf4c3](https://github.com/stuttgart-things/zaehlwerk/commit/74bf4c32dfa43d64bc657816ea83e2f78741f140))
+
 ## [0.42.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.41.0...v0.42.0) (2026-10-30)
 
 
