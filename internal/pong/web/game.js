@@ -714,6 +714,8 @@
         guest = part === 'guest';
         reporter = part === 'host' && !served;
         if (endButton && part === 'host') endButton.hidden = false;
+        // The faults while it plays are the host's too (web/faults.js).
+        if (part === 'host') root.dispatchEvent(new CustomEvent('pong:host', { detail: token }));
         if (remote && reporter) {
           fetchCode();
           setInterval(showJoin, 1000);

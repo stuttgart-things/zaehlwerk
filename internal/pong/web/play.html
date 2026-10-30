@@ -30,6 +30,11 @@
         /* display: flex would otherwise win over the hidden attribute. */
         .join[hidden] { display: none; }
         .join-code { font-size: 1.8rem; letter-spacing: 0.25em; color: var(--warn); }
+        /* The faults while the game plays, for the tab that plays it. */
+        .tune { margin: 0.4rem 0.3rem 0.2rem; font-size: 0.85rem; }
+        .tune[hidden] { display: none; }
+        .tune summary { cursor: pointer; color: var(--muted); }
+        .faults { display: grid; gap: 0.6rem; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); margin-top: 0.6rem; }
         .truth { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); }
         tr.expected td { color: var(--muted); }
         tr.expected .mark { color: var(--warn); }
@@ -87,8 +92,22 @@
             <button type="button" class="quiet" id="mute">Ton aus</button>
             <button type="button" class="quiet" id="end" hidden>Spiel beenden</button>
         </div>
+        {{if .Tunable}}
+        <details class="tune" id="tune" hidden>
+            <summary>Fehler im laufenden Spiel einstellen</summary>
+            <form class="faults" id="tune-form">
+                {{range .Faults}}
+                <label>{{.Label}} <input type="number" name="{{.Kind}}" min="0" max="1" step="0.01" value="{{.Share}}"></label>
+                {{end}}
+                <label style="align-self: end"><span><input type="checkbox" name="correct" {{if .Correct}}checked{{end}}>
+                    falsche Hälfte korrigieren (Undo)</span></label>
+            </form>
+            <p class="muted" id="tune-note">Gilt ab dem nächsten Ballwechsel. Ein Spiel mit geänderten Fehlern lässt sich nicht mehr allein über seinen Seed wiederholen.</p>
+        </details>
+        {{end}}
     </section>
     <script src="/static/tab.js"></script>
+    {{if .Tunable}}<script src="/static/faults.js"></script>{{end}}
     {{if .Board.Diagonal}}<script src="/static/serve.js"></script>{{end}}
     <script src="/static/game.js"></script>
     {{if .Board.Screensaver}}<script src="/static/saver.js"></script>{{end}}
@@ -173,7 +192,7 @@
         {{end}}
     </table>
     {{else}}
-    <p class="muted" style="margin: 0">Keine. In der Lobby lassen sich Fehler einstellen.</p>
+    <p class="muted" style="margin: 0">Keine. Fehler lassen sich in der Lobby einstellen und im laufenden Spiel unter dem Tisch.</p>
     {{end}}
 </div>
 {{end}}
