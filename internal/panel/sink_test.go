@@ -518,3 +518,44 @@ func TestNoFigureWithoutSomebodyBehindTheWinnerOrWithoutFigures(t *testing.T) {
 	require.Equal(t, ",figure=https://sp.example/avatars/a%2Fb.gif",
 		FigureTag("https://sp.example", won, [2]string{"a/b", ""}), "an id is a path segment, whatever it holds")
 }
+
+// The catcher draws the names in the players' colours, the ones the spectator
+// view and the game's board give them, so the matrix does not contradict them.
+func TestThePanelSaysThePlayersColours(t *testing.T) {
+	rec := newRecorder()
+	sink := New(rec, Config{Logger: quiet()})
+	defer func() { require.NoError(t, sink.Close()) }()
+	var asked []string
+	sink.ColourFrom(func(_ context.Context, m *match.Match) [2]string {
+		asked = append(asked, m.ID)
+		return [2]string{"#c05fd0", "#4d7c4a"}
+	})
+	registry := match.NewRegistry(match.WithMatchObserver(sink.Observe))
+
+	m, err := registry.Create(scorer.Config{Players: [2]string{"Anna", "Bernd"}})
+	require.NoError(t, err)
+	pointsFor(t, m, scorer.PlayerA, 1, 1)
+
+	require.True(t, strings.HasSuffix(lastTags(t, rec, 1), ",color_a=#c05fd0,color_b=#4d7c4a"), lastTags(t, rec, 1))
+	require.Equal(t, []string{m.ID}, asked)
+}
+
+func TestWithoutColoursThePanelSaysNone(t *testing.T) {
+	rec := newRecorder()
+	sink := New(rec, Config{Logger: quiet()})
+	defer func() { require.NoError(t, sink.Close()) }()
+	registry := match.NewRegistry(match.WithMatchObserver(sink.Observe))
+
+	m, err := registry.Create(scorer.Config{Players: [2]string{"Anna", "Bernd"}})
+	require.NoError(t, err)
+	pointsFor(t, m, scorer.PlayerA, 1, 1)
+
+	require.NotContains(t, lastTags(t, rec, 1), "color_")
+}
+
+func TestColoursGoOutBothOrNeither(t *testing.T) {
+	require.Equal(t, ",color_a=#c05fd0,color_b=#4D7C4A", ColourTags([2]string{"#c05fd0", "#4D7C4A"}))
+	require.Empty(t, ColourTags([2]string{"#c05fd0", ""}), "one name in a colour would look picked out")
+	require.Empty(t, ColourTags([2]string{"#c05fd0", "red"}))
+	require.Empty(t, ColourTags([2]string{"#c05fd0", "#4d7c4a,x=1"}), "a colour cannot add a tag")
+}

@@ -712,6 +712,7 @@ does not. Each is absent when it does not apply:
 | `stake`, `stake_side` | `set_point` or `match_point`, and `a` or `b`: what the next point decides and who holds it. Absent outside play and once the match is over |
 | `tournament`, `round` | `1` and the round, on a match that fills a place in a Schmetterpause draw (ADR-0017) |
 | `final` | `1` on the tournament's final |
+| `color_a`, `color_b` | each player's colour, `#c05fd0`: the blade their figure carries, which the spectator view's cord and Pong's paddles take too, so the catcher can draw the names in it. Without figures the colours the spectator view takes from the ids, light blue and pink for a match by names. Both or neither, and last, after `figure` |
 | `figure` | on `set_won` and `match_won`, the winner's figure as a GIF from Schmetterpause: `<PANEL_FIGURES_URL>/avatars/<id>.gif` (Schmetterpause ADR-0030). The catcher's shipped profile plays it, cheering, before it holds the board. Absent without figures configured and for a winner with nobody behind them. A match by names (a demo, a game of Pong's, one started on the page) takes the player Schmetterpause has under the winner's name, when `SCHMETTERPAUSE_TOKEN` lets zaehlwerk read the list; an unknown name has none |
 
 A light at the table pulses on the side that holds a match point, or makes
@@ -722,8 +723,8 @@ match=36c17b30,set=3,transition=point,side=b,points=5:10,sets=1:1,serve=b,player
 match=36c17b30,set=3,transition=point,side=b,points=5:10,…,ends=a:b,stake=match_point,stake_side=b,tournament=1,round=7,final=1
 ```
 
-Who serves is said here because the rules are here: the catcher draws the
-server's name in orange and applies no table tennis of its own.
+Who serves is said here because the rules are here: the catcher marks the
+server and applies no table tennis of its own.
 
 ### Two ways onto the bus
 
