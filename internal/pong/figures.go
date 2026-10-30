@@ -65,7 +65,9 @@ func (s *Server) dress(b *boardView, g *Game, faces face.Faces) {
 	}
 	s.figuresOf(g)
 	if figs := s.figures.Ready(g.ID); figs != nil {
-		b.Blades = [2]string{figs.Side[0].Blade, figs.Side[1].Blade}
+		// Resolved as zaehlwerk resolves them for the panel, so a paddle has
+		// the colour its player's name has on the matrix.
+		b.Blades = figure.Resolve(figs.Side[0].Blade, figs.Side[1].Blade)
 	}
 	for _, sv := range []*sideView{&b.Left, &b.Right} {
 		side := "a"

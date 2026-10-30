@@ -677,9 +677,10 @@ type boardView struct {
 	Findings    int
 	// Check is a button check's prompt and findings, nil for a game.
 	Check *checkBoard
-	// Blades is each player's blade colour, a then b, from their figure:
-	// the canvas fills their paddle with it. Empty without figures or before
-	// they have arrived, and the canvas then gives both its own colour.
+	// Blades is each player's paddle colour, a then b: the blade on their
+	// figure resolved onto the panel's colours (figure.Resolve), as on the
+	// matrix. Empty without figures or before they have arrived, and the
+	// canvas then gives both its own colour.
 	Blades [2]string
 	// Context is the set and the rules under the score, "Satz 1 · Best of 3
 	// · bis 11", so "Sätze 0" means something. Empty once the game is over

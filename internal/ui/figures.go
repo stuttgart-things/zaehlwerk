@@ -28,11 +28,12 @@ func (s *Server) figuresOf(m *match.Match) *figure.Pair {
 	return s.figures.Ensure(m.ID, func(context.Context) [2]string { return ids })
 }
 
-// Colours is the colour of each side of m as this view draws it, for the
-// panel (panel.Sink.ColourFrom): the blade each figure carries, see
-// [Server.blades], so a player has the same colour on the matrix as on this
-// screen and on the game's board. It waits for the figures until ctx is done,
-// and then takes what blades has.
+// Colours is the colour of each side of m on the panel
+// (panel.Sink.ColourFrom): the blade each figure carries, see [Server.blades],
+// resolved onto the panel's colours ([figure.Resolve]) the same way the game's
+// board resolves its paddles, so a player has the same colour on the matrix as
+// on the game. It waits for the figures until ctx is done, and then takes what
+// blades has.
 func (s *Server) Colours(ctx context.Context, m *match.Match) [2]string {
 	if s.figures != nil {
 		select {
@@ -41,7 +42,7 @@ func (s *Server) Colours(ctx context.Context, m *match.Match) [2]string {
 		}
 	}
 	a, b := s.blades(m)
-	return [2]string{a, b}
+	return figure.Resolve(a, b)
 }
 
 // figure serves one side's figure with one face.

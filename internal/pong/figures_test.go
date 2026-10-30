@@ -94,8 +94,9 @@ func TestTheBoardShowsTheFigureOfAPlayerSchmetterpauseKnows(t *testing.T) {
 	require.Equal(t, []string{"id-anna", ""}, f.ids, "fetched once for the game")
 }
 
-// The canvas fills each player's paddle with the blade their figure carries;
-// the board passes it on once the figures are in.
+// The canvas fills each player's paddle with the blade their figure carries,
+// resolved as zaehlwerk resolves it for the panel: here both carry petrol, and
+// b is told apart by hue. The board passes them on once the figures are in.
 func TestTheBoardPassesTheBladesOnOnceTheFiguresAreIn(t *testing.T) {
 	p := newDressedLobby(t, roster{players: []schmetterpause.Player{{ID: "id-anna", DisplayName: "Anna"}}}, &figures{})
 
@@ -103,7 +104,7 @@ func TestTheBoardPassesTheBladesOnOnceTheFiguresAreIn(t *testing.T) {
 
 	fetch(t, p.url+"/ui/games/"+id+"/figures/a.svg") // waits for the fetch
 	_, page := fetch(t, p.url+"/play/"+id)
-	require.Contains(t, page, `data-blade-a="#159c8c" data-blade-b="#159c8c"`)
+	require.Contains(t, page, `data-blade-a="#00e6a0" data-blade-b="#963cff"`)
 }
 
 // Without the token there is no list to look names up in; the figures are
