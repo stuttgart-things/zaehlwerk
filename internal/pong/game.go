@@ -90,11 +90,16 @@ type View struct {
 	Divergences []Divergence `json:"divergences"`
 	// Unexplained counts the divergences no injected fault explains: the
 	// findings. A run is good when it is 0, with faults or without.
-	Unexplained int          `json:"unexplained"`
-	FaultShares Faults       `json:"fault_shares"`
-	Faults      []Fault      `json:"faults"`
-	EndsChanges []EndsChange `json:"ends_changes"`
-	State       scorer.State `json:"state"`
+	Unexplained int    `json:"unexplained"`
+	FaultShares Faults `json:"fault_shares"`
+	// FaultChanges is each change of the faults while the game played, and
+	// the press it came after. A game with one is not played again by its
+	// seed alone: the draws are the same, the shares they are drawn against
+	// are not.
+	FaultChanges []FaultChange `json:"fault_changes,omitempty"`
+	Faults       []Fault       `json:"faults"`
+	EndsChanges  []EndsChange  `json:"ends_changes"`
+	State        scorer.State  `json:"state"`
 	// Check is a button check's prompts and findings.
 	Check *CheckView `json:"check,omitempty"`
 	// Remote is a game on two devices: whether the guest has joined, and
@@ -145,7 +150,9 @@ type GameConfig struct {
 	// service gives each game its next.
 	Seeded bool
 	// Faults is what goes wrong between the truth and zaehlwerk, drawn from
-	// the seed like the rallies.
+	// the seed like the rallies. The page that plays a game can change them
+	// while it plays (POST /games/{id}/faults); the game then reads them as
+	// Game.shares, not from here.
 	Faults Faults
 	// ResetQuiet is the gap before a counter reset; zero is resetQuiet. A
 	// field so the tests do not sit through the minute.
@@ -206,6 +213,13 @@ type Game struct {
 	divergences []Divergence
 	changes     []EndsChange
 	faults      []Fault
+	// faultShares is the faults injected now: Faults at the start, then
+	// whatever the page set, each change in faultChanges.
+	faultShares  Faults
+	faultChanges []FaultChange
+	// pressed is rally as the last state or fault the game recorded left
+	// it, for whoever reads it from outside the playing goroutine.
+	pressed uint64
 	// wake is closed and replaced whenever the view changes, so a page's
 	// stream sends a new one instead of polling.
 	wake chan struct{}
@@ -278,6 +292,7 @@ func newGame(id string, cfg GameConfig, client *Client, log *slog.Logger) *Game 
 		stop:        func(error) {},
 		status:      StatusPlaying,
 		divergences: []Divergence{},
+		faultShares: cfg.Faults,
 		changes:     []EndsChange{},
 		faults:      []Fault{},
 		wake:        make(chan struct{}),
@@ -560,7 +575,7 @@ func (g *Game) ready(ctx context.Context, st scorer.State) (scorer.State, error)
 	// recorded and changes nothing: zaehlwerk answers it Ignored. The answer
 	// carries no outcome, so "changes nothing" is the state staying the same.
 	waiting := after.Phase == scorer.PhaseWarmup || after.Phase == scorer.PhaseChangeEnds
-	if waiting && g.roll(g.cfg.Faults.WrongPhase) {
+	if waiting && g.roll(g.shares().WrongPhase) {
 		again, n, err := g.report(ctx, half, false)
 		if err != nil {
 			return again, err
@@ -610,7 +625,7 @@ func (g *Game) point(ctx context.Context, st scorer.State, standing [2]scorer.Pl
 		g.diverged(d)
 	}
 
-	if g.roll(g.cfg.Faults.Ghost) {
+	if g.roll(g.shares().Ghost) {
 		half := scorer.HalfLeft
 		if g.faultRnd.Intn(2) == 1 {
 			half = scorer.HalfRight
@@ -641,7 +656,7 @@ func (g *Game) point(ctx context.Context, st scorer.State, standing [2]scorer.Pl
 	g.mu.Unlock()
 	half := halfOf(winner, standing)
 
-	if g.roll(g.cfg.Faults.Lost) {
+	if g.roll(g.shares().Lost) {
 		// The press was made and took its number; it never arrived. The
 		// match goes on from where zaehlwerk has it, one point short.
 		g.rally++
@@ -655,7 +670,7 @@ func (g *Game) point(ctx context.Context, st scorer.State, standing [2]scorer.Pl
 
 	// One held back at a time: a second would be overtaken by a press
 	// that is itself late, which is two faults in one.
-	if g.late == nil && g.roll(g.cfg.Faults.Latency) {
+	if g.late == nil && g.roll(g.shares().Latency) {
 		// The press takes its number now and is sent after the next one.
 		// Until then zaehlwerk has the match one point short, as for a
 		// lost press, and the match goes on from there.
@@ -683,7 +698,7 @@ func (g *Game) point(ctx context.Context, st scorer.State, standing [2]scorer.Pl
 
 	// Only while points are still played: after a set or the match the same
 	// press would be a confirmation or refused, and no longer a point.
-	if after.Phase == scorer.PhasePlaying && g.roll(g.cfg.Faults.Bounce) {
+	if after.Phase == scorer.PhasePlaying && g.roll(g.shares().Bounce) {
 		bounced, n, err := g.report(ctx, half, true)
 		if err != nil {
 			return bounced, err
@@ -701,7 +716,7 @@ func (g *Game) point(ctx context.Context, st scorer.State, standing [2]scorer.Pl
 // undo, wherever that left the match: the serve rally decided, a set won, the
 // match won.
 func (g *Game) press(ctx context.Context, half scorer.Half, winner scorer.Player) (scorer.State, uint64, error) {
-	if !g.roll(g.cfg.Faults.WrongHalf) {
+	if !g.roll(g.shares().WrongHalf) {
 		return g.report(ctx, half, true)
 	}
 
@@ -713,7 +728,7 @@ func (g *Game) press(ctx context.Context, half scorer.Half, winner scorer.Player
 	}
 	f := Fault{Rally: n, EventID: g.counter, Kind: FaultWrongHalf, Phase: before.Phase, Half: wrong}
 
-	if !g.cfg.Faults.Correct {
+	if !g.shares().Correct {
 		loser := playerAt(1 - index(winner))
 		if before.Phase == scorer.PhaseServeRally {
 			g.mu.Lock()
@@ -755,7 +770,7 @@ func (g *Game) report(ctx context.Context, half scorer.Half, changes bool) (scor
 
 	// A press that must change the state, so that a reset zaehlwerk discards
 	// shows. And not before the first, which would be no reset at all.
-	reset := changes && g.counter > 0 && g.roll(g.cfg.Faults.CounterReset)
+	reset := changes && g.counter > 0 && g.roll(g.shares().CounterReset)
 	if reset {
 		quiet := g.cfg.ResetQuiet
 		if quiet <= 0 {
@@ -814,7 +829,7 @@ func (g *Game) report(ctx context.Context, half scorer.Half, changes bool) (scor
 	// Not once the match is over: zaehlwerk refuses any press to a finished
 	// match before it looks at the event id, so a resend there would end the
 	// game rather than test the deduplication.
-	if st.Phase != scorer.PhaseComplete && g.roll(g.cfg.Faults.Resend) {
+	if st.Phase != scorer.PhaseComplete && g.roll(g.shares().Resend) {
 		again, err := g.client.Ingest(ctx, ev)
 		if err != nil {
 			return again, g.rally, err
@@ -830,6 +845,32 @@ func (g *Game) report(ctx context.Context, half scorer.Half, changes bool) (scor
 	return st, g.rally, nil
 }
 
+// FaultChange is the faults set while a game played.
+type FaultChange struct {
+	// Rally is the last press before the change.
+	Rally  uint64 `json:"rally"`
+	Faults Faults `json:"faults"`
+}
+
+// shares is the faults to inject now.
+func (g *Game) shares() Faults {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.faultShares
+}
+
+// setShares changes the faults from the next draw on. rally is read without
+// the playing goroutine's ordering, so it is the last press as far as anybody
+// outside can tell, which is what a person changing a slider means.
+func (g *Game) setShares(f Faults) {
+	g.mu.Lock()
+	g.faultShares = f
+	g.faultChanges = append(g.faultChanges, FaultChange{Rally: g.pressed, Faults: f})
+	g.changed()
+	g.mu.Unlock()
+	g.log.Info("faults changed", "faults", f)
+}
+
 // roll draws whether a fault happens now. A share of zero draws nothing, so a
 // fault that is off does not move the draws of the ones that are on.
 func (g *Game) roll(share float64) bool {
@@ -839,6 +880,7 @@ func (g *Game) roll(share float64) bool {
 // injected records a fault and what it should do to zaehlwerk's points.
 func (g *Game) injected(f Fault) {
 	g.mu.Lock()
+	g.pressed = g.rally
 	g.faults = append(g.faults, f)
 	g.truth.Explain(f.Effect)
 	g.changed()
@@ -925,6 +967,7 @@ func sleep(ctx context.Context, d time.Duration) error {
 
 func (g *Game) setState(st scorer.State) {
 	g.mu.Lock()
+	g.pressed = g.rally
 	g.state = st
 	g.changed()
 	g.mu.Unlock()
@@ -1020,7 +1063,8 @@ func (g *Game) View() View {
 		Explained:    g.truth.Explained,
 		Divergences:  append([]Divergence{}, g.divergences...),
 		Unexplained:  unexplained,
-		FaultShares:  g.cfg.Faults,
+		FaultShares:  g.faultShares,
+		FaultChanges: append([]FaultChange(nil), g.faultChanges...),
 		Faults:       append([]Fault{}, g.faults...),
 		EndsChanges:  append([]EndsChange{}, g.changes...),
 		State:        g.state,

@@ -117,17 +117,23 @@ var faultLabels = map[FaultKind]string{
 	FaultLatency:      "verspätet",
 }
 
+// faultFields is every fault's share, in the order of the fault table.
+func faultFields(f Faults) []faultField {
+	shares := f.shares()
+	fields := make([]faultField, 0, len(faultKinds))
+	for _, kind := range faultKinds {
+		fields = append(fields, faultField{Kind: kind, Label: faultLabels[kind], Share: *shares[kind]})
+	}
+	return fields
+}
+
 func (s *Server) lobby(w http.ResponseWriter, r *http.Request) {
 	v := lobbyView{
 		Bots:    [2]botView{newBotView("a", s.cfg.Skills[0].Name), newBotView("b", s.cfg.Skills[1].Name)},
 		Correct: s.cfg.Faults.Correct,
 		Lengths: lengthOptions(s.cfg.BestOf),
 	}
-	f := s.cfg.Faults
-	shares := f.shares()
-	for _, kind := range faultKinds {
-		v.Faults = append(v.Faults, faultField{Kind: kind, Label: faultLabels[kind], Share: *shares[kind]})
-	}
+	v.Faults = faultFields(s.cfg.Faults)
 	s.mu.Lock()
 	if s.running != nil {
 		rv := s.running.View()
@@ -535,6 +541,12 @@ type playView struct {
 	// Live is the page at /live: it watches whatever plays, and moves on to
 	// the next game by itself once this one is over.
 	Live bool
+	// Tunable is a game whose faults its page can change while it plays
+	// (POST /games/{id}/faults), with Faults and Correct as they are now.
+	// faults.js shows them to the tab that holds the token only.
+	Tunable bool
+	Faults  []faultField
+	Correct bool
 }
 
 func (s *Server) playPage(w http.ResponseWriter, r *http.Request) {
@@ -577,7 +589,11 @@ func (s *Server) renderPlay(w http.ResponseWriter, g *Game, live bool) {
 	b := newBoardView(v)
 	rest, _ := faces(g, nil, v.State, face.Faces{}, face.Streak{})
 	s.dress(&b, g, rest)
-	render(w, "play", playView{Board: b, Bots: string(bots), Live: live})
+	pv := playView{Board: b, Bots: string(bots), Live: live}
+	if v.Mode != "" && !live && !v.Attract && !v.Screensaver && g.cfg.Handover == nil {
+		pv.Tunable, pv.Faults, pv.Correct = true, faultFields(v.FaultShares), v.FaultShares.Correct
+	}
+	render(w, "play", pv)
 }
 
 // boardStream is the board as rendered HTML over SSE, for htmx to swap.
@@ -617,7 +633,7 @@ func (s *Server) boardStream(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) script(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("file")
-	if name != "game.js" && name != "serve.js" && name != "check.js" && name != "tab.js" && name != "saver.js" && name != "live.js" {
+	if name != "game.js" && name != "serve.js" && name != "check.js" && name != "tab.js" && name != "saver.js" && name != "live.js" && name != "faults.js" {
 		http.NotFound(w, r)
 		return
 	}

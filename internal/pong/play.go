@@ -101,6 +101,40 @@ func (s *Server) endGame(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, g.View())
 }
 
+// changeFaults is POST /games/{id}/faults: the page that plays a game sets
+// its faults while it plays, as a whole, as POST /games names them, so an
+// experiment needs no new game. A demo and a league match never have faults
+// (ADR-0008, ADR-0015), and a check has none to change.
+func (s *Server) changeFaults(w http.ResponseWriter, r *http.Request) {
+	g, ok := s.tokenGame(w, r)
+	if !ok {
+		return
+	}
+	if g.cfg.demo() || g.cfg.Handover != nil || g.cfg.Driver == DriverCheck {
+		fail(w, http.StatusConflict, errors.New("a demo, a league match and a check play without faults"))
+		return
+	}
+	var f Faults
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&f); err != nil {
+		fail(w, http.StatusBadRequest, fmt.Errorf("decoding the body: %w", err))
+		return
+	}
+	if err := f.Validate(); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	select {
+	case <-g.Done():
+		fail(w, http.StatusConflict, errors.New("the game is over"))
+		return
+	default:
+	}
+	g.setShares(f)
+	writeJSON(w, http.StatusOK, g.View())
+}
+
 // tokenGame finds the game in the path and checks that the request may play
 // it: a game with a page, and the token it was started with. Another tab may
 // watch the same game; it does not get to press or end it.

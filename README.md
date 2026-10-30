@@ -1669,7 +1669,12 @@ after a minute of silence from that source and only for an id up to 8
 shorter is a reset it rightly discards — which shows as a finding.
 
 `PONG_FAULTS` sets them for every game; `POST /games` replaces them for one,
-as a whole:
+as a whole. While a browser game or a served one plays, the page that started
+it changes them from under the table ("Fehler im laufenden Spiel einstellen"),
+through `POST /games/{id}/faults` with its token and the same body, from the
+next draw on. Each change is listed under `fault_changes` with the press it
+came after; a game with one is not played again by its seed alone. A demo, a
+league match and a check refuse it with 409:
 
 ```bash
 curl -s -X POST localhost:8087/games \
