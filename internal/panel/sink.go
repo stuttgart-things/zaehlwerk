@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -117,6 +118,9 @@ type Sink struct {
 	stop  chan struct{}
 	done  chan struct{}
 
+	// colours is where the players' colours come from, nil until ColourFrom.
+	colours atomic.Pointer[Colours]
+
 	dropped   atomic.Uint64
 	failed    atomic.Uint64
 	closeOnce sync.Once
@@ -144,6 +148,25 @@ type pitch struct {
 	t     scorer.Transition
 	demo  bool
 	match Match
+	// m is the match itself, for the players' colours, nil like Observe's.
+	m *match.Match
+}
+
+// Colours is the colour of each side of m, a then b, as #rrggbb: the blade the
+// player's figure carries, which is the colour the spectator view's cord and
+// the game's paddles take too. It may wait for the figures until ctx is done.
+type Colours func(ctx context.Context, m *match.Match) [2]string
+
+// colourWait bounds how long one pitch waits for the players' colours. It is
+// only ever the first pitch of a match that waits: the figures are fetched
+// once per match, and usually by the time the first point is scored.
+const colourWait = time.Second
+
+// ColourFrom has every pitch say the players' colours (ColourTags), from c.
+// It is set after New because the colours come from the spectator view, which
+// is built on the registry the sink observes.
+func (s *Sink) ColourFrom(c Colours) {
+	s.colours.Store(&c)
 }
 
 // Observe is the scorer observer. Register it with [match.WithMatchObserver]:
@@ -168,7 +191,7 @@ func (s *Sink) Observe(m *match.Match, t scorer.Transition) {
 	// lock and travels with the transition. So is the tournament place. The
 	// stake is asked of the scorer whose lock this runs under: Stake reads
 	// only the rules, which never change, and takes no lock of its own.
-	p := pitch{t: t, demo: m != nil && m.Demo}
+	p := pitch{t: t, demo: m != nil && m.Demo, m: m}
 	if m != nil {
 		p.match = Match{
 			Tournament: m.Handover.TournamentID != "", Round: m.Handover.Round, Final: m.Handover.Final,
@@ -243,13 +266,20 @@ func (s *Sink) drain() {
 }
 
 func (s *Sink) pitch(p pitch) {
-	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.PitchTimeout)
-	defer cancel()
-
 	t := p.t
 	msg := Message(t, p.demo, s.cfg.System, s.cfg.Author, s.cfg.Now())
 	msg.Tags += MatchTags(p.match)
 	msg.Tags += FigureTag(s.cfg.Figures, t, p.match.Players)
+	if c := s.colours.Load(); c != nil && p.m != nil {
+		// Before the publish's own deadline starts, so a slow figure fetch
+		// does not eat into it.
+		ctx, cancel := context.WithTimeout(context.Background(), colourWait)
+		msg.Tags += ColourTags((*c)(ctx, p.m))
+		cancel()
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.PitchTimeout)
+	defer cancel()
 	if _, _, err := s.pitcher.Enqueue(ctx, msg, s.cfg.Stream); err != nil {
 		s.failed.Add(1)
 		s.cfg.Logger.Warn("panel pitch failed, point not shown",
@@ -543,8 +573,8 @@ func MatchTags(m Match) string {
 // spectator view, and a random one on the panel would be a different random
 // one: better none.
 //
-// It comes after MatchTags, last, so every rule written against the tags
-// before it still matches.
+// It comes after MatchTags, so every rule written against the tags before it
+// still matches; only ColourTags follows it.
 func FigureTag(figures string, t scorer.Transition, players [2]string) string {
 	if figures == "" || (t.Kind != scorer.TransitionSetWon && t.Kind != scorer.TransitionMatchWon) {
 		return ""
@@ -561,4 +591,24 @@ func FigureTag(figures string, t scorer.Transition, players [2]string) string {
 		return ""
 	}
 	return ",figure=" + strings.TrimSuffix(figures, "/") + "/avatars/" + url.PathEscape(id) + ".gif"
+}
+
+// hexColour is a colour as ColourTags passes it on: what a figure's blade and
+// the spectator view's palette are written as.
+var hexColour = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+
+// ColourTags is `,color_a=#rrggbb,color_b=#rrggbb`: the colour each player
+// has on the spectator view and the game's board, so the catcher can draw
+// their names in it. Whoever looks over from a screen, or later from the
+// table, tells the players apart by colour, and a panel with colours of its
+// own would contradict them.
+//
+// Both or neither: a catcher drawing one name in a player's colour and the
+// other in its own would make one look picked out. It comes last, after
+// FigureTag, so every rule written against the tags before it still matches.
+func ColourTags(c [2]string) string {
+	if !hexColour.MatchString(c[0]) || !hexColour.MatchString(c[1]) {
+		return ""
+	}
+	return ",color_a=" + c[0] + ",color_b=" + c[1]
 }

@@ -188,9 +188,15 @@ func run() error {
 	uiOpts = append(uiOpts, ui.WithServiceLinks(os.Getenv("BUTTONS_URL"), os.Getenv("PONG_URL")))
 
 	apiSrv := api.New(registry, apiOpts...)
+	uiSrv := ui.New(registry, apiSrv, uiOpts...)
+	if sink != nil {
+		// The players' names on the panel in the colours this view gives
+		// them, which are their figures' blades.
+		sink.ColourFrom(uiSrv.Colours)
+	}
 	srv := &http.Server{
 		Addr:    env("HTTP_ADDR", defaultAddr),
-		Handler: routes(apiSrv, ui.New(registry, apiSrv, uiOpts...)),
+		Handler: routes(apiSrv, uiSrv),
 
 		ReadTimeout:       15 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
