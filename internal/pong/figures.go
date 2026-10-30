@@ -15,45 +15,24 @@ import (
 // (zaehlwerk ADR-0018, Schmetterpause ADR-0029): each side's figure above its
 // name, with the face the match gives it.
 //
-// A league match is between two of Schmetterpause's players, and each side
-// shows that player's figure. Every other game has names only; a name
-// Schmetterpause knows shows that player's figure, any other a random one,
-// drawn once per game. Without Config.Figures the board is what it was.
+// The figures are the ones zaehlwerk shows for the game's match, fetched from
+// its spectator view: zaehlwerk looks the names up in Schmetterpause, a league
+// match's players by id, and draws one random figure for a guest. Asking
+// Schmetterpause here as well drew a second random figure for the same guest,
+// with another blade, and the paddle and the name on the matrix had different
+// colours. Without Config.Figures the board is what it was.
 
 // figuresOf starts fetching g's figures unless that has already happened, and
-// returns them, ready or not.
+// returns them, ready or not. Nil until zaehlwerk has created g's match: there
+// is nothing to ask for yet, and a fetch started now would be kept as failed.
 func (s *Server) figuresOf(g *Game) *figure.Pair {
-	return s.figures.Ensure(g.ID, func(ctx context.Context) [2]string { return s.figureIDs(ctx, g) })
-}
-
-// figureIDs is whose figures g shows, home first: a league match's players by
-// their ids, any other game's by name. The ids only pick a drawing; the game
-// still reports nothing (ADR-0008).
-func (s *Server) figureIDs(ctx context.Context, g *Game) [2]string {
-	if h := g.cfg.Handover; h != nil {
-		return [2]string{h.HomeID, h.AwayID}
+	matchID := g.matchIDNow()
+	if matchID == "" {
+		return nil
 	}
-	var ids [2]string
-	if s.cfg.Roster == nil {
-		return ids
-	}
-	players, err := s.cfg.Roster.Players(ctx)
-	if err != nil {
-		// Info, not a warning: without SCHMETTERPAUSE_TOKEN this is every
-		// game, and the lobby already says so.
-		s.log.Info("no players to look the names up in, both sides get a random figure", "game", g.ID, "error", err)
-		return ids
-	}
-	names := g.View().Players
-	for i, name := range names {
-		for _, p := range players {
-			if p.DisplayName == name {
-				ids[i] = p.ID
-				break
-			}
-		}
-	}
-	return ids
+	return s.figures.Ensure(g.ID, func(context.Context) [2]string {
+		return [2]string{matchID + "/a", matchID + "/b"}
+	})
 }
 
 // dress gives b's sides their figures with faces, and its players the blades
@@ -63,7 +42,9 @@ func (s *Server) dress(b *boardView, g *Game, faces face.Faces) {
 	if s.figures == nil || b.Check != nil {
 		return
 	}
-	s.figuresOf(g)
+	if s.figuresOf(g) == nil {
+		return
+	}
 	if figs := s.figures.Ready(g.ID); figs != nil {
 		// Resolved as zaehlwerk resolves them for the panel, so a paddle has
 		// the colour its player's name has on the matrix.
@@ -160,7 +141,16 @@ func (s *Server) figure(w http.ResponseWriter, r *http.Request) {
 	}
 	f := figure.Asked(r.URL.Query().Get("face"))
 
+	h := w.Header()
+	for k, v := range figure.Headers {
+		h.Set(k, v)
+	}
 	figs := s.figuresOf(g)
+	if figs == nil {
+		h.Set("Cache-Control", "no-store")
+		_, _ = w.Write([]byte(static.Mascot))
+		return
+	}
 	select {
 	case <-figs.Done:
 	case <-r.Context().Done():
@@ -168,10 +158,6 @@ func (s *Server) figure(w http.ResponseWriter, r *http.Request) {
 	case <-time.After(figure.Wait):
 	}
 
-	h := w.Header()
-	for k, v := range figure.Headers {
-		h.Set(k, v)
-	}
 	select {
 	case <-figs.Done:
 		if svg := figs.Side[i].SVG; svg != nil {

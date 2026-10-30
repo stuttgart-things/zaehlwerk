@@ -199,10 +199,11 @@ func config() (pong.Config, error) {
 			return cfg, fmt.Errorf("SCHMETTERPAUSE_URL: %w", err)
 		}
 		cfg.Roster = client
-		// The figures need neither the token nor the API: Schmetterpause
-		// serves them to anybody, so the board shows them even where the
-		// lobby offers no names, random ones then.
-		cfg.Figures = client
+		// The figures are the ones zaehlwerk shows for the game's match,
+		// from its spectator view: the same drawing on the board, there and
+		// on the matrix, a guest's random one included. zaehlwerk has them
+		// where it has SCHMETTERPAUSE_URL, which a deployment sets for both.
+		cfg.Figures = pong.NewClient(cfg.ZaehlwerkURL, slog.Default())
 	}
 
 	if cfg.League, err = league(cfg); err != nil {
