@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/stuttgart-things/zaehlwerk/internal/figure"
 	"github.com/stuttgart-things/zaehlwerk/internal/match"
 	"github.com/stuttgart-things/zaehlwerk/internal/scorer"
 )
@@ -213,15 +214,16 @@ func TestTheSpectatorStreamChangesTheFacesWithThePoints(t *testing.T) {
 	require.Contains(t, figureSrcs(t, readEvent(t, r).data)[0], "face=angry")
 }
 
-// The panel draws the names in the colours this view gives the players, and
-// waits for the figures to have them: the blades they chose, even on a first
-// point that comes before anybody opened the view.
+// The panel draws the names in the colours of the blades the players chose,
+// resolved onto its own, and waits for the figures to have them, even on a
+// first point that comes before anybody opened the view.
 func TestThePanelGetsTheBladesThePlayersChose(t *testing.T) {
 	src := &fakeFigures{blades: map[string]string{"skywalker": "#c05fd0", "sthings": "#4d7c4a"}}
 	f := newFixture(t, WithFigures(src))
 	m := f.reportedBetween("skywalker", "sthings")
 
-	require.Equal(t, [2]string{"#c05fd0", "#4d7c4a"}, f.server.Colours(context.Background(), m))
+	require.Equal(t, figure.Resolve("#c05fd0", "#4d7c4a"), f.server.Colours(context.Background(), m))
+	require.Equal(t, [2]string{"#963cff", "#28dc28"}, f.server.Colours(context.Background(), m), "orchid is violet, moss green")
 }
 
 func TestWithoutFiguresThePanelGetsTheColoursOfTheView(t *testing.T) {
@@ -229,5 +231,5 @@ func TestWithoutFiguresThePanelGetsTheColoursOfTheView(t *testing.T) {
 	m := f.reportedBetween("id-anna", "id-bernd")
 
 	a, b := blades(m.Handover)
-	require.Equal(t, [2]string{a, b}, f.server.Colours(context.Background(), m))
+	require.Equal(t, figure.Resolve(a, b), f.server.Colours(context.Background(), m))
 }

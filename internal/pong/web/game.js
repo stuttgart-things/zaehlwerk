@@ -461,8 +461,9 @@
     if (ball) step(dt, now);
   }
 
-  // blade is player p's paddle colour: the blade on their figure when the
-  // board names one, a hex colour and nothing else, else the paddle red.
+  // blade is player p's paddle colour: their figure's blade as the board
+  // resolves it for the panel, when it names one, a hex colour and nothing
+  // else, else the paddle red.
   function blade(sides, p) {
     const c = sides && sides.dataset['blade' + (p === 'b' ? 'B' : 'A')];
     return /^#[0-9a-f]{6}$/i.test(c || '') ? c : '#d4334a';
