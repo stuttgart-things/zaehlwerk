@@ -461,12 +461,12 @@
     if (ball) step(dt, now);
   }
 
-  // blade is player p's paddle colour: their figure's blade as the board
-  // resolves it for the panel, when it names one, a hex colour and nothing
-  // else, else the paddle red.
-  function blade(sides, p) {
+  // blade is player p's colour: their figure's blade as the board resolves
+  // it for the panel, when it names one, a hex colour and nothing else, else
+  // otherwise.
+  function blade(sides, p, otherwise) {
     const c = sides && sides.dataset['blade' + (p === 'b' ? 'B' : 'A')];
-    return /^#[0-9a-f]{6}$/i.test(c || '') ? c : '#d4334a';
+    return /^#[0-9a-f]{6}$/i.test(c || '') ? c : otherwise;
   }
 
   function draw(now) {
@@ -495,14 +495,16 @@
       // colour of the blade the player's figure carries, which the board
       // passes on (data-blade-a/-b), else one colour for both. A light rim
       // keeps a dark blade visible on the table.
-      g.fillStyle = blade(sides, shownEnds[h]);
+      g.fillStyle = blade(sides, shownEnds[h], '#d4334a');
       g.strokeStyle = 'rgba(244, 244, 248, 0.7)';
       g.lineWidth = 1.5;
       g.fillRect(PADDLE_X[h] - 6, p.y - PADDLE_HALF, 12, PADDLE_HALF * 2);
       g.strokeRect(PADDLE_X[h] - 6, p.y - PADDLE_HALF, 12, PADDLE_HALF * 2);
       if (st) {
         const cx = h === 0 ? T.x + HALF / 2 : NET + HALF / 2;
-        g.fillStyle = '#ececff';
+        // In the paddle's colour, as on the board and the matrix; without
+        // one the page's light grey.
+        g.fillStyle = blade(sides, shownEnds[h], '#ececff');
         // Who serves is said once, above the table: the banner and the dot
         // on the score. A third mark here only repeated them.
         g.fillText(st.players[idx(shownEnds[h])], cx, T.y - 32);
