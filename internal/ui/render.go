@@ -189,6 +189,18 @@ func (s *Server) paint(v *matchView, m *match.Match, st scorer.State) {
 // never chose, and for the rest only until the figures land, which is well
 // before the first point.
 func (s *Server) blades(m *match.Match) (a, b string) {
+	a, b = s.chosen(m)
+	if a == b {
+		b = nextColour(a)
+	}
+	return a, b
+}
+
+// chosen is the blade each side's figure carries, as [Server.blades] but
+// without moving b off a blade a has too: [figure.Resolve] parts such a pair
+// by its own rule, and the panel and the game's board both resolve this pair,
+// not the cord's.
+func (s *Server) chosen(m *match.Match) (a, b string) {
 	a, b = blades(m.Handover)
 	if s.figures == nil {
 		return a, b
@@ -202,9 +214,6 @@ func (s *Server) blades(m *match.Match) (a, b string) {
 	}
 	if c := f.Side[1].Blade; c != "" {
 		b = c
-	}
-	if a == b {
-		b = nextColour(a)
 	}
 	return a, b
 }
