@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.47.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.46.0...v0.47.0) (2026-10-31)
+
+
+### Features
+
+* write the names above Pong's table in the players' colours ([#229](https://github.com/stuttgart-things/zaehlwerk/issues/229)) ([71be48d](https://github.com/stuttgart-things/zaehlwerk/commit/71be48d233b09d089ce41448bd81d37c4fdb5e92))
+
 ## [0.46.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.45.1...v0.46.0) (2026-10-31)
 
 
