@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.46.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.45.1...v0.46.0) (2026-10-31)
+
+
+### Features
+
+* write the players' names on Pong's board in their paddles' colours ([#227](https://github.com/stuttgart-things/zaehlwerk/issues/227)) ([7fde89c](https://github.com/stuttgart-things/zaehlwerk/commit/7fde89c5363049511ef80e4c8f2cfef6a130ffb5))
+
 ## [0.45.1](https://github.com/stuttgart-things/zaehlwerk/compare/v0.45.0...v0.45.1) (2026-10-31)
 
 
