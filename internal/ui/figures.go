@@ -29,11 +29,13 @@ func (s *Server) figuresOf(m *match.Match) *figure.Pair {
 }
 
 // Colours is the colour of each side of m on the panel
-// (panel.Sink.ColourFrom): the blade each figure carries, see [Server.blades],
-// resolved onto the panel's colours ([figure.Resolve]) the same way the game's
-// board resolves its paddles, so a player has the same colour on the matrix as
-// on the game. It waits for the figures until ctx is done, and then takes what
-// blades has.
+// (panel.Sink.ColourFrom): the blade each figure carries, see
+// [Server.chosen], resolved onto the panel's colours ([figure.Resolve]) the
+// same way the game's board resolves its paddles, so a player has the same
+// colour on the matrix as on the game. Two players with one blade are parted
+// by Resolve alone: moved apart first, as the cord does, they came out as
+// another pair than on the board. It waits for the figures until ctx is done,
+// and then takes what chosen has.
 func (s *Server) Colours(ctx context.Context, m *match.Match) [2]string {
 	if s.figures != nil {
 		select {
@@ -41,7 +43,7 @@ func (s *Server) Colours(ctx context.Context, m *match.Match) [2]string {
 		case <-ctx.Done():
 		}
 	}
-	a, b := s.blades(m)
+	a, b := s.chosen(m)
 	return figure.Resolve(a, b)
 }
 

@@ -226,6 +226,22 @@ func TestThePanelGetsTheBladesThePlayersChose(t *testing.T) {
 	require.Equal(t, [2]string{"#963cff", "#28dc28"}, f.server.Colours(context.Background(), m), "orchid is violet, moss green")
 }
 
+// Two players with one blade are parted by figure.Resolve alone, as the
+// game's board parts them (pong's TestTheBoardPassesTheBladesOnOnceTheFiguresAreIn
+// has the same pair). Moved apart first, as the cord moves them, petrol and
+// petrol were teal and green on the matrix and teal and violet on the board.
+func TestThePanelPartsTwoPlayersWithOneBladeAsTheGameDoes(t *testing.T) {
+	src := &fakeFigures{blades: map[string]string{"id-anna": "#159c8c", "id-bernd": "#159c8c"}}
+	f := newFixture(t, WithFigures(src))
+	m := f.reportedBetween("id-anna", "id-bernd")
+
+	require.Equal(t, figure.Resolve("#159c8c", "#159c8c"), f.server.Colours(context.Background(), m))
+	require.Equal(t, [2]string{"#00e6a0", "#963cff"}, f.server.Colours(context.Background(), m))
+
+	_, body := f.do(http.MethodGet, "/ui/watch", nil)
+	require.Contains(t, body, `style="--blade: #4d7c4a"`, "the cord still moves b along its own colours")
+}
+
 func TestWithoutFiguresThePanelGetsTheColoursOfTheView(t *testing.T) {
 	f := newFixture(t)
 	m := f.reportedBetween("id-anna", "id-bernd")
