@@ -168,6 +168,13 @@ func (s *Server) matchView(m *match.Match, kind scorer.TransitionKind) *matchVie
 
 // paint gives each side its colour and the referee's cord the colour of the
 // side that leads at st.
+//
+// These are the figures' own blades, not the panel's colours that the matrix
+// and Pong use ([Server.Colours]), and that is on purpose: the line under a
+// name sits right under the figure carrying that blade, and the panel's
+// colours bring violet and green onto a page where violet is the serve badge
+// and green the winner. Compared side by side on the edge on 2026-10-31 and
+// kept so.
 func (s *Server) paint(v *matchView, m *match.Match, st scorer.State) {
 	a, b := s.blades(m)
 	v.A.Blade = template.CSS("--blade: " + a)
