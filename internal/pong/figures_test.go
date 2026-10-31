@@ -165,6 +165,20 @@ func TestTheBoardPassesTheBladesOnOnceTheFiguresAreIn(t *testing.T) {
 	require.Contains(t, page, `data-blade-a="#00e6a0" data-blade-b="#963cff"`)
 }
 
+// The names under the figures take their paddle's colour, the one the matrix
+// writes them in, so a player is one colour on the canvas, the board and the
+// panel.
+func TestTheNamesHaveTheirPaddlesColour(t *testing.T) {
+	p := newDressedLobby(t, roster{players: []schmetterpause.Player{{ID: "id-anna", DisplayName: "Anna"}}}, &figures{})
+
+	_, id := playFromLobby(t, p, "Anna", "Gast")
+
+	fetch(t, p.url+"/ui/games/"+id+"/figures/a.svg") // waits for the fetch
+	_, page := fetch(t, p.url+"/play/"+id)
+	require.Regexp(t, `class="name[^"]*" style="color: #00e6a0">Anna<`, page)
+	require.Regexp(t, `class="name[^"]*" style="color: #963cff">Gast<`, page)
+}
+
 // Without the token zaehlwerk has no list to look names up in; the figures
 // are public there, so the board still shows two, random ones.
 func TestWithoutThePlayersBothSidesGetARandomFigure(t *testing.T) {
@@ -211,6 +225,7 @@ func TestWithoutFiguresTheBoardIsUnchanged(t *testing.T) {
 	page, id := playFromLobby(t, p, "Anna", "Gast")
 
 	require.NotContains(t, page, `class="figure"`)
+	require.NotContains(t, page, `style="color:`, "the names keep the page's colour")
 	resp, _ := fetch(t, p.url+"/ui/games/"+id+"/figures/a.svg")
 	require.Equal(t, http.StatusNotFound, resp.StatusCode, "no route at all")
 }

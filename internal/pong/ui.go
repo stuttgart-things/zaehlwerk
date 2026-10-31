@@ -755,6 +755,10 @@ type sideView struct {
 	// Figure is the address of this side's figure with its face, empty
 	// without figures.
 	Figure string
+	// Colour is this player's colour for their name: their paddle's, see
+	// boardView.Blades, so the name has the colour it has on the matrix.
+	// Empty as long as Blades is, and the name keeps the page's.
+	Colour string
 }
 
 // playerRow is one player in the comparison: what really happened, what

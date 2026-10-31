@@ -137,14 +137,14 @@
 <div class="sides" data-blade-a="{{index .Blades 0}}" data-blade-b="{{index .Blades 1}}">
     <div class="side">
         {{if .Left.Figure}}<img class="figure" src="{{.Left.Figure}}" alt="" width="120" height="120">{{end}}
-        <span class="name{{if .Left.Serving}} serve{{end}}">{{.Left.Name}}</span>
+        <span class="name{{if .Left.Serving}} serve{{end}}"{{with .Left.Colour}} style="color: {{.}}"{{end}}>{{.Left.Name}}</span>
         <span class="sets">Sätze {{.Left.Sets}}</span>
         {{if .Left.Waiting}}<span class="tag">wartet auf Taste</span>{{end}}
     </div>
     <div class="points">{{.Left.Points}} : {{.Right.Points}}{{if .Context}}<span class="context">{{.Context}}</span>{{end}}</div>
     <div class="side right">
         {{if .Right.Figure}}<img class="figure" src="{{.Right.Figure}}" alt="" width="120" height="120">{{end}}
-        <span class="name{{if .Right.Serving}} serve{{end}}">{{.Right.Name}}</span>
+        <span class="name{{if .Right.Serving}} serve{{end}}"{{with .Right.Colour}} style="color: {{.}}"{{end}}>{{.Right.Name}}</span>
         <span class="sets">Sätze {{.Right.Sets}}</span>
         {{if .Right.Waiting}}<span class="tag">wartet auf Taste</span>{{end}}
     </div>
