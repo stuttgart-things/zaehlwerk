@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.45.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.44.0...v0.45.0) (2026-10-30)
+
+
+### Features
+
+* take the board's figures from zaehlwerk's match ([#223](https://github.com/stuttgart-things/zaehlwerk/issues/223)) ([4c06b73](https://github.com/stuttgart-things/zaehlwerk/commit/4c06b73ac50f7291d063fc3d66c22eb054f04f36))
+
 ## [0.44.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.43.0...v0.44.0) (2026-10-30)
 
 
