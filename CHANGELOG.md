@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.45.1](https://github.com/stuttgart-things/zaehlwerk/compare/v0.45.0...v0.45.1) (2026-10-31)
+
+
+### Bug Fixes
+
+* part two players with one blade on the panel as Pong does ([#225](https://github.com/stuttgart-things/zaehlwerk/issues/225)) ([99413fb](https://github.com/stuttgart-things/zaehlwerk/commit/99413fb7a8dc4e403853ec70bbdf1dd389210854))
+
 ## [0.45.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.44.0...v0.45.0) (2026-10-30)
 
 
