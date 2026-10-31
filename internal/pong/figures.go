@@ -36,7 +36,7 @@ func (s *Server) figuresOf(g *Game) *figure.Pair {
 }
 
 // dress gives b's sides their figures with faces, and its players the blades
-// their figures carry, when figures are on. A button check has no players,
+// their figures carry, for the paddles and the names, when figures are on. A button check has no players,
 // and no figures.
 func (s *Server) dress(b *boardView, g *Game, faces face.Faces) {
 	if s.figures == nil || b.Check != nil {
@@ -56,6 +56,7 @@ func (s *Server) dress(b *boardView, g *Game, faces face.Faces) {
 			side = "b"
 		}
 		sv.Figure = "/ui/games/" + g.ID + "/figures/" + side + ".svg?face=" + string(faces[index(sv.player)])
+		sv.Colour = b.Blades[index(sv.player)]
 	}
 }
 
