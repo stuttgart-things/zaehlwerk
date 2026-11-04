@@ -13,7 +13,7 @@
 #      is never reported, and the right result is, once (ADR-0007); the undo
 #      is an ingest event sent twice, and takes back one point (ADR-0012)
 #   5. zaehlwerk-pong plays headless best of threes, one of them to a deciding
-#      set with its change of ends at five, and its truth and zaehlwerk
+#      set with ends changed only between sets, and its truth and zaehlwerk
 #      agree after every rally (ADR-0006)
 #   6. a game with every fault injected ends with no divergence the faults do
 #      not explain: resends discarded, a second confirmation ignored, a
@@ -214,9 +214,9 @@ while [ $games -lt 10 ] && [ -z "$decider" ]; do
   [ "$(jq .state.set_number <<<"$game")" = 3 ] && decider=$game
 done
 [ -n "$decider" ] || fail "$games best of threes and none went to a deciding set"
-jq -e '[.ends_changes[] | select(.set == 3 and (.points | max) == 5)] | length == 1' \
+jq -e '[.ends_changes[] | select((.points | max) > 0)] | length == 0' \
   <<<"$decider" >/dev/null ||
-  fail "no change of ends at five in the deciding set: $(jq -c .ends_changes <<<"$decider")"
+  fail "a change of ends within a set: $(jq -c .ends_changes <<<"$decider")"
 
 echo "6. a game with every fault has no unexplained divergence"
 # The seed fixes which presses go wrong. counter_reset waits out zaehlwerk's
@@ -620,6 +620,6 @@ echo "   match $match: Clara by fob, Bernd by phone, $(jq -c .sets <<<"$last") r
 
 echo "ok: 5 results, $resent resends, $duplicates duplicates, retry after refuse," \
   "an undone match point withheld, its retried undo taking back one," \
-  "$games Pong games with no unexplained divergence, ends changed at five in the decider," \
+  "$games Pong games with no unexplained divergence, ends changed between sets only," \
   "one of them on two devices," \
   "2 button checks, a match started by two fobs, one by a fob and a phone"

@@ -549,8 +549,8 @@ func (b *Board) call(ctx context.Context, method, path string, body any) (state,
 // playerOn resolves a table half to the player standing there
 // (zaehlwerk-firmware ADR-0006). A sensor is under a half and stays there; the
 // players change ends after every set. On a board that change is a button
-// somebody presses — the mock presses it at every set boundary and leaves out
-// the change at five points in a deciding set.
+// somebody presses — the mock presses it at every set boundary, which is
+// every change of ends there is.
 func playerOn(half string, setNumber int) scorer.Player {
 	aOnHalfA := setNumber%2 == 1
 	if (half == "A") == aOnHalfA {

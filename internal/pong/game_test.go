@@ -114,8 +114,8 @@ func (f *pongFixture) finished(id string) View {
 	return v
 }
 
-// playUntilADecidingSet plays games until one goes the distance, so the
-// change of ends at five is played whatever the bots draw. The seed decides,
+// playUntilADecidingSet plays games until one goes the distance, so both
+// changes of ends are played whatever the bots draw. The seed decides,
 // so it is the same game every run.
 func playUntilADecidingSet(t *testing.T, p *pongFixture) []View {
 	t.Helper()
@@ -147,20 +147,18 @@ func TestABotMatchAgreesWithZaehlwerkAtEveryRally(t *testing.T) {
 	}
 }
 
-func TestADecidingSetChangesEndsAtFive(t *testing.T) {
+func TestADecidingSetChangesEndsOnlyBetweenSets(t *testing.T) {
 	tbl := newTable(t)
 	p := newPong(t, tbl.url, 1)
 
 	played := playUntilADecidingSet(t, p)
 	decider := played[len(played)-1]
 
-	// After the first set, after the second, and at five in the third.
-	require.Len(t, decider.EndsChanges, 3)
-	require.Equal(t, EndsChange{Set: 2, Points: [2]int{0, 0}}, decider.EndsChanges[0])
-	require.Equal(t, EndsChange{Set: 3, Points: [2]int{0, 0}}, decider.EndsChanges[1])
-	atFive := decider.EndsChanges[2]
-	require.Equal(t, 3, atFive.Set)
-	require.Equal(t, 5, max(atFive.Points[0], atFive.Points[1]))
+	// After the first set and after the second, never within a set.
+	require.Equal(t, []EndsChange{
+		{Set: 2, Points: [2]int{0, 0}},
+		{Set: 3, Points: [2]int{0, 0}},
+	}, decider.EndsChanges)
 }
 
 func TestTheSameSeedPlaysTheSameMatch(t *testing.T) {

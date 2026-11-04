@@ -309,10 +309,12 @@ type Config struct {
 	FirstServer Player
 	// Start says how the match begins; see [Start].
 	Start Start
-	// ChangeEnds makes the players change ends after every set and once more
-	// in the deciding set, and waits for both of them to press at their new
-	// half before play goes on (ITTF law 2.14). Without it there are no ends:
-	// a half always stands for the same player.
+	// ChangeEnds makes the players change ends after every set, and waits for
+	// both of them to press at their new half before play goes on. Unlike ITTF
+	// law 2.14 there is no second change in the middle of the deciding set: in
+	// a one-set match that set is the deciding one, and turning the table at
+	// 5 points was not wanted. Without it there are no ends: a half always
+	// stands for the same player.
 	ChangeEnds bool
 	// SetOpener says who serves first in the sets after the first. Defaults to
 	// OpenerAlternate.
@@ -567,8 +569,6 @@ func (s *Scorer) Apply(ev ScoreEvent) (Result, error) {
 			kind = TransitionSetWon
 			s.changeEnds(&next)
 		}
-	} else if !s.midSetChange(s.m) && s.midSetChange(next) {
-		s.changeEnds(&next)
 	}
 
 	s.push()
@@ -660,25 +660,10 @@ func (s *Scorer) phase() Phase {
 }
 
 // swapped reports whether the players stand at the other ends than they started
-// at: after every set, and once more in the deciding set as soon as one of them
-// reaches half the points of a set — five in an eleven-point set (ITTF law
-// 2.14). Derived from the score, so undo puts the ends back with the point it
-// takes back.
+// at: after every set, never within one (see Config.ChangeEnds). Derived from
+// the score, so undo puts the ends back with the point it takes back.
 func (s *Scorer) swapped(m match) bool {
-	if !s.cfg.ChangeEnds {
-		return false
-	}
-	sw := m.setIndex%2 == 1
-	if s.midSetChange(m) {
-		sw = !sw
-	}
-	return sw
-}
-
-// midSetChange reports whether m is past the change of ends in the middle of
-// the deciding set.
-func (s *Scorer) midSetChange(m match) bool {
-	return m.setIndex == s.cfg.BestOf-1 && max(m.points[0], m.points[1]) >= s.cfg.PointsPerSet/2
+	return s.cfg.ChangeEnds && m.setIndex%2 == 1
 }
 
 // playerAt resolves a half to the player standing at it. Player a starts at

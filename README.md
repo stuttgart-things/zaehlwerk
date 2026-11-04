@@ -180,7 +180,7 @@ match that asks for none of it behaves exactly as before:
 | `start` | `warmup` | both sides press once when ready; then the serve rally, unless `first_server` names one |
 | `start` | `serve_rally` | one rally for the first serve: the winner's side presses, nothing is scored |
 | `first_server` | `rally` | the same as `start: serve_rally` |
-| `change_ends` | `true` | the players change ends after every set, and in the deciding set at five; play waits until each has pressed at the new half |
+| `change_ends` | `true` | the players change ends after every set, never within one (not even at five in the deciding set, unlike ITTF law 2.14); play waits until each has pressed at the new half |
 | `set_opener` | `alternate`, `loser` | overrides `SET_OPENER` for this match |
 
 ```bash
@@ -471,8 +471,8 @@ task run     # then http://localhost:8080/ui — or: task ui
 The new-match form also starts a match the way the table does
 ([ADR-0005](docs/adr/0005-match-phases-and-table-halves.md)): **First serve →
 Play for it** (one rally decides it), **Before the first point → Warm-up** (both
-sides press once when ready) and **Ends → Change** (after every set, and at five
-in the deciding set). The defaults are the match as it always was. While a phase
+sides press once when ready) and **Ends → Change** (after every set, never within
+one). The defaults are the match as it always was. While a phase
 is waiting, a click on a side is that side's press rather than a point, and the
 board says what it is waiting for.
 
@@ -1722,8 +1722,8 @@ its seed. `status` is `playing`, `done` or `ended`, with a `reason`.
 with it on runs for hours.
 
 `task chain:e2e` plays seeded best of threes until one reaches a deciding set,
-and fails on the first rally where truth and zaehlwerk part, on a deciding set
-without its change of ends at five, and on a Pong result arriving at the fake
+and fails on the first rally where truth and zaehlwerk part, on a change of ends
+within a set, and on a Pong result arriving at the fake
 Schmetterpause. Then it plays one game with every fault above zero and fails on
 any unexplained divergence, or if the seed no longer injects every fault. That
 game waits out one counter reset, so the e2e takes a minute longer. A game on
