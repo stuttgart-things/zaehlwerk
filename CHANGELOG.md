@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.47.1](https://github.com/stuttgart-things/zaehlwerk/compare/v0.47.0...v0.47.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* change ends only between sets, never at five in the deciding set ([#232](https://github.com/stuttgart-things/zaehlwerk/issues/232)) ([bf71754](https://github.com/stuttgart-things/zaehlwerk/commit/bf71754c3f5be01760ed7a7f0844cc25e5e7514b))
+
 ## [0.47.0](https://github.com/stuttgart-things/zaehlwerk/compare/v0.46.0...v0.47.0) (2026-10-31)
 
 
