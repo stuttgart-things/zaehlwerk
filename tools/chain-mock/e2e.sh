@@ -221,10 +221,13 @@ jq -e '[.ends_changes[] | select((.points | max) > 0)] | length == 0' \
 echo "6. a game with every fault has no unexplained divergence"
 # The seed fixes which presses go wrong. counter_reset waits out zaehlwerk's
 # quiet minute before each reset, so it is rare here, and this game is the
-# one step that takes a while.
+# one step that takes a while. The seed is pinned rather than the service's
+# next, so a change to how many games step 5 plays, or to how a game runs,
+# does not move it: 19 injects every kind with two resets (about 2 min).
+# Re-pick it when a change to the rules makes this step say a kind is missing.
 faults='{"wrong_half":0.1,"correct":true,"resend":0.1,"bounce":0.05,"lost":0.05,"ghost":0.05,"wrong_phase":0.9,"counter_reset":0.04}'
 id=$(curl -sf -X POST "$PONG/games" -H 'content-type: application/json' \
-  -d "{\"pace\":\"0s\",\"faults\":$faults}" | jq -r .id) || fail "zaehlwerk-pong did not start a faulted game"
+  -d "{\"pace\":\"0s\",\"seed\":19,\"faults\":$faults}" | jq -r .id) || fail "zaehlwerk-pong did not start a faulted game"
 wait_until 400 game_over "$id" || fail "faulted game $id did not finish"
 game=$(curl -sf "$PONG/games/$id")
 games=$((games + 1))
