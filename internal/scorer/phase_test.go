@@ -166,7 +166,7 @@ func (h *harness) confirmEnds() {
 	h.press(HalfRight)
 }
 
-func TestTheDecidingSetChangesEndsAtFive(t *testing.T) {
+func TestTheDecidingSetDoesNotChangeEndsAtFive(t *testing.T) {
 	h := newHarness(t, Config{BestOf: 3, ChangeEnds: true})
 
 	h.play(repeat("a", 11))
@@ -174,40 +174,27 @@ func TestTheDecidingSetChangesEndsAtFive(t *testing.T) {
 	h.play(repeat("b", 11))
 	h.confirmEnds()
 
-	// Set three starts at the ends of set one.
+	// Set three starts at the ends of set one, and stays there: unlike ITTF
+	// law 2.14, no change at five (see Config.ChangeEnds).
 	require.Equal(t, [2]Player{PlayerA, PlayerB}, h.state().Ends)
 
 	h.play("abaab" + "aa")
-	require.Equal(t, [2]int{5, 2}, h.state().Points)
 	st := h.state()
-	require.Equal(t, PhaseChangeEnds, st.Phase)
-	require.Equal(t, [2]Player{PlayerB, PlayerA}, st.Ends)
-	serving := st.Serving
-
-	h.confirmEnds()
-
-	st = h.state()
+	require.Equal(t, [2]int{5, 2}, st.Points)
 	require.Equal(t, PhasePlaying, st.Phase)
-	require.Equal(t, [2]int{5, 2}, st.Points, "the score carries on")
-	require.Equal(t, serving, st.Serving, "only the ends change, not the service")
-
-	// Once past five it does not happen again in the same set.
-	h.play("ab")
-	require.Equal(t, PhasePlaying, h.state().Phase)
+	require.Equal(t, [2]Player{PlayerA, PlayerB}, st.Ends)
 }
 
-func TestUndoingTheFifthPointTakesTheMidSetChangeBack(t *testing.T) {
+func TestAOneSetMatchNeverChangesEnds(t *testing.T) {
+	// The Pong demo plays best of one: its only set is the deciding one, and
+	// turning the table at five was the bug.
 	h := newHarness(t, Config{BestOf: 1, ChangeEnds: true})
 
-	h.play("aaaaa")
-	require.Equal(t, PhaseChangeEnds, h.state().Phase)
-
-	h.undo()
-
-	st := h.state()
-	require.Equal(t, PhasePlaying, st.Phase)
-	require.Equal(t, [2]int{4, 0}, st.Points)
-	require.Equal(t, [2]Player{PlayerA, PlayerB}, st.Ends)
+	for i := range 10 {
+		h.play("ab")
+		require.Equal(t, PhasePlaying, h.state().Phase, "after %d:%d", i+1, i+1)
+		require.Equal(t, [2]Player{PlayerA, PlayerB}, h.state().Ends)
+	}
 }
 
 func TestASetThatIsNotTheDecidingOneDoesNotChangeEndsAtFive(t *testing.T) {

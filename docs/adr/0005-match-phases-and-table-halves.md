@@ -1,6 +1,6 @@
 # 5. Match phases and table halves
 
-Status: Accepted
+Status: Accepted, amended 2026-11-04 (no change of ends within a set)
 Date: 2026-10-13
 
 ## Context
@@ -43,14 +43,15 @@ Phases: `warmup → serve_rally → playing ⇄ change_ends → complete`.
 - A correction (delta ≤ 0) or a second press from the same half outside
   `playing` is `Ignored`.
 - **Ends are derived, not stored**:
-  - they swap after every set;
-  - in the deciding set they swap again once one score reaches
-    `PointsPerSet/2`.
+  - they swap after every set, and only then. ~~In the deciding set they swap
+    again once one score reaches `PointsPerSet/2`.~~ Dropped on 2026-11-04:
+    the Pong demo plays best of one, whose only set is the deciding one, so
+    the table turned at five in every game. That was not wanted, at the table
+    or on the panel. A house rule like the loser's serve below.
   
   Undo therefore puts the ends back with the point it takes back. Only "both
   players still have to arrive" is stored.
-- A won match does not change ends. A won set does, and the score of the
-  deciding set carries on across its change.
+- A won match does not change ends. A won set does.
 - An undo during `change_ends` takes back the point that caused it, and with it
   the change. Confirmations are not undoable on their own. Undo is for the
   score, and the mis-press it exists for is a point given wrongly. The serve

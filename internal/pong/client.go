@@ -113,8 +113,7 @@ type Handover struct {
 }
 
 // CreateMatch starts a match the way it starts at the table: a warm-up, the
-// rally for the serve, and a change of ends after every set and at five in the
-// deciding one. Not retried: a second POST would be a second match.
+// rally for the serve, and a change of ends after every set, never within one. Not retried: a second POST would be a second match.
 func (c *Client) CreateMatch(ctx context.Context, players [2]string, bestOf int) (scorer.State, error) {
 	return c.create(ctx, players, bestOf, 0, nil)
 }

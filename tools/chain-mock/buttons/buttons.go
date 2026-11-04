@@ -747,8 +747,8 @@ func (r *Rig) call(ctx context.Context, method, path string, body any) (scorer.S
 }
 
 // playerOn resolves a table half to the player standing there, as the piezo
-// mock does: A starts on half A and the two change ends every set. The change
-// at five points in a deciding set is left out, as it is there.
+// mock does: A starts on half A and the two change ends every set, as the
+// scorer does.
 func playerOn(half string, setNumber int) scorer.Player {
 	aOnHalfA := setNumber%2 == 1
 	if (half == "A") == aOnHalfA {

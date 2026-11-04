@@ -818,13 +818,13 @@
                     <legend>Ends</legend>
                     <div class="picks">
                         <label class="pick"><input type="radio" name="change_ends" value="" checked><span>Stay</span></label>
-                        {{/* After every set, and at five in the deciding set; play
-                             waits until each player has pressed at the new half. */}}
+                        {{/* After every set, never within one; play waits until
+                             each player has pressed at the new half. */}}
                         <label class="pick"><input type="radio" name="change_ends" value="on"><span>Change</span></label>
                     </div>
                     <ul class="hints">
                         <li><b>Stay</b>: each player keeps their side of the table for the whole match.</li>
-                        <li><b>Change</b>: players swap sides after every set, and at 5 points in the deciding set, as the rules say. Play pauses until both have pressed the button on their new side.</li>
+                        <li><b>Change</b>: players swap sides after every set (never in the middle of one). Play pauses until both have pressed the button on their new side.</li>
                     </ul>
                 </fieldset>
 {{end}}

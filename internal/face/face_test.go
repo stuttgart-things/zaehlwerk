@@ -117,8 +117,7 @@ func TestACorrectionIsReadLikeAnUndo(t *testing.T) {
 	require.Equal(t, Streak{}, s)
 }
 
-// Deuce is tense only while the set is being played: a level score after a
-// change of ends in the deciding set is not one.
+// Deuce is tense only at the edge of the set: a level score below it is not one.
 func TestDeuceNeedsTheEdgeOfTheSet(t *testing.T) {
 	got, _ := Read(Moment{Kind: scorer.TransitionPoint, Side: a, State: playing(9, 9), PointsPerSet: 11}, Streak{})
 	require.Equal(t, Faces{Happy, Skeptical}, got, "9:9 is not deuce yet")
