@@ -1,12 +1,12 @@
 module github.com/stuttgart-things/zaehlwerk
 
-go 1.26.9
+go 1.26.11
 
 require (
 	github.com/google/uuid v1.6.0
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/stretchr/testify v1.12.1
-	github.com/stuttgart-things/homerun-library/v4 v4.5.2
+	github.com/stuttgart-things/homerun-library/v4 v4.6.0
 	rsc.io/qr v0.2.0
 )
 
