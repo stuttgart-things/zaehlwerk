@@ -23,7 +23,7 @@ x-db: &db-url
 
 services:
   db:
-    image: postgres:18-alpine
+    image: postgres:19-alpine
     environment:
       POSTGRES_USER: schmetterpause
       POSTGRES_PASSWORD: schmetterpause
