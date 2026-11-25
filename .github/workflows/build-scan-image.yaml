@@ -16,7 +16,7 @@ concurrency:
 jobs:
   build-pr:
     if: github.event_name == 'pull_request'
-    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@15bb803fd72658fda50120f8a566d5594061e6ee # v1.2.0
     with:
       runs-on: ubuntu-latest
       go-version: "1.26.10"
@@ -33,7 +33,7 @@ jobs:
 
   build-main:
     if: github.event_name != 'pull_request'
-    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@15bb803fd72658fda50120f8a566d5594061e6ee # v1.2.0
     with:
       runs-on: ubuntu-latest
       go-version: "1.26.10"
@@ -58,7 +58,7 @@ jobs:
   # zaehlwerk scan already covers the same module's dependencies.
   build-piezo-pr:
     if: github.event_name == 'pull_request'
-    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@15bb803fd72658fda50120f8a566d5594061e6ee # v1.2.0
     with:
       runs-on: ubuntu-latest
       go-version: "1.26.10"
@@ -72,7 +72,7 @@ jobs:
 
   build-piezo-main:
     if: github.event_name != 'pull_request'
-    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@15bb803fd72658fda50120f8a566d5594061e6ee # v1.2.0
     with:
       runs-on: ubuntu-latest
       go-version: "1.26.10"
@@ -90,7 +90,7 @@ jobs:
   # pressing them against a preview before the hardware exists.
   build-buttons-pr:
     if: github.event_name == 'pull_request'
-    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@15bb803fd72658fda50120f8a566d5594061e6ee # v1.2.0
     with:
       runs-on: ubuntu-latest
       go-version: "1.26.10"
@@ -104,7 +104,7 @@ jobs:
 
   build-buttons-main:
     if: github.event_name != 'pull_request'
-    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@15bb803fd72658fda50120f8a566d5594061e6ee # v1.2.0
     with:
       runs-on: ubuntu-latest
       go-version: "1.26.10"
@@ -122,7 +122,7 @@ jobs:
   # kustomize base (kustomize-portal below) pins the tag built here.
   build-portal-pr:
     if: github.event_name == 'pull_request'
-    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@15bb803fd72658fda50120f8a566d5594061e6ee # v1.2.0
     with:
       runs-on: ubuntu-latest
       go-version: "1.26.10"
@@ -136,7 +136,7 @@ jobs:
 
   build-portal-main:
     if: github.event_name != 'pull_request'
-    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@15bb803fd72658fda50120f8a566d5594061e6ee # v1.2.0
     with:
       runs-on: ubuntu-latest
       go-version: "1.26.10"
@@ -158,7 +158,7 @@ jobs:
   # or in the office, next to real users, like zaehlwerk itself.
   build-pong-pr:
     if: github.event_name == 'pull_request'
-    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@15bb803fd72658fda50120f8a566d5594061e6ee # v1.2.0
     with:
       runs-on: ubuntu-latest
       go-version: "1.26.10"
@@ -172,7 +172,7 @@ jobs:
 
   build-pong-main:
     if: github.event_name != 'pull_request'
-    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@15bb803fd72658fda50120f8a566d5594061e6ee # v1.2.0
     with:
       runs-on: ubuntu-latest
       go-version: "1.26.10"
@@ -192,7 +192,7 @@ jobs:
   scan-pr:
     if: github.event_name == 'pull_request'
     needs: build-pr
-    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-dagger-trivy-image-scan.yaml@main
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-dagger-trivy-image-scan.yaml@15bb803fd72658fda50120f8a566d5594061e6ee # v1.2.0
     with:
       runs-on: ubuntu-latest
       image-ref: ${{ needs.build-pr.outputs.image-ref }}
@@ -205,7 +205,7 @@ jobs:
   scan-pong-pr:
     if: github.event_name == 'pull_request'
     needs: build-pong-pr
-    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-dagger-trivy-image-scan.yaml@main
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-dagger-trivy-image-scan.yaml@15bb803fd72658fda50120f8a566d5594061e6ee # v1.2.0
     with:
       runs-on: ubuntu-latest
       image-ref: ${{ needs.build-pong-pr.outputs.image-ref }}
@@ -223,7 +223,7 @@ jobs:
   kustomize:
     if: github.event_name != 'pull_request'
     needs: build-main
-    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-push-kustomize.yaml@main
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-push-kustomize.yaml@15bb803fd72658fda50120f8a566d5594061e6ee # v1.2.0
     with:
       runs-on: ubuntu-latest
       kcl-source-dir: kcl
@@ -254,7 +254,7 @@ jobs:
   kustomize-portal:
     if: github.event_name != 'pull_request'
     needs: build-portal-main
-    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-push-kustomize.yaml@main
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-push-kustomize.yaml@15bb803fd72658fda50120f8a566d5594061e6ee # v1.2.0
     with:
       runs-on: ubuntu-latest
       kcl-source-dir: kcl/portal
@@ -269,7 +269,7 @@ jobs:
   scan-main:
     if: github.event_name != 'pull_request'
     needs: build-main
-    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-dagger-trivy-image-scan.yaml@main
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-dagger-trivy-image-scan.yaml@15bb803fd72658fda50120f8a566d5594061e6ee # v1.2.0
     with:
       runs-on: ubuntu-latest
       image-ref: ${{ needs.build-main.outputs.image-ref }}
@@ -280,7 +280,7 @@ jobs:
   scan-pong-main:
     if: github.event_name != 'pull_request'
     needs: build-pong-main
-    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-dagger-trivy-image-scan.yaml@main
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-dagger-trivy-image-scan.yaml@15bb803fd72658fda50120f8a566d5594061e6ee # v1.2.0
     with:
       runs-on: ubuntu-latest
       image-ref: ${{ needs.build-pong-main.outputs.image-ref }}

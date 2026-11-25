@@ -10,7 +10,7 @@ jobs:
   # Removes the pr-<n>-* image and kustomize tags once the PR is closed; the
   # preview ApplicationSet drops the environment at the same time.
   cleanup:
-    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-cleanup-pr-artifacts.yaml@main
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-cleanup-pr-artifacts.yaml@15bb803fd72658fda50120f8a566d5594061e6ee # v1.2.0
     with:
       runs-on: ubuntu-latest
       packages: zaehlwerk,zaehlwerk-kustomize,zaehlwerk-piezo,zaehlwerk-buttons,zaehlwerk-pong,zaehlwerk-portal

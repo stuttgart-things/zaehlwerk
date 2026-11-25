@@ -2,8 +2,9 @@
 # Cuts releases from the conventional-commit history: opens a release pull
 # request, and on merge tags the commit and creates the GitHub release.
 #
-# The reusable workflows this repository calls are referenced by @main; this
-# action is pinned by SHA because it is the one that tags and publishes.
+# The reusable workflows this repository calls are pinned by SHA to a
+# github-workflow-templates release (Renovate bumps them); this action is
+# pinned by SHA as well, because it is the one that tags and publishes.
 name: Release Please
 
 on:
